@@ -1,0 +1,19 @@
+{
+  "name": "@dsh-desktop/agent-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "dsh agent 子进程监管：启动、ready 行解析、崩溃重启、日志落盘。纯 Node 库，不依赖 Electron。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

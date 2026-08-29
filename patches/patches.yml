@@ -1,0 +1,16 @@
+# 对 upstream/ 的全部源码变更都在此登记，sync-upstream.ts 按顺序 git apply。
+#
+# 边界铁律：能做成 dsh 插件的不动配置，能写成 cordis.patch.yml 配置叠层的不动源码。
+# 只有当前两条路都走不通时才允许新增补丁，且必须写明理由。
+#
+# 每条记录：
+#   file:     补丁文件名（相对本目录，建议 NNNN-描述.patch 命名）
+#   reason:   为什么必须改源码（而不是插件/配置）
+#   upstream: 对应的上游 issue/PR（有则填，上游修复后应移除本补丁）
+patches: []
+
+# 示例：
+# patches:
+#   - file: 0001-web-csp-allow-custom-protocol.patch
+#     reason: 允许 webui 在 dsh:// 自定义协议下加载，插件层无法干预 CSP 响应头
+#     upstream: https://github.com/deepseek-ai/deepseek-harness/issues/0000

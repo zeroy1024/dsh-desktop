@@ -1,0 +1,20 @@
+node_modules/
+lib/
+dist/
+out/
+*.log
+.DS_Store
+
+# vendor 全部由 scripts/sync-upstream.ts 从锁定的 submodule 重新生成
+# （上游包 tarball + dsh-cli 独立安装产物）；仅 dsh-cli 的 lockfile 入库，
+# 锁定 registry 侧的可传递依赖解析
+vendor/*
+!vendor/dsh-cli
+vendor/dsh-cli/*
+!vendor/dsh-cli/pnpm-lock.yaml
+
+# Electron 打包产物
+apps/desktop/release/
+
+# 本地开发数据（DSH_HOME 隔离目录的本地覆盖）
+.dsh-home-dev/

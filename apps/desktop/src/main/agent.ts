@@ -1,0 +1,21 @@
+/**
+ * agent.ts — AgentSupervisor 的 Electron 侧接线。
+ *
+ * 每次重启 agent 都新建实例（AgentSupervisor.stop() 是不可逆的 intentionalStop）。
+ */
+import { AgentSupervisor } from '@dsh-desktop/agent-host'
+import { dshHomeDir, logsDir, resolveCliEntry } from './paths'
+
+/** 以桌面配置创建一个新的 supervisor（未 start）。 */
+export function createSupervisor(): AgentSupervisor {
+  return new AgentSupervisor({
+    cliEntry: resolveCliEntry(),
+    dshHome: dshHomeDir(),
+    logDir: logsDir(),
+    // web profile 的 patchReload: live 会加载 cordis-plugin-hmr，要求 Node --expose-internals
+    nodeArgs: ['--expose-internals'],
+    // process.execPath 是 Electron 二进制：必须以纯 Node 模式运行，否则 Chromium
+    // 会吞掉 --profile 等开关，CLI 报 "--profile <name> is required"
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  })
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@dsh-desktop/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron 壳：主进程负责窗口、安全策略与 dsh agent 子进程生命周期。",
+  "main": "./dist/main.mjs",
+  "scripts": {
+    "build": "tsx ./build.ts",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dsh-desktop/agent-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^44.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
