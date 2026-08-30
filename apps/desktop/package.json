@@ -2,6 +2,7 @@
   "name": "@dsh-desktop/desktop",
   "version": "0.1.0",
   "private": true,
+  "productName": "DeepSeek Harness",
   "type": "module",
   "description": "Electron 壳：主进程负责窗口、安全策略与 dsh agent 子进程生命周期。",
   "main": "./dist/main.mjs",

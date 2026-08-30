@@ -16,6 +16,8 @@
 
 MVP 用 A（`--no-open --port 0`，AgentSupervisor 解析 ready 行）；P3 再做 B：`packages/bridge` 实现 fetch-over-IPC（流用 MessagePort 逐消息桥），webui 以 `file://`（或自定义协议）加载，并组装专用 `desktop` profile（cordis.patch.yml 配置叠层，不动源码）。
 
+> 更新（2026-08-29）：专用 `desktop` profile 的组装提前到 P2（内置插件分发的载体，见 ADR-0004）；P3 只剩 file:// 加载 + IPC 桥本身。
+
 ## 后果
 
 - 阶段 A 的端口只绑 127.0.0.1（上游禁止 `--host 0.0.0.0`），token 不出主进程。

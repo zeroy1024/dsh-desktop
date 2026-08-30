@@ -1,0 +1,214 @@
+/*
+ * 启动层样式：窗口背景是 macOS vibrancy 材质（主进程 transparent + vibrancy）
+ * 对桌面壁纸的高斯模糊，本页只叠加极淡提白 tint 与噪点，模糊氛围由原生
+ * 材质提供。非 darwin 平台无系统模糊材质，整层回落为不透明白底（见下方
+ * platform 规则，data-dsh-platform 由 splash.js 按 preload 桥写入）。
+ */
+
+:root {
+  --ink: #101014;
+  --ink-soft: #2c2f38;
+  --blue: #4d6bfe;
+  --text: #16181d;
+  --text-dim: #6f7480;
+  --error: #d64545;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+#splash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* 提白 tint：vibrancy 的壁纸强模糊是视觉主体，涂层统一亮度基调 */
+  background: rgba(248, 248, 250, 0.2);
+  transition:
+    opacity 0.55s ease,
+    background-color 0.4s ease;
+}
+
+/* 非 darwin 无系统模糊材质：tint 会直接透到未模糊的桌面，整层回到不透明白底 */
+html[data-dsh-platform]:not([data-dsh-platform='darwin']) #splash {
+  background: rgb(248, 248, 250);
+}
+
+/* 错误态需要可读性优先：错误文案是深色系，模糊壁纸明暗不可控，整层回到不透明白底 */
+#splash.phase-error {
+  background: rgb(248, 248, 250);
+}
+
+/* 细颗粒噪点：毛玻璃的"磨砂"触感来源，密度极低只留质感 */
+#splash::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+#splash.phase-revealed {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 字标绝对定位在剪影下方，不进 flex 流——否则定格显现时居中组高度变化，
+   鲸鱼会被顶上去。开窗即居中静态，无入场位移。 */
+.whale-stage {
+  position: relative;
+  width: clamp(56px, 7vmin, 84px);
+}
+
+/* 等待期呼吸：分层在 .whale-bob，避免和水位 transform 冲突 */
+.whale-bob {
+  will-change: transform;
+}
+
+.phase-starting .whale-bob,
+.phase-loading .whale-bob {
+  animation: bob 3.6s ease-in-out infinite alternate;
+}
+
+@keyframes bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(2px);
+  }
+}
+
+.whale-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.whale-blue {
+  fill: var(--blue);
+}
+
+/*
+ * 水位：translateY 由脚本驱动——主进程按启动关键节点推送百分比，页面叠加
+ * 时间兜底曲线，水位随加载渐进上升；过渡时长与缓动也由脚本逐次设定。
+ */
+.ink-level {
+  will-change: transform;
+}
+
+.ink-back {
+  fill: var(--ink-soft);
+  opacity: 0.45;
+  animation: wobble 2.6s ease-in-out -1.2s infinite alternate;
+}
+
+.ink-front {
+  fill: var(--ink);
+  animation: wobble 3.4s ease-in-out infinite alternate;
+}
+
+@keyframes wobble {
+  from {
+    transform: translateX(-1.4px);
+  }
+  to {
+    transform: translateX(1.4px);
+  }
+}
+
+/*
+ * 定格：水位推满后字标浮现。transition 只许声明在 sealed/revealed 规则——
+ * 若放在基础规则，首次样式应用会以 opacity 初始值 1 为起点触发一次完整
+ * 淡出过渡，字标会在屏幕上闪现后消失。过渡按 after-change 样式解析：放在
+ * 目标状态规则里定格淡入照常工作，首次应用时无过渡、直接归零。
+ */
+.wordmark {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: max-content;
+  margin: 14px 0 0;
+  font-size: clamp(16px, 2.4vmin, 22px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text);
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  white-space: nowrap;
+}
+
+.phase-sealed .wordmark,
+.phase-revealed .wordmark {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
+  transition-delay: 0.35s;
+}
+
+/* 错误态：水位回落、鲸鱼退回全蓝，错误信息沿用同一视觉语言 */
+#error {
+  display: none;
+  margin: 24px 0 0;
+  max-width: min(560px, 84vw);
+  text-align: center;
+}
+
+.phase-error #error {
+  display: block;
+}
+
+#error-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--error);
+}
+
+#error-message {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+/* 减少动态效果：保留必要的状态变化，去掉装饰性动画 */
+@media (prefers-reduced-motion: reduce) {
+  .whale-bob,
+  .ink-back,
+  .ink-front {
+    animation: none;
+  }
+
+  #splash {
+    transition-duration: 0.3s;
+  }
+
+  .phase-sealed .wordmark,
+  .phase-revealed .wordmark {
+    transition-duration: 0.3s;
+    transition-delay: 0.1s;
+  }
+}

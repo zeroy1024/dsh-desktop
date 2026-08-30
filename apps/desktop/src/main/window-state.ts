@@ -3,7 +3,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, type BrowserWindow } from 'electron'
+import { app, type BaseWindow } from 'electron'
 
 interface WindowState {
   width: number
@@ -35,7 +35,7 @@ export function loadWindowState(): WindowState {
 }
 
 /** 监听窗口变化，关闭时把 bounds 写盘。 */
-export function trackWindowState(win: BrowserWindow): void {
+export function trackWindowState(win: BaseWindow): void {
   win.on('close', () => {
     const isMaximized = win.isMaximized()
     const bounds = isMaximized ? win.getNormalBounds() : win.getBounds()

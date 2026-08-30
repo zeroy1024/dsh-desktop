@@ -19,7 +19,8 @@ apps/desktop/       Electron 壳（主进程 + preload）
 packages/agent-host/  dsh 子进程监管库（纯 Node，可单测）
 packages/bridge/    (P3) fetch-over-IPC 载体
 packages/webui/     (P3) 自组 WebUI 构建
-packages/plugins/   我们的 dsh 插件群（功能大头）
+packages/plugin-kit/  客户端插件打包（ModuleLoader 工厂，镜像上游 tsdown.client 契约）
+packages/plugins/   我们的 dsh 插件群（功能大头；app 内置分发，ADR-0004，不走 dsh plugin add 装用户 profile）
 scripts/            sync-upstream / dev / bundle-node
 vendor/             上游包 tarball + dsh-cli 独立安装（gitignore，可重新生成）
 docs/               architecture.md + adr/
@@ -29,7 +30,7 @@ docs/               architecture.md + adr/
 
 ```bash
 pnpm sync:upstream      # 上游同步：套用补丁 → install → build → pack 到 vendor/
-pnpm dev                # 一键开发：校验产物 → 构建 desktop → 启动 Electron
+pnpm dev                # 一键开发：校验产物 → 构建插件 + desktop → 启动 Electron
 pnpm test               # 全部单测
 pnpm lint               # oxlint
 pnpm -r typecheck       # 全部类型检查

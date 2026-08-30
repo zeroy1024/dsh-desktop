@@ -1,0 +1,118 @@
+# 方案：原生标题栏与侧栏融为一体
+
+- 状态：提案（未实施）
+- 日期：2026-08-30
+- 参照：`/Users/zeroy/Projects/dsh-desktop`（Tauri 桌面壳）运行时预览
+
+目标视觉（用户截图）：去掉侧栏顶部 logo；折叠按钮与红绿灯同一行；「新会话」从胶囊按钮改成会话树同款整行 item；侧栏走 macOS 高斯模糊。**本文只评估与分期，不改代码。**
+
+## 1. 参照项目实际改了什么
+
+截图不是「把红绿灯叠上去」这么简单。Tauri 项目把官方 webui 的布局源码改成了桌面专用壳：
+
+| 观感 | 落点 | 官方 rc.2 现状 |
+| --- | --- | --- |
+| `titleBarStyle: Overlay`，红绿灯浮在内容上 | `tauri.conf.json` | 我们现在是系统标题栏，内容在铬下方，所以「那一栏是独立的」 |
+| 44px 单行 titleband；折叠钮紧挨红绿灯（leading 92px） | `ui-layout` 新增 `shell.toolbar` 槽 + `AppFrame` 绝对定位工具条 | **没有 `shell.toolbar`**；`AppFrame` 只有三列 + `shell.overlay` |
+| 侧栏折叠到 **0 宽**（不是 56px 轨道） | `ui-layout` 的 grid / 折叠语义 | 折叠 = 固定 **56px rail**（`columns.ts` `SIDEBAR_COLLAPSED`） |
+| 去掉侧栏品牌 | 从 `SidebarRoot` 拿掉 logo 行；`ui-brand-official` 只填会话英雄位 | `SidebarRoot` 顶部 `logoRow`：品牌（点了等于新会话）+ 折叠钮 |
+| 新会话改成树行 | `SidebarRoot.module.css` `.newSession` 34px / radius 8 / 透明底 hover | 胶囊按钮（描边、居中） |
+| 侧栏 vibrancy | 窗材质 `sidebar`；`.frame` 透明；`.sidebarCol` 75% wash；中栏/详情实底 | 侧栏 `var(--dsw-specific-sidebar-fill)` 实底；我们的 webui 视图还是不透明白 |
+| 顶栏拖窗口 / 双击最大化 | AppKit 监视器 + iframe `postMessage` 交互矩形桥 + CSS hit-test 洞 | Electron 有 `-webkit-app-region`，**不需要这套** |
+
+参照项目的拖拽栈（`window_drag.rs`、`desktopTitleband.ts`、跨源 `dsh_host_origin`）是 Tauri「壳页 + iframe、主文档吃不到子文档点击」逼出来的。我们窗口自身就是 webui，再抄会把简单问题做复杂，且和边界铁律相反。
+
+结论：参照的视觉 = **上游布局源码级改造**，不是插件。直接 port 等于在 `patches/` 里长期维护一整份 ui-layout / ui-sidebar fork。
+
+## 2. 约束
+
+1. `upstream/` 不直接改；能插件就不 patch（AGENTS.md、ADR-0004）。
+2. `packages/plugins/` 的 desktop profile 物化是 **P2**，现在还没有客户端插件通道。
+3. 启动层已经用 `BaseWindow` + 双 `WebContentsView`；侧栏要透出桌面模糊，揭幕后的 webui 视图不能继续整幅不透明白底。
+4. 官方扩展点里，真正能「换掉整列」的是占据 `sidebar` 槽（注释写明 OCCUPIED，再 register 即替换，且必须自己声明 `sidebar.workspaces` 等子槽）。`shell.overlay` 是唯一现成的**加性**框级槽。
+
+## 3. 三条路
+
+### A. 只改 Electron：`titleBarStyle: 'hiddenInset'`
+
+红绿灯浮到内容上，系统标题栏消失。**立刻能做，也立刻是错的**：官方 logo 行顶在 (0,0)，灯会压在品牌和折叠钮上。未给侧栏留出 44px 带之前不要开。
+
+拖拽用 Electron 自己的能力即可：
+
+- `hiddenInset` 保留原生灯；
+- 可点控件 `-webkit-app-region: no-drag`，其余顶带 `drag`；
+- `trafficLightPosition` 微调垂直居中。
+
+不要移植 AppKit monitor / 矩形桥。
+
+### B. P2 客户端插件 `desktop-chrome`（推荐主路径）
+
+插件做「桌面皮肤」，不换 AppFrame，不 fork 会话树：
+
+1. **宿主打标**：preload 已有 `window.dshDesktop`。插件 `apply` 里写 `html[data-dsh-desktop]`（及 platform），CSS 用属性选择器，和参照同一套门控。
+2. **样式叠层**（插件自带 CSS Modules / 注入全局样式）：
+   - 藏 `.logoRow` 里的品牌（`sidebar.brand.*` 仍注册，只是不画；英雄位品牌不动）；
+   - 侧栏 `padding-top` 让出 titleband（约 44px，灯 + 折叠钮一行）；
+   - `.newSession` 改成与会话行同轴的整行 item（高、圆角、透明、hover 填充对齐 `ui-workspace`）；
+   - `.sidebarCol` / `.root` 背景改成半透明 wash，`.centerCol` / `.detailsCol` 保持实底。
+3. **折叠钮（及折叠态新会话）进灯行**：官方没有 `shell.toolbar`，用现成的 `shell.overlay` 挂两个绝对定位按钮（约 `left: 92px`，高 44px 垂直居中），CSS 藏侧栏里原来的 toggle。宽态新会话仍留在列内整行；折叠态 overlay 再给一个图标孪生（参照也是这么拆的）。
+4. **Electron 配套**（插件能画、壳必须配合）：
+   - 同时打开 `hiddenInset`；
+   - 揭幕后 webui 视图 `setBackgroundColor('#00000000')`，否则侧栏 CSS 再透明也透不出 vibrancy；
+   - 窗材质建议 `vibrancy: 'sidebar'`（侧栏列）或维持 `under-window`（整窗桌面模糊，侧栏 wash 负责可读性）——实现时对着实机二选一，Linux 无材质，插件 CSS 回落实底（参照已有 `data-dsh-platform='linux'` 分支）。
+
+做不到、也不该在 v1 用插件硬做的：
+
+- 折叠到 **0 宽**：宽度写死在 `columns.ts`，插件改不了 grid track。v1 **保留 56px rail**。overlay 折叠钮在灯右侧；rail 里原 toggle 藏掉后，rail 只剩新会话图标 / 工作区轨，观感接近但不等于截图。
+- 会话顶栏并进 44px titleband、轨迹 tab 退休：那是 `ui-conversation` 的 header 几何，参照用 CSS 变量跨包继承。v1 不碰。
+
+代价：CSS 选择器绑官方 class / DOM（`logoRow`、`newSession`）。上游改 class 要跟。比维护一份 layout fork 轻得多，也符合「UI 走客户端插件」。
+
+### C. `patches/` 改 ui-layout / ui-sidebar（最后手段）
+
+才能得到参照的完整几何：`shell.toolbar` 进 AppFrame、折叠 0 宽、会话 header 吃 `--dsh-titleband-*`。每次 `sync-upstream` 都要重打，和「非必要不动源码」冲突。只在出现这些情况时才开：
+
+- 官方自己加了 desktop titleband（补丁可删）；或
+- 产品拍板「折叠必须 0 宽、灯行必须是 layout 一等公民」，插件 overlay 对不齐。
+
+**不要**为了拖拽去 patch。那是 Electron 的本职。
+
+还有一条「占整个 `sidebar` 槽、插件里重写 SidebarRoot」：能换掉 logo / 新会话 DOM，但要复刻子槽声明和行为，等于 fork 一个包。比 CSS 叠层重，比源码 patch 稍干净。v1 不取；若 CSS 选择器在一次上游大改后崩了，再升到占槽。
+
+## 4. 推荐切法
+
+```
+P2 插件通道就绪
+    │
+    ├─ Electron：hiddenInset + trafficLightPosition
+    │            揭幕后 webui 视图透明底（splash 揭幕逻辑要改 setBackgroundColor）
+    │            顶带 -webkit-app-region: drag / 控件 no-drag
+    │
+    └─ 插件 desktop-chrome：
+         html[data-dsh-desktop] + CSS（藏品牌、titleband 留白、新会话整行、侧栏 wash）
+         shell.overlay 挂灯行折叠钮（折叠态再挂新会话图标）
+         Linux 实底回落
+    │
+    └─ 明确不做（除非再开补丁）：0 宽折叠、会话 header 并入 titleband、AppKit 拖拽桥
+```
+
+**不要**单独先合 `hiddenInset`。灯和 logo 重叠比「独立标题栏」更糟。Electron 与插件同一里程碑上。
+
+和现有 splash 的关系：启动层继续用 vibrancy + 透明 splash 视图。揭幕后若 webui 整幅不透明，侧栏模糊不存在；改为视图透明、由页面中栏自己铺实底。这是壳层一行，不是上游 patch。
+
+## 5. 风险
+
+- **选择器漂移**：插件 CSS 依赖官方模块 class。升级 checklist 加一条「侧栏顶栏 DOM」。
+- **overlay 对不齐**：灯的系统 inset 随 `hiddenInset` / `trafficLightPosition` 变。92px leading 要按实机校准，写成插件 CSS 变量，不要写死进主进程。
+- **拖拽误伤**：顶带 `drag` 会吞按钮点击，折叠 / 新会话必须 `no-drag`。不要学参照去扫 DOM 报矩形。
+- **暗色主题**：wash 要跟 `body[data-ds-dark-theme]`（参照已有）。主题切换时 vibrancy 是否跟 appearance 走，实现时用 `nativeTheme` 钉一下，避免材质亮、wash 暗。
+- **P2 未落地**：本方案依赖客户端插件。P2 之前强做只能 insertCSS 进 webui 视图——能验证视觉，但绕过插件通道，不作为产品形态。
+
+## 6. 验收（落地时）
+
+- 无独立系统标题栏；红绿灯叠在侧栏顶带，不挡住折叠钮与新会话。
+- 侧栏无 DeepSeek / HARNESS logo；英雄区品牌仍在。
+- 宽态「新会话」是整行 item，不是胶囊。
+- 侧栏能看到桌面模糊（或 75% wash 后的模糊）；中栏不透墙纸。
+- 顶带空白处拖窗口、双击缩放；按钮可点。
+- `pnpm -r typecheck` / `pnpm lint` / agent-host 单测保持绿；零 `upstream/` 改动、零新 patch。

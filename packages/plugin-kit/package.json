@@ -1,0 +1,22 @@
+{
+  "name": "@dsh-desktop/plugin-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "内置插件构建工具：client 半打成 dsh ModuleLoader 工厂包（契约镜像上游 tsdown.client.ts）。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
