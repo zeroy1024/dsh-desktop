@@ -5,6 +5,8 @@ export {
   STRIP_WHEN_PROXYING,
   headersForAgent,
   isAgentEventSocket,
+  isDshRendererUrl,
+  parseAgentEventPath,
   toAgentHttpUrl,
   toAgentWsUrl,
 } from './origin'

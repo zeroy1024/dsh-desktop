@@ -1,7 +1,7 @@
 /**
  * agent.ts — AgentSupervisor 的 Electron 侧接线。
  *
- * 每次重启 agent 都新建实例（AgentSupervisor.stop() 是不可逆的 intentionalStop）。
+ * 每次完整手动重启都新建实例，让事件订阅与重试预算严格归属于这一代进程。
  * 启动前物化 desktop profile（ADR-0004），并以 `--profile desktop` 拉起。
  */
 import { AgentSupervisor, materializeDesktopProfile } from '@dsh-desktop/agent-host'

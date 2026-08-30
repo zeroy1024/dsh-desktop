@@ -1,19 +1,10 @@
 /**
  * window-state.ts — 主窗口尺寸/位置记忆，存 userData/window-state.json。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, type BaseWindow } from 'electron'
-
-interface WindowState {
-  width: number
-  height: number
-  x?: number
-  y?: number
-  isMaximized?: boolean
-}
-
-const DEFAULT_STATE: WindowState = { width: 1280, height: 800 }
+import { app, screen, type BaseWindow } from 'electron'
+import { normalizeWindowState, type WindowState } from './window-state-model'
 
 function stateFile(): string {
   return join(app.getPath('userData'), 'window-state.json')
@@ -21,17 +12,16 @@ function stateFile(): string {
 
 /** 读取上次的窗口状态；文件缺失或损坏时回落到默认尺寸。 */
 export function loadWindowState(): WindowState {
+  let parsed: Partial<WindowState> = {}
   try {
     if (existsSync(stateFile())) {
-      const parsed = JSON.parse(readFileSync(stateFile(), 'utf8')) as Partial<WindowState>
-      if (typeof parsed.width === 'number' && typeof parsed.height === 'number') {
-        return { ...DEFAULT_STATE, ...parsed }
-      }
+      parsed = JSON.parse(readFileSync(stateFile(), 'utf8')) as Partial<WindowState>
     }
   } catch {
     // 损坏的状态文件不值得阻断启动，回落默认
   }
-  return { ...DEFAULT_STATE }
+  const primary = screen.getPrimaryDisplay().workArea
+  return normalizeWindowState(parsed, screen.getAllDisplays().map((display) => display.workArea), primary)
 }
 
 /** 监听窗口变化，关闭时把 bounds 写盘。 */
@@ -40,10 +30,15 @@ export function trackWindowState(win: BaseWindow): void {
     const isMaximized = win.isMaximized()
     const bounds = isMaximized ? win.getNormalBounds() : win.getBounds()
     const state: WindowState = { ...bounds, isMaximized }
+    const file = stateFile()
+    const temporary = `${file}.${String(process.pid)}.tmp`
     try {
-      writeFileSync(stateFile(), JSON.stringify(state))
+      writeFileSync(temporary, JSON.stringify(state), { mode: 0o600 })
+      renameSync(temporary, file)
     } catch {
       // 写盘失败不影响退出
+    } finally {
+      rmSync(temporary, { force: true })
     }
   })
 }

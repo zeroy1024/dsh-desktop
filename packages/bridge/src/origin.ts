@@ -28,29 +28,52 @@ export interface AgentEndpoint {
   token: string | null
 }
 
+/** 只接受应用自己的固定 custom-scheme origin，不做字符串前缀判断。 */
+export function isDshRendererUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === `${DSH_SCHEME}:`
+      && url.hostname === DSH_HOST
+      && url.port === ''
+      && url.username === ''
+      && url.password === ''
+  } catch {
+    return false
+  }
+}
+
+function assertAgentEndpoint(agent: AgentEndpoint): void {
+  if (!Number.isInteger(agent.port) || agent.port < 1 || agent.port > 65_535) {
+    throw new Error(`bridge: invalid agent port ${String(agent.port)}`)
+  }
+  if (agent.token !== null && typeof agent.token !== 'string') {
+    throw new Error('bridge: invalid agent token')
+  }
+}
+
 /**
  * 把 dsh:// 请求映射成 agent HTTP URL。
  * @throws 非本协议或 host 不是 loopback。
  */
 export function toAgentHttpUrl(requestUrl: string, agent: AgentEndpoint): string {
   const src = new URL(requestUrl)
-  if (src.protocol !== `${DSH_SCHEME}:` || src.hostname !== DSH_HOST) {
+  if (!isDshRendererUrl(src.toString())) {
     throw new Error(`bridge: refused to proxy ${requestUrl}`)
   }
+  assertAgentEndpoint(agent)
   const dest = new URL(`http://${DSH_HOST}:${String(agent.port)}${src.pathname}${src.search}`)
-  if (agent.token !== null && !dest.searchParams.has('token')) {
-    dest.searchParams.set('token', agent.token)
-  }
+  if (agent.token !== null) dest.searchParams.set('token', agent.token)
   return dest.toString()
 }
 
 /** agent WebSocket 地址（主进程连）。 */
 export function toAgentWsUrl(pathnameAndSearch: string, agent: AgentEndpoint): string {
-  const dest = new URL(`http://${DSH_HOST}:${String(agent.port)}${pathnameAndSearch}`)
+  const safePath = parseAgentEventPath(pathnameAndSearch)
+  if (safePath === null) throw new Error(`bridge: refused WebSocket path ${pathnameAndSearch}`)
+  assertAgentEndpoint(agent)
+  const dest = new URL(`http://${DSH_HOST}:${String(agent.port)}${safePath}`)
   dest.protocol = 'ws:'
-  if (agent.token !== null && !dest.searchParams.has('token')) {
-    dest.searchParams.set('token', agent.token)
-  }
+  if (agent.token !== null) dest.searchParams.set('token', agent.token)
   return dest.toString()
 }
 
@@ -67,4 +90,19 @@ export function headersForAgent(input: Headers): Headers {
 /** 是否应把 WebSocket 从页面拦到 IPC（mux/host 下行）。 */
 export function isAgentEventSocket(pathname: string): boolean {
   return pathname === '/api/events.mux' || pathname === '/api/events.host'
+}
+
+/** 校验来自 renderer IPC 的 WS 路径并返回规范化 pathname+search。 */
+export function parseAgentEventPath(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) return null
+  if (!value.startsWith('/') || value.startsWith('//')) return null
+  try {
+    const url = new URL(value, `${DSH_ORIGIN}/`)
+    if (!isDshRendererUrl(url.toString()) || url.hash !== '' || !isAgentEventSocket(url.pathname)) {
+      return null
+    }
+    return `${url.pathname}${url.search}`
+  } catch {
+    return null
+  }
 }

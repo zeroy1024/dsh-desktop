@@ -91,4 +91,57 @@ describe('materializeDesktopProfile', () => {
       }),
     ).toThrow(/不是本 app 托管/)
   })
+
+  it('在写入前拒绝路径穿越和 manifest 名不匹配', () => {
+    const root = scratch()
+    const pluginDir = pluginFixture(root, '@dsh-desktop/hello-panel')
+    const dshHome = join(root, 'home')
+    expect(() => materializeDesktopProfile({
+      dshHome,
+      version: '0.1.0',
+      plugins: [{ name: '../escape', dir: pluginDir }],
+    })).toThrow(/非法插件包名/)
+    expect(() => materializeDesktopProfile({
+      dshHome,
+      version: '0.1.0',
+      plugins: [{ name: '@dsh-desktop/not-hello', dir: pluginDir }],
+    })).toThrow(/插件名不匹配/)
+    expect(() => readFileSync(join(dshHome, 'profiles', 'desktop', 'package.json'))).toThrow()
+  })
+
+  it('仅清理上一版戳里记录的过期插件符号链接', () => {
+    const root = scratch()
+    const pluginDir = pluginFixture(root, '@dsh-desktop/hello-panel')
+    const dshHome = join(root, 'home')
+    const profileDir = materializeDesktopProfile({
+      dshHome,
+      version: '0.1.0',
+      plugins: [{ name: '@dsh-desktop/hello-panel', dir: pluginDir }],
+    })
+    const managed = join(profileDir, 'node_modules', '@dsh-desktop', 'hello-panel')
+    const userFile = join(profileDir, 'node_modules', 'user-owned')
+    writeFileSync(userFile, 'keep')
+
+    materializeDesktopProfile({ dshHome, version: '0.2.0', plugins: [] })
+
+    expect(() => readlinkSync(managed)).toThrow()
+    expect(readFileSync(userFile, 'utf8')).toBe('keep')
+  })
+
+  it('拒绝经 node_modules 父级符号链接逃逸 profile', () => {
+    const root = scratch()
+    const dshHome = join(root, 'home')
+    const profileDir = materializeDesktopProfile({ dshHome, version: '0.1.0', plugins: [] })
+    const outside = join(root, 'outside')
+    mkdirSync(outside)
+    symlinkSync(outside, join(profileDir, 'node_modules'), 'junction')
+    const pluginDir = pluginFixture(root, '@dsh-desktop/hello-panel')
+
+    expect(() => materializeDesktopProfile({
+      dshHome,
+      version: '0.2.0',
+      plugins: [{ name: '@dsh-desktop/hello-panel', dir: pluginDir }],
+    })).toThrow(/托管目录不安全/)
+    expect(() => readlinkSync(join(outside, '@dsh-desktop', 'hello-panel'))).toThrow()
+  })
 })

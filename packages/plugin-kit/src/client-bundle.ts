@@ -8,7 +8,7 @@
  * Host/Client face、purity gate 全文；bump submodule 时对照上游
  * `clientConfig()` 的 outputOptions 与 PLATFORM_MODULES。
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { build } from 'esbuild'
 
@@ -40,11 +40,29 @@ export interface BuildClientBundleOptions {
   extraExternals?: readonly string[]
 }
 
+function styleInjection(id: string, css: string): string {
+  if (css.trim().length === 0) return ''
+  const tagId = `${id}/client.css`
+  return [
+    `var __dshCss = ${JSON.stringify(css)};`,
+    `var __dshCssId = ${JSON.stringify(tagId)};`,
+    "var __dshStyle = document.querySelector('style[data-plugin-css=' + JSON.stringify(__dshCssId) + ']');",
+    'if (__dshStyle === null) {',
+    "  __dshStyle = document.createElement('style');",
+    `  __dshStyle.dataset.plugin = ${JSON.stringify(id)};`,
+    '  __dshStyle.dataset.pluginCss = __dshCssId;',
+    '  document.head.appendChild(__dshStyle);',
+    '}',
+    'if (__dshStyle.textContent !== __dshCss) __dshStyle.textContent = __dshCss;',
+  ].join('\n')
+}
+
 /** 把 esbuild CJS 包进 ModuleLoader 工厂（与上游 intro + banner + footer 同构）。 */
-export function wrapClientFactory(id: string, code: string): string {
+export function wrapClientFactory(id: string, code: string, css = ''): string {
   return [
     `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
     'var module = { exports: {} }; var exports = module.exports;',
+    styleInjection(id, css),
     code.replace(/\/\/# sourceMappingURL=.*$/m, '').trimEnd(),
     'return module.exports; } });',
     '',
@@ -61,6 +79,8 @@ export async function buildClientBundle(options: BuildClientBundleOptions): Prom
     absWorkingDir: process.cwd(),
     bundle: true,
     entryPoints: [options.entry],
+    outdir: 'dsh-client-output',
+    entryNames: 'client',
     write: false,
     format: 'cjs',
     platform: 'browser',
@@ -68,10 +88,25 @@ export async function buildClientBundle(options: BuildClientBundleOptions): Prom
     jsx: 'automatic',
     sourcemap: 'inline',
     logLevel: 'info',
+    loader: { '.css': 'css' },
+    plugins: [{
+      name: 'dsh-css-modules',
+      setup(buildContext) {
+        buildContext.onLoad({ filter: /\.module\.css$/ }, async (loadArgs) => ({
+          contents: await readFile(loadArgs.path, 'utf8'),
+          loader: 'local-css',
+          resolveDir: dirname(loadArgs.path),
+        }))
+      },
+    }],
     external: [...external],
   })
-  const file = result.outputFiles[0]
-  if (file === undefined) throw new Error(`client bundle produced no output for ${options.id}`)
+  const js = result.outputFiles.find((file) => file.path.endsWith('.js'))
+  if (js === undefined) throw new Error(`client bundle produced no JavaScript for ${options.id}`)
+  const css = result.outputFiles
+    .filter((file) => file.path.endsWith('.css'))
+    .map((file) => file.text.replace(/\/\*# sourceMappingURL=.*?\*\//gsu, ''))
+    .join('\n')
   await mkdir(dirname(options.outfile), { recursive: true })
-  await writeFile(options.outfile, wrapClientFactory(options.id, file.text), 'utf8')
+  await writeFile(options.outfile, wrapClientFactory(options.id, js.text, css), 'utf8')
 }

@@ -28,9 +28,9 @@ Electron 主进程 ──spawn──▶ dsh --profile desktop --no-open --port 0
         │  /api/events.* WS → IPC → 主进程 WebSocket
 ```
 
-- agent 与 Electron 主进程是**两个进程**，崩溃隔离、可独立升级；主进程通过 `@dsh-desktop/agent-host` 监管子进程（ready 解析、指数退避重启、日志落盘 `userData/logs/dsh-agent.log`）。
+- agent 与 Electron 主进程是**两个进程**，崩溃隔离、可独立升级；主进程通过 `@dsh-desktop/agent-host` 监管子进程（ready 解析、指数退避重启、稳定运行后才重置预算）。每次重启的随机端口都会重新接入协议桥；日志写入 `userData/logs/dsh-agent.log`，launch token 脱敏、权限收紧并按 5 MiB 轮转。
 - 数据位置：`DSH_HOME` 默认与命令行共用 `~/.dsh`（API key/profiles/sessions 互通），设 `DSH_HOME` 环境变量可覆盖以隔离测试。
-- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航只放行 `dsh://127.0.0.1`，其余外链走系统浏览器。
+- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航按解析后的 scheme/host/port 精确放行 `dsh://127.0.0.1`，IPC 只接受该 origin 的主 frame，其余 HTTP(S) 外链走系统浏览器。
 
 ## 插件分发（P2 起，ADR-0004）
 
@@ -46,7 +46,7 @@ app 启动时物化 ~/.dsh/profiles/desktop/：manifest（bundles = dsh-base + d
 spawn: --profile desktop --no-open --port 0
 ```
 
-- 解析链路：bundle 双锚点（安装目录 → profile 目录）+ 裸名 Node walk（profile 级 `node_modules` 第一优先），全部为上游既有机制，零上游改动。
+- 解析链路：bundle 双锚点（安装目录 → profile 目录）+ 裸名 Node walk（profile 级 `node_modules` 第一优先），全部为上游既有机制，零上游改动。物化前校验插件名/manifest/路径，托管文件原子替换，版本戳记录插件名册以清理旧的托管链接。
 - 插件版本 = app 版本；P4 时构建产物经 extraResources 随包携带。
 - dev 循环：`tsdown --watch` 重写 `lib/client.js` 即触发 dsh client-hmr 热换（HTTP 模式天然可用）。
 

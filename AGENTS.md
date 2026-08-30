@@ -33,7 +33,7 @@ pnpm sync:upstream      # 上游同步：套用补丁 → install → build → 
 pnpm dev                # 一键开发：校验产物 → 构建插件 + desktop → 启动 Electron
 pnpm test               # 全部单测
 pnpm lint               # oxlint
-pnpm -r typecheck       # 全部类型检查
+pnpm typecheck          # 根 tsc（scripts/）+ 全部 workspace 类型检查
 ```
 
 ## 环境注意

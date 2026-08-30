@@ -27,7 +27,7 @@
 ## 2. 约束
 
 1. `upstream/` 不直接改；能插件就不 patch（AGENTS.md、ADR-0004）。
-2. `packages/plugins/` 的 desktop profile 物化是 **P2**，现在还没有客户端插件通道。
+2. `packages/plugins/` 的 desktop profile 与客户端插件通道已经落地；本提案必须继续沿用该通道。
 3. 启动层已经用 `BaseWindow` + 双 `WebContentsView`；侧栏要透出桌面模糊，揭幕后的 webui 视图不能继续整幅不透明白底。
 4. 官方扩展点里，真正能「换掉整列」的是占据 `sidebar` 槽（注释写明 OCCUPIED，再 register 即替换，且必须自己声明 `sidebar.workspaces` 等子槽）。`shell.overlay` 是唯一现成的**加性**框级槽。
 
@@ -45,7 +45,7 @@
 
 不要移植 AppKit monitor / 矩形桥。
 
-### B. P2 客户端插件 `desktop-chrome`（推荐主路径）
+### B. 客户端插件 `desktop-chrome`（推荐主路径）
 
 插件做「桌面皮肤」，不换 AppFrame，不 fork 会话树：
 
@@ -82,7 +82,7 @@
 ## 4. 推荐切法
 
 ```
-P2 插件通道就绪
+客户端插件通道（已就绪）
     │
     ├─ Electron：hiddenInset + trafficLightPosition
     │            揭幕后 webui 视图透明底（splash 揭幕逻辑要改 setBackgroundColor）
@@ -106,7 +106,7 @@ P2 插件通道就绪
 - **overlay 对不齐**：灯的系统 inset 随 `hiddenInset` / `trafficLightPosition` 变。92px leading 要按实机校准，写成插件 CSS 变量，不要写死进主进程。
 - **拖拽误伤**：顶带 `drag` 会吞按钮点击，折叠 / 新会话必须 `no-drag`。不要学参照去扫 DOM 报矩形。
 - **暗色主题**：wash 要跟 `body[data-ds-dark-theme]`（参照已有）。主题切换时 vibrancy 是否跟 appearance 走，实现时用 `nativeTheme` 钉一下，避免材质亮、wash 暗。
-- **P2 未落地**：本方案依赖客户端插件。P2 之前强做只能 insertCSS 进 webui 视图——能验证视觉，但绕过插件通道，不作为产品形态。
+- **插件构建契约漂移**：`plugin-kit` 已支持 CSS Modules/全局 CSS 注入；升级上游时仍须对照 `tsdown.client.ts` 验证 ModuleLoader 与样式契约。
 
 ## 6. 验收（落地时）
 

@@ -18,12 +18,23 @@
  *
  * 用法：
  *   pnpm sync:upstream                   全量
- *   pnpm sync:upstream -- --skip-build   跳过构建（仅补丁+安装）
+ *   pnpm sync:upstream -- --skip-build   跳过构建与打包（仅补丁+安装）
  *   pnpm sync:upstream -- --skip-pack    跳过打包与 CLI 安装
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  globSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 
@@ -38,6 +49,9 @@ const PACK_TARGETS = ['apps/cli', 'apps/web']
 const args = process.argv.slice(2)
 const skipBuild = args.includes('--skip-build')
 const skipPack = args.includes('--skip-pack')
+const effectiveSkipPack = skipPack || skipBuild
+const unknownArgs = args.filter((arg) => arg !== '--skip-build' && arg !== '--skip-pack')
+if (unknownArgs.length > 0) throw new Error(`未知参数：${unknownArgs.join(', ')}`)
 
 function run(cmd: string, cmdArgs: string[], cwd: string, env?: Record<string, string>): void {
   console.log(`\n$ (cd ${cwd} && ${cmd} ${cmdArgs.join(' ')})`)
@@ -52,26 +66,91 @@ function tryRun(cmd: string, cmdArgs: string[], cwd: string): boolean {
   return r.status === 0
 }
 
-function capture(cmd: string, cmdArgs: string[], cwd: string): string {
-  const r = spawnSync(cmd, cmdArgs, { cwd, stdio: 'pipe', env: process.env, encoding: 'utf8' })
+function capture(
+  cmd: string,
+  cmdArgs: string[],
+  cwd: string,
+  env?: Record<string, string>,
+): string {
+  const r = spawnSync(cmd, cmdArgs, {
+    cwd,
+    stdio: 'pipe',
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+  })
   if (r.status !== 0) {
     throw new Error(`命令失败（exit ${r.status}）：${cmd} ${cmdArgs.join(' ')}`)
   }
   return r.stdout.trim()
 }
 
-/** 记录上次成功同步的上游 commit 的标记文件（vendor/ 下，随 vendor 一起重建）。 */
+/** 记录上次完整同步的 commit + 补丁队列指纹（vendor/ 下，随 vendor 一起重建）。 */
 const commitMarkerPath = join(vendorDir, '.upstream-commit')
+
+interface PatchEntry {
+  file: string
+  reason: string
+  upstream?: string
+}
+
+function readPatchRegistry(): PatchEntry[] {
+  const registryPath = join(patchesDir, 'patches.yml')
+  const registry = yaml.load(readFileSync(registryPath, 'utf8')) as { patches?: unknown } | null
+  if (registry?.patches === undefined) return []
+  if (!Array.isArray(registry.patches)) throw new Error('[patches] patches.yml 的 patches 必须是数组')
+  const seen = new Set<string>()
+  return registry.patches.map((value, index) => {
+    if (typeof value !== 'object' || value === null) {
+      throw new Error(`[patches] 第 ${index + 1} 项必须是对象`)
+    }
+    const entry = value as Partial<PatchEntry>
+    if (typeof entry.file !== 'string' || typeof entry.reason !== 'string' || entry.reason.trim() === '') {
+      throw new Error(`[patches] 第 ${index + 1} 项必须提供 file 与非空 reason`)
+    }
+    if (seen.has(entry.file)) throw new Error(`[patches] 重复登记：${entry.file}`)
+    seen.add(entry.file)
+    registeredPatchPath(entry.file)
+    return {
+      file: entry.file,
+      reason: entry.reason,
+      ...(typeof entry.upstream === 'string' ? { upstream: entry.upstream } : {}),
+    }
+  })
+}
+
+function registeredPatchPath(file: string): string {
+  const path = resolve(patchesDir, file)
+  if (!path.startsWith(`${patchesDir}${sep}`) || !file.endsWith('.patch')) {
+    throw new Error(`[patches] 非法补丁路径：${file}`)
+  }
+  return path
+}
+
+function syncFingerprint(patches: readonly PatchEntry[]): string {
+  const hash = createHash('sha256')
+  hash.update(capture('git', ['rev-parse', 'HEAD'], upstreamDir))
+  hash.update('\0')
+  hash.update(readFileSync(join(patchesDir, 'patches.yml')))
+  for (const entry of patches) {
+    const patchPath = registeredPatchPath(entry.file)
+    if (!existsSync(patchPath)) throw new Error(`[patches] 登记的文件不存在：${entry.file}`)
+    hash.update('\0')
+    hash.update(entry.file)
+    hash.update('\0')
+    hash.update(readFileSync(patchPath))
+  }
+  return `${capture('git', ['rev-parse', 'HEAD'], upstreamDir)} ${hash.digest('hex')}`
+}
 
 /**
  * 上游 commit 变化后必须先 `pnpm run clean`：不同版本的 lib/ 构建残留会混进
  * tsdown 打包导致 MISSING_EXPORT 之类错误。首次同步（有 node_modules 却无标记）
  * 同样清理一次。
  */
-function cleanIfCommitChanged(): void {
-  const head = capture('git', ['rev-parse', 'HEAD'], upstreamDir)
+function cleanIfInputsChanged(fingerprint: string): void {
+  const head = fingerprint.split(' ')[0]!
   const last = existsSync(commitMarkerPath) ? readFileSync(commitMarkerPath, 'utf8').trim() : null
-  if (last === head) return
+  if (last === fingerprint) return
   if (existsSync(join(upstreamDir, 'node_modules'))) {
     console.log(`\n[clean] 上游 commit ${last ?? '未知'} → ${head}，清理旧构建产物`)
     // macOS 的 .DS_Store 会让上游 clean 脚本把「只剩 .DS_Store 的目录」误判为未知目录而拒绝清理
@@ -82,9 +161,13 @@ function cleanIfCommitChanged(): void {
   }
 }
 
-function markCommitSynced(): void {
+function markFullySynced(fingerprint: string): void {
+  if (skipBuild || effectiveSkipPack) {
+    console.log('\n[sync] 部分流程未更新完整同步标记')
+    return
+  }
   mkdirSync(vendorDir, { recursive: true })
-  writeFileSync(commitMarkerPath, `${capture('git', ['rev-parse', 'HEAD'], upstreamDir)}\n`)
+  writeFileSync(commitMarkerPath, `${fingerprint}\n`)
 }
 
 function checkEnvironment(): void {
@@ -100,22 +183,13 @@ function checkEnvironment(): void {
   }
 }
 
-interface PatchEntry {
-  file: string
-  reason: string
-  upstream?: string
-}
-
-function applyPatches(): void {
-  const registryPath = join(patchesDir, 'patches.yml')
-  const registry = yaml.load(readFileSync(registryPath, 'utf8')) as { patches?: PatchEntry[] } | null
-  const patches = registry?.patches ?? []
+function applyPatches(patches: readonly PatchEntry[]): void {
   if (patches.length === 0) {
     console.log('\n[patches] 无登记的补丁，跳过')
     return
   }
   for (const entry of patches) {
-    const patchPath = join(patchesDir, entry.file)
+    const patchPath = registeredPatchPath(entry.file)
     if (!existsSync(patchPath)) {
       throw new Error(`[patches] 登记的文件不存在：${entry.file}`)
     }
@@ -130,6 +204,37 @@ function applyPatches(): void {
   }
 }
 
+/** 用临时 Git index 构造“只套登记补丁”的标准 diff，拒绝 upstream 里的私改。 */
+function verifyOnlyRegisteredPatches(patches: readonly PatchEntry[]): void {
+  const untracked = capture(
+    'git',
+    ['status', '--porcelain', '--untracked-files=all'],
+    upstreamDir,
+  ).split('\n').filter((line) => line.startsWith('?? '))
+  if (untracked.length > 0) {
+    throw new Error(`[patches] upstream 存在未登记文件：\n${untracked.join('\n')}`)
+  }
+
+  const scratch = mkdtempSync(join(tmpdir(), 'dsh-patch-index-'))
+  const indexPath = join(scratch, 'index')
+  const indexEnv = { GIT_INDEX_FILE: indexPath }
+  try {
+    capture('git', ['read-tree', 'HEAD'], upstreamDir, indexEnv)
+    for (const entry of patches) {
+      capture('git', ['apply', '--cached', registeredPatchPath(entry.file)], upstreamDir, indexEnv)
+    }
+    const expected = capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
+    const actual = capture('git', ['diff', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir)
+    if (actual !== expected) {
+      throw new Error(
+        '[patches] upstream 工作树包含未登记修改，拒绝继续。请把变更制作成 patches/*.patch，或先恢复子模块。',
+      )
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
 function installAndBuild(): void {
   // CI=true：跳过上游 postinstall 里的 lefthook git-hooks 安装（contributor 工具，
   // 在 submodule 里会因 git worktree 配置冲突而失败；其余安装脚本不受影响）
@@ -140,7 +245,7 @@ function installAndBuild(): void {
 }
 
 function packTargets(): void {
-  if (skipPack) return
+  if (effectiveSkipPack) return
   mkdirSync(vendorDir, { recursive: true })
   for (const old of readdirSync(vendorDir).filter((f) => f.endsWith('.tgz'))) {
     rmSync(join(vendorDir, old))
@@ -153,7 +258,7 @@ function packTargets(): void {
 
 /** 把 CLI tarball 安装成 vendor/dsh-cli/（完整 node_modules 布局，桌面运行时实际使用）。 */
 function installCli(): void {
-  if (skipPack) return
+  if (effectiveSkipPack) return
   const cliInstallDir = join(vendorDir, 'dsh-cli')
   mkdirSync(cliInstallDir, { recursive: true })
   const cliManifest = JSON.parse(readFileSync(join(upstreamDir, 'apps/cli/package.json'), 'utf8')) as {
@@ -195,10 +300,13 @@ function installCli(): void {
 }
 
 checkEnvironment()
-applyPatches()
-cleanIfCommitChanged()
+const patches = readPatchRegistry()
+applyPatches(patches)
+verifyOnlyRegisteredPatches(patches)
+const fingerprint = syncFingerprint(patches)
+cleanIfInputsChanged(fingerprint)
 installAndBuild()
 packTargets()
 installCli()
-markCommitSynced()
+markFullySynced(fingerprint)
 console.log('\nsync-upstream 完成 ✓')

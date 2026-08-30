@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsx ./build.ts",
     "start": "electron .",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "electron": "^44.0.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

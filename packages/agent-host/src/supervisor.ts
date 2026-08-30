@@ -7,7 +7,16 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs'
+import {
+  chmodSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  type WriteStream,
+} from 'node:fs'
 import { join } from 'node:path'
 import { parseReadyLine, type ReadyLineInfo } from './ready-line'
 
@@ -19,15 +28,24 @@ export interface AgentReadyInfo extends ReadyLineInfo {
 
 /** 崩溃重启策略。 */
 export interface RestartPolicy {
-  /** 连续意外退出的最大重启次数（ready 后归零）。 */
+  /** 连续意外退出的最大重启次数。 */
   maxRetries: number
   /** 退避起始毫秒数。 */
   baseDelayMs: number
   /** 退避上限毫秒数。 */
   maxDelayMs: number
+  /** 连续运行多久才视为稳定并清零重试次数，默认 30s。 */
+  stableRunMs: number
 }
 
-const DEFAULT_RESTART: RestartPolicy = { maxRetries: 5, baseDelayMs: 500, maxDelayMs: 10_000 }
+const DEFAULT_RESTART: RestartPolicy = {
+  maxRetries: 5,
+  baseDelayMs: 500,
+  maxDelayMs: 10_000,
+  stableRunMs: 30_000,
+}
+const LOG_FILENAME = 'dsh-agent.log'
+const MAX_LOG_BYTES = 5 * 1024 * 1024
 
 export interface AgentSupervisorOptions {
   /** dsh CLI 入口的绝对路径（upstream/apps/cli/lib/bin.js）。 */
@@ -54,10 +72,19 @@ export interface AgentSupervisorOptions {
 
 export type AgentState = 'stopped' | 'starting' | 'running' | 'stopping'
 
+/** 日志可观察性不能以泄露 launch token 为代价。 */
+export function redactSecrets(value: string): string {
+  return value
+    .replace(/([?&]token=)[^&\s"'<>]+/giu, '$1[REDACTED]')
+    .replace(/(--(?:launch-)?token(?:=|\s+))\S+/giu, '$1[REDACTED]')
+    .replace(/("token"\s*:\s*")[^"]*(")/giu, '$1[REDACTED]$2')
+}
+
 export class AgentSupervisor extends EventEmitter {
   private child: ChildProcess | null = null
   private logStream: WriteStream | null = null
   private restartTimer: NodeJS.Timeout | null = null
+  private stableTimer: NodeJS.Timeout | null = null
   private currentState: AgentState = 'stopped'
   private currentReady: AgentReadyInfo | null = null
   private retryCount = 0
@@ -87,6 +114,8 @@ export class AgentSupervisor extends EventEmitter {
     if (this.currentState !== 'stopped') {
       return Promise.reject(new Error(`agent 已在运行（state=${this.currentState}）`))
     }
+    this.intentionalStop = false
+    this.retryCount = 0
     return this.spawnAndWaitReady()
   }
 
@@ -97,21 +126,24 @@ export class AgentSupervisor extends EventEmitter {
       clearTimeout(this.restartTimer)
       this.restartTimer = null
     }
+    this.clearStableTimer()
     const child = this.child
-    if (!child || child.exitCode !== null || child.signalCode !== null) {
+    if (!child) {
       this.currentState = 'stopped'
+      this.currentReady = null
       return
     }
     this.currentState = 'stopping'
     await this.terminate(child)
     this.currentState = 'stopped'
+    this.currentReady = null
   }
 
   private spawnAndWaitReady(): Promise<AgentReadyInfo> {
     return new Promise((resolvePromise, rejectPromise) => {
       this.currentState = 'starting'
-      mkdirSync(this.options.logDir, { recursive: true })
-      this.logStream = createWriteStream(join(this.options.logDir, 'dsh-agent.log'), { flags: 'a' })
+      const logStream = this.openLogStream()
+      this.logStream = logStream
 
       const node = this.options.nodeExecutable ?? process.execPath
       const args = [
@@ -121,7 +153,9 @@ export class AgentSupervisor extends EventEmitter {
       ]
       // 分隔行：日志以追加方式写入，多次启动的输出必须能区分开；
       // 记录完整命令行，参数类问题看一眼日志就能定位
-      this.logStream.write(`\n===== dsh agent spawn ${new Date().toISOString()} =====\n$ ${node} ${args.join(' ')}\n`)
+      logStream.write(redactSecrets(
+        `\n===== dsh agent spawn ${new Date().toISOString()} =====\n$ ${node} ${args.join(' ')}\n`,
+      ))
 
       const child = spawn(node, args, {
           env: { ...process.env, DSH_HOME: this.options.dshHome, ...this.options.env },
@@ -132,66 +166,86 @@ export class AgentSupervisor extends EventEmitter {
       )
       this.child = child
 
-      let settled = false
+      let promiseSettled = false
+      let reachedReady = false
+      let startupFailure: Error | null = null
       let stdoutBuf = ''
+      let stderrBuf = ''
+      const writeCompleteLines = (chunk: Buffer, current: string, onLine?: (line: string) => void): string => {
+        let buffer = current + chunk.toString('utf8')
+        let newlineIndex = buffer.indexOf('\n')
+        while (newlineIndex >= 0) {
+          const line = buffer.slice(0, newlineIndex)
+          buffer = buffer.slice(newlineIndex + 1)
+          logStream.write(`${redactSecrets(line)}\n`)
+          onLine?.(line)
+          newlineIndex = buffer.indexOf('\n')
+        }
+        return buffer
+      }
+      const rejectBeforeReady = (error: Error): void => {
+        if (promiseSettled) return
+        promiseSettled = true
+        clearTimeout(timer)
+        this.currentState = 'stopped'
+        rejectPromise(error)
+      }
       const timer = setTimeout(() => {
-        if (settled) return
-        settled = true
+        if (promiseSettled) return
+        startupFailure = new Error(`agent 启动超时（${this.options.startupTimeoutMs ?? 60_000}ms 内未等到 ready 行）`)
+        this.currentState = 'stopping'
+        // 等 close 后再拒绝，保证自动重试不会与尚在退出的旧进程重叠。
         void this.terminate(child)
-        rejectPromise(new Error(`agent 启动超时（${this.options.startupTimeoutMs ?? 60_000}ms 内未等到 ready 行）`))
       }, this.options.startupTimeoutMs ?? 60_000)
 
       child.stdout!.on('data', (chunk: Buffer) => {
-        this.logStream?.write(chunk)
-        stdoutBuf += chunk.toString('utf8')
-        let newlineIndex = stdoutBuf.indexOf('\n')
-        while (newlineIndex >= 0) {
-          const line = stdoutBuf.slice(0, newlineIndex)
-          stdoutBuf = stdoutBuf.slice(newlineIndex + 1)
-          newlineIndex = stdoutBuf.indexOf('\n')
-          if (settled) continue
+        stdoutBuf = writeCompleteLines(chunk, stdoutBuf, (line) => {
+          if (promiseSettled || startupFailure !== null) return
           const ready = parseReadyLine(line)
           if (ready) {
-            settled = true
+            promiseSettled = true
+            reachedReady = true
             clearTimeout(timer)
-            this.retryCount = 0
             this.currentState = 'running'
             this.currentReady = { ...ready, pid: child.pid ?? 0 }
+            this.armStableTimer(child)
             this.emit('ready', this.currentReady)
             resolvePromise(this.currentReady)
           }
-        }
+        })
       })
       child.stderr!.on('data', (chunk: Buffer) => {
-        this.logStream?.write(chunk)
+        stderrBuf = writeCompleteLines(chunk, stderrBuf)
       })
       child.on('error', (err) => {
-        this.logStream?.end()
-        if (!settled) {
-          settled = true
-          clearTimeout(timer)
-          this.currentState = 'stopped'
-          rejectPromise(err)
-        }
+        if (!reachedReady) startupFailure = err
       })
-      child.on('exit', (code, signal) => {
-        this.logStream?.end()
-        this.logStream = null
-        this.child = null
-        this.currentReady = null
+      child.on('close', (code, signal) => {
+        clearTimeout(timer)
+        const isCurrentChild = this.child === child
+        if (isCurrentChild) this.clearStableTimer()
+        if (stdoutBuf.length > 0) logStream.write(redactSecrets(stdoutBuf))
+        if (stderrBuf.length > 0) logStream.write(redactSecrets(stderrBuf))
+        logStream.end()
+        if (this.logStream === logStream) this.logStream = null
+        if (isCurrentChild) {
+          this.child = null
+          this.currentReady = null
+        }
         this.emit('exit', code, signal)
-        if (!settled) {
-          settled = true
-          clearTimeout(timer)
-          this.currentState = 'stopped'
-          rejectPromise(
+        if (!reachedReady) {
+          rejectBeforeReady(
             this.intentionalStop
               ? new Error('agent 在 ready 前被停止')
-              : new Error(`agent 在 ready 前退出（code=${code} signal=${signal}），日志见 ${this.options.logDir}`),
+              : startupFailure
+                ?? new Error(`agent 在 ready 前退出（code=${code} signal=${signal}），日志见 ${this.options.logDir}`),
           )
           return
         }
-        if (this.intentionalStop) return
+        if (this.intentionalStop) {
+          this.currentState = 'stopped'
+          return
+        }
         this.scheduleRestart()
       })
     })
@@ -213,26 +267,68 @@ export class AgentSupervisor extends EventEmitter {
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null
       this.spawnAndWaitReady().catch((err: unknown) => {
-        this.emit('error', err)
+        if (this.intentionalStop) return
+        this.emit('restart-failed', err, this.retryCount)
+        this.scheduleRestart()
       })
     }, delay)
   }
 
-  /** 整组 SIGTERM，超时后 SIGKILL；进程退出后 resolve。 */
+  private armStableTimer(child: ChildProcess): void {
+    this.clearStableTimer()
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null
+      if (this.child === child && this.currentState === 'running') this.retryCount = 0
+    }, this.restartPolicy.stableRunMs)
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer === null) return
+    clearTimeout(this.stableTimer)
+    this.stableTimer = null
+  }
+
+  private openLogStream(): WriteStream {
+    mkdirSync(this.options.logDir, { recursive: true, mode: 0o700 })
+    const logPath = join(this.options.logDir, LOG_FILENAME)
+    try {
+      if (existsSync(logPath) && statSync(logPath).size >= MAX_LOG_BYTES) {
+        const backupPath = `${logPath}.1`
+        rmSync(backupPath, { force: true })
+        renameSync(logPath, backupPath)
+        chmodSync(backupPath, 0o600)
+      }
+    } catch {
+      // 轮转失败不能阻断 agent；仍尝试追加当前日志。
+    }
+    const stream = createWriteStream(logPath, { flags: 'a', mode: 0o600 })
+    stream.on('error', (error) => {
+      console.warn(`[agent] 无法写入日志 ${logPath}`, error)
+    })
+    stream.once('open', () => {
+      try {
+        chmodSync(logPath, 0o600)
+      } catch {
+        // 权限收紧失败由宿主文件系统决定，不阻断启动。
+      }
+    })
+    return stream
+  }
+
+  /** 整组 SIGTERM，超时后 SIGKILL；stdio 已关闭并完成清场后 resolve。 */
   private async terminate(child: ChildProcess): Promise<void> {
-    const exited = new Promise<void>((resolvePromise) => {
-      if (child.exitCode !== null || child.signalCode !== null) resolvePromise()
-      else child.once('exit', () => resolvePromise())
+    const closed = new Promise<void>((resolvePromise) => {
+      child.once('close', () => resolvePromise())
     })
     this.signal(child, 'SIGTERM')
     const grace = this.options.stopGraceMs ?? 5_000
     const timedOut = await Promise.race([
-      exited.then(() => false),
+      closed.then(() => false),
       new Promise<true>((resolvePromise) => setTimeout(() => resolvePromise(true), grace)),
     ])
     if (timedOut) {
       this.signal(child, 'SIGKILL')
-      await exited
+      await closed
     }
   }
 

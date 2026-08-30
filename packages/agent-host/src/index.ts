@@ -1,6 +1,7 @@
 export { parseReadyLine, type ReadyLineInfo } from './ready-line'
 export {
   AgentSupervisor,
+  redactSecrets,
   type AgentReadyInfo,
   type AgentState,
   type AgentSupervisorOptions,

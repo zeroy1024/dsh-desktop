@@ -1,6 +1,3 @@
-/**
- * 构建 node 半（ESM lib/index.js）与 client 半（ModuleLoader 工厂 lib/client.js）。
- */
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
@@ -23,7 +20,7 @@ await build({
 })
 
 await buildClientBundle({
-  id: '@dsh-desktop/hello-panel',
+  id: '@dsh-desktop/fps-overlay',
   entry: resolve(appDir, 'src/client/index.ts'),
   outfile: resolve(appDir, 'lib/client.js'),
 })

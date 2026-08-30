@@ -5,6 +5,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('dshDesktop', {
+  /** unpackaged 主进程通过 additionalArguments 注入 --dsh-dev */
+  dev: process.argv.includes('--dsh-dev'),
   platform: process.platform,
   versions: {
     electron: process.versions.electron,
@@ -19,11 +21,15 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   },
   /** 同步分配 id 并通知主进程去连 agent WS；垫片靠这个避免丢首帧。 */
   wsOpen: (path: string): string => {
+    if (typeof path !== 'string' || path.length === 0 || path.length > 2048) {
+      throw new TypeError('invalid WebSocket path')
+    }
     const id = crypto.randomUUID()
     ipcRenderer.send('dsh-bridge:ws-open', { id, path })
     return id
   },
   wsClose: (id: string): void => {
+    if (typeof id !== 'string' || id.length > 128) return
     ipcRenderer.send('dsh-bridge:ws-close', id)
   },
   onWsEvent: (

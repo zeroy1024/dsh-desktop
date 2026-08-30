@@ -4,5 +4,5 @@
     // src/renderer 跑在浏览器上下文，需要 DOM 类型
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
-  "include": ["src", "build.ts"]
+  "include": ["src", "tests", "build.ts", "vitest.config.ts"]
 }

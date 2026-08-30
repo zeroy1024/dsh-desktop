@@ -19,6 +19,8 @@ linux:
   # target: AppImage
 # extraResources:
 #   - from: ../../vendor/dsh-cli
-#     to: dsh
+#     to: dsh-cli
 #   - from: ../../vendor/node-runtime
 #     to: node-runtime
+#   - from: ../../packages/plugins
+#     to: plugins

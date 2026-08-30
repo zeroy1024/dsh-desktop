@@ -1,0 +1,3 @@
+- insert:
+    - id: fps-overlay
+      name: '@dsh-desktop/fps-overlay'

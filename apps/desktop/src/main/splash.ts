@@ -16,7 +16,7 @@
  * 视图 bounds 相对窗口内容区，原点恒为 (0, 0)；不能用 getContentBounds()
  * （那是屏幕坐标，会把视图偏移到窗外）。
  */
-import { WebContentsView, type BaseWindow } from 'electron'
+import { app, WebContentsView, type BaseWindow } from 'electron'
 import { join } from 'node:path'
 
 export type SplashPhase = 'starting' | 'loading' | 'sealed' | 'revealed' | 'error'
@@ -111,6 +111,8 @@ export function createSplashController(win: BaseWindow): SplashController {
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true,
+          // unpackaged 时注入 --dsh-dev，preload 据此打开 FPS HUD 等 dev 能力
+          additionalArguments: app.isPackaged ? [] : ['--dsh-dev'],
         },
       })
       // 不透明兜底：揭幕后盖住 vibrancy，与日常窗口白底一致
