@@ -1,10 +1,9 @@
 /**
  * index.ts — Electron 主进程入口。
  *
- * 启动顺序：单实例锁 → 安全钩子 → 建隐藏 BaseWindow（darwin 带 vibrancy）→
- * 挂 splash 视图并显示窗口 → 起 dsh agent → ready 后在底层 webui 视图加载
- * （揭幕前 setVisible(false)，不参与合成）→ 轮询应用挂载 → 定格字标 →
- * 揭幕摘除 splash。退出时先停 agent。
+ * 启动顺序：单实例锁 → 注册 dsh:// → 安全钩子 → 建隐藏 BaseWindow →
+ * splash → 起 dsh agent → 渲染进程只 load dsh://127.0.0.1（主进程代理
+ * agent HTTP，token 不出渲染进程）→ 挂载检测 → 定格 → 揭幕。
  *
  * 用 BaseWindow 而不是 BrowserWindow：后者自带一块 default webContents，
  * 半透明 splash 会把那块（或 loadURL 上去的 webui）合成进来，透出的是应用
@@ -12,8 +11,16 @@
  */
 import { app, BaseWindow, dialog, ipcMain, nativeImage, type WebContentsView } from 'electron'
 import { join } from 'node:path'
+import { DSH_ORIGIN } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
+import {
+  dshAppUrl,
+  installDshProtocolHandler,
+  registerDshScheme,
+  setAgentEndpoint,
+} from './protocol'
 import { installSecurityHooks } from './security'
+import { closeAllAgentSockets, installWsBridge } from './ws-bridge'
 import {
   MOUNT_TIMEOUT_MS,
   SEAL_TOTAL_MS,
@@ -27,11 +34,12 @@ let supervisor: AgentSupervisor | null = null
 let mainWindow: BaseWindow | null = null
 let splash: SplashController | null = null
 let webuiView: WebContentsView | null = null
-/** 允许渲染进程导航的 origin（agent ready 后设置）。 */
+/** 允许渲染进程导航的 origin（agent ready 后为 dsh://127.0.0.1）。 */
 let allowedOrigin: string | null = null
-/** agent 最近一次 ready 的带 token URL（activate 重建窗口时直挂 webui）。 */
-let readyUrl: string | null = null
 let quitRequested = false
+
+// 必须在 app.whenReady 之前，否则 dsh:// 没有 standard/fetch 特权
+registerDshScheme()
 
 // dev 态 macOS 菜单栏应用名取的是 Electron 二进制的 CFBundleName，productName
 // 管不到它，必须显式 setName（值与 productName 一致，userData 路径不变）
@@ -103,13 +111,13 @@ async function runStartup(): Promise<void> {
   splash.sendPhase('starting')
   splash.sendProgress(5)
   const ready = await supervisor.start()
-  allowedOrigin = `http://127.0.0.1:${ready.port}`
-  readyUrl = ready.url
+  setAgentEndpoint({ port: ready.port, token: ready.token })
+  allowedOrigin = DSH_ORIGIN
   splash.sendProgress(70)
   splash.sendPhase('loading')
 
   webuiView = splash.attachWebui({ visible: false })
-  await webuiView.webContents.loadURL(ready.url)
+  await webuiView.webContents.loadURL(dshAppUrl())
   const mounted = await splash.waitForMount(webuiView, MOUNT_TIMEOUT_MS)
   if (!mounted) console.warn('[splash] 应用挂载检测超时，强制揭幕')
 
@@ -128,6 +136,8 @@ function reportStartupFailure(err: unknown): void {
 
 async function bootstrap(): Promise<void> {
   installSecurityHooks(() => allowedOrigin)
+  installDshProtocolHandler()
+  installWsBridge()
   // dev 态 dock 图标（打包态由 app bundle 的 icns 提供，无需设置）
   if (process.platform === 'darwin' && !app.isPackaged) {
     app.dock?.setIcon(nativeImage.createFromPath(appIconPath()))
@@ -143,8 +153,9 @@ async function bootstrap(): Promise<void> {
 ipcMain.handle('dsh-desktop:restart-agent', async () => {
   if (!mainWindow) return
   if (supervisor) await supervisor.stop()
+  closeAllAgentSockets()
+  setAgentEndpoint(null)
   allowedOrigin = null
-  readyUrl = null
   try {
     await runStartup()
   } catch (err) {
@@ -176,10 +187,10 @@ if (!app.requestSingleInstanceLock()) {
     }
     mainWindow = createMainWindow()
     // agent 还活着：直挂 webui 立即显示，不重播启动动画
-    if (readyUrl !== null && supervisor !== null && supervisor.state !== 'stopped') {
+    if (allowedOrigin !== null && supervisor !== null && supervisor.state !== 'stopped') {
       splash = createSplashController(mainWindow)
       webuiView = splash.attachWebui({ visible: true })
-      void webuiView.webContents.loadURL(readyUrl)
+      void webuiView.webContents.loadURL(dshAppUrl())
       mainWindow.show()
     }
   })
@@ -193,6 +204,8 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault()
     const current = supervisor
     quitRequested = true
+    closeAllAgentSockets()
+    setAgentEndpoint(null)
     void current.stop().finally(() => app.quit())
   })
 }

@@ -1,0 +1,19 @@
+{
+  "name": "@dsh-desktop/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "P3：渲染进程不直连 127.0.0.1。dsh:// 代理 agent HTTP；/api WebSocket 经 IPC。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

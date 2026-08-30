@@ -24,6 +24,7 @@ jobs:
       - run: pnpm -r --if-present typecheck
       - run: pnpm --filter @dsh-desktop/agent-host test
       - run: pnpm --filter @dsh-desktop/plugin-kit test
+      - run: pnpm --filter @dsh-desktop/bridge test
       - run: pnpm --filter @dsh-desktop/hello-panel build
       - run: pnpm --filter @dsh-desktop/desktop build
 

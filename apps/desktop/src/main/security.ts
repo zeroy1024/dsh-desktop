@@ -10,7 +10,7 @@ import { app, session, shell } from 'electron'
  * 安装全局安全钩子。
  *
  * @param getAllowedOrigin - 返回当前允许的 origin（agent ready 后为
- *   `http://127.0.0.1:<port>`，未 ready 时为 null，此时拒绝所有导航）。
+ *   `dsh://127.0.0.1`，未 ready 时为 null，此时拒绝所有导航）。
  */
 export function installSecurityHooks(getAllowedOrigin: () => string | null): void {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {

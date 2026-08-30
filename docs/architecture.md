@@ -17,20 +17,20 @@ DeepSeek Harness Desktop = Electron 壳 + 上游 [deepseek-harness](https://gith
 └──────────────────────────────────────────────────────────┘
 ```
 
-## 数据流（P1 MVP）
+## 数据流
 
 ```
-Electron 主进程 ──spawn──▶ node vendor/dsh-cli/…/@deepseek-ai/dsh/lib/bin.js web --no-open --port 0
-        │                        │ stdout: "dsh web: http://127.0.0.1:<port>/?token=<t>"
-        │                        ▼
-        │◀── AgentSupervisor 解析 ready 行 ──┘
+Electron 主进程 ──spawn──▶ dsh --profile desktop --no-open --port 0
+        │                        │ stdout ready 行（port/token 留在主进程）
         ▼
-BrowserWindow.loadURL(带 token 的 URL) ──▶ dsh webui（HTTP + SSE/WS，token 换签名 cookie）
+渲染进程 loadURL(dsh://127.0.0.1/)
+        │  文档/脚本/fetch  → protocol.handle → net.fetch(http://127.0.0.1:<port>)
+        │  /api/events.* WS → IPC → 主进程 WebSocket
 ```
 
 - agent 与 Electron 主进程是**两个进程**，崩溃隔离、可独立升级；主进程通过 `@dsh-desktop/agent-host` 监管子进程（ready 解析、指数退避重启、日志落盘 `userData/logs/dsh-agent.log`）。
 - 数据位置：`DSH_HOME` 默认与命令行共用 `~/.dsh`（API key/profiles/sessions 互通），设 `DSH_HOME` 环境变量可覆盖以隔离测试。
-- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航/弹窗只放行 agent origin，其余外链走系统浏览器。
+- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航只放行 `dsh://127.0.0.1`，其余外链走系统浏览器。
 
 ## 插件分发（P2 起，ADR-0004）
 
@@ -60,7 +60,7 @@ spawn: --profile desktop --no-open --port 0
 | `packages/agent-host/` | dsh 子进程监管（纯 Node 库） | 我们的代码 |
 | `packages/plugin-kit/` | 客户端插件打包（ModuleLoader 工厂契约） | 我们的代码 |
 | `packages/plugins/` | dsh 插件（功能大头，app 内置分发，ADR-0004） | 我们的代码，P2 起 |
-| `packages/bridge/` | fetch-over-IPC 载体 | 我们的代码，P3 起 |
+| `packages/bridge/` | dsh:// ↔ agent HTTP 映射与 WS 垫片 | 我们的代码 |
 | `packages/webui/` | 自组 WebUI 构建 | 我们的代码，P3 起 |
 | `vendor/` | 上游包 tarball + `dsh-cli` 独立安装产物（`pnpm pack` + `pnpm install --prod`） | 生成物，可重建 |
 | `scripts/` | `sync-upstream.ts` / `dev.ts` / `bundle-node.ts`(P4) | 我们的代码 |
@@ -72,7 +72,7 @@ spawn: --profile desktop --no-open --port 0
 - **P0 仓库骨架 + 上游同步链路**（已完成）：submodule 锁版、patch 队列机制、`sync-upstream.ts`、CI 演练。
 - **P1 MVP 桌面壳**（已完成）：`dsh web` 子进程 + `loadURL`，零上游改动跑通全功能。
 - **P2 插件工作流**（已完成通道）：`@dsh-desktop/hello-panel` 走通「构建 → 物化 `~/.dsh/profiles/desktop` → `--profile desktop` 启动 → `shell.overlay` 出现徽章」（ADR-0004）；此后功能一律走 `packages/plugins/`。
-- **P3 官方 Electron 路径**：`file://` 加载 + `packages/bridge` IPC fetch 载体（上游在 `packages/host/webserver/src/index.ts` 明确预留此接缝：*"Electron uses file:// plus IPC instead"*）；组装专用 `desktop` profile（配置叠层）；移除端口/token 面。
+- **P3 官方 Electron 路径**（已完成渲染侧隔离）：`dsh://127.0.0.1` 加载（file:// 的可用替代）+ 主进程代理 agent HTTP；WS 经 IPC。端口/token 不出渲染进程。agent 仍是 loopback HTTP（上游无进程内 IPC 实现）。
 - **P4 打包分发**：electron-builder + 捆绑 Node 24 运行时（`scripts/bundle-node.ts`）、签名/公证、自动更新。
 
 ## 决策记录

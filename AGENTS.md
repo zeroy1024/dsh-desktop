@@ -17,7 +17,7 @@ upstream/           git submodule，pin 到 npm 已发布版本对应的 tag（�
 patches/            对上游的最小补丁队列 + patches.yml 登记
 apps/desktop/       Electron 壳（主进程 + preload）
 packages/agent-host/  dsh 子进程监管库（纯 Node，可单测）
-packages/bridge/    (P3) fetch-over-IPC 载体
+packages/bridge/    dsh:// 映射 + WS 垫片（P3，渲染进程不直连 agent HTTP）
 packages/webui/     (P3) 自组 WebUI 构建
 packages/plugin-kit/  客户端插件打包（ModuleLoader 工厂，镜像上游 tsdown.client 契约）
 packages/plugins/   我们的 dsh 插件群（功能大头；app 内置分发，ADR-0004，不走 dsh plugin add 装用户 profile）

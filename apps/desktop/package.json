@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dsh-desktop/agent-host": "workspace:*"
+    "@dsh-desktop/agent-host": "workspace:*",
+    "@dsh-desktop/bridge": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
