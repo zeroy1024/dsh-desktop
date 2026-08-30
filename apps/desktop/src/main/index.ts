@@ -1,9 +1,8 @@
 /**
  * index.ts — Electron 主进程入口。
  *
- * 启动顺序：单实例锁 → 注册 dsh:// → 安全钩子 → 建隐藏 BaseWindow →
- * splash → 起 dsh agent → 渲染进程只 load dsh://127.0.0.1（主进程代理
- * agent HTTP，token 不出渲染进程）→ 挂载检测 → 定格 → 揭幕。
+ * 启动顺序：单实例锁 → 安全钩子 → 建隐藏 BaseWindow → splash → 起 dsh agent
+ * → 渲染进程 loadURL(http://127.0.0.1:<port>/) → 挂载检测 → 定格 → 揭幕。
  *
  * 用 BaseWindow 而不是 BrowserWindow：后者自带一块 default webContents，
  * 半透明 splash 会把那块（或 loadURL 上去的 webui）合成进来，透出的是应用
@@ -11,16 +10,9 @@
  */
 import { app, BaseWindow, dialog, ipcMain, nativeImage, type WebContentsView } from 'electron'
 import { join } from 'node:path'
-import { DSH_ORIGIN } from '@dsh-desktop/bridge'
+import { agentPageUrl } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
-import {
-  dshAppUrl,
-  installDshProtocolHandler,
-  registerDshScheme,
-  setAgentEndpoint,
-} from './protocol'
 import { installSecurityHooks, isTrustedIpcSender } from './security'
-import { closeAllAgentSockets, installWsBridge } from './ws-bridge'
 import {
   MOUNT_TIMEOUT_MS,
   SEAL_TOTAL_MS,
@@ -34,15 +26,12 @@ let supervisor: AgentSupervisor | null = null
 let mainWindow: BaseWindow | null = null
 let splash: SplashController | null = null
 let webuiView: WebContentsView | null = null
-/** 允许渲染进程导航的 origin（agent ready 后为 dsh://127.0.0.1）。 */
-let allowedOrigin: string | null = null
+/** 当前这一代 agent 的监听端口；未 ready 时为 null，导航与 IPC 一律拒绝。 */
+let allowedPort: number | null = null
 let quitRequested = false
 let startupTask: Promise<void> | null = null
 let restartTask: Promise<void> | null = null
 let startupGeneration = 0
-
-// 必须在 app.whenReady 之前，否则 dsh:// 没有 standard/fetch 特权
-registerDshScheme()
 
 // dev 态 macOS 菜单栏应用名取的是 Electron 二进制的 CFBundleName，productName
 // 管不到它，必须显式 setName（值与 productName 一致，userData 路径不变）
@@ -55,6 +44,11 @@ function appIconPath(): string {
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+function webuiUrl(): string {
+  if (allowedPort === null) throw new Error('agent not ready')
+  return agentPageUrl(allowedPort)
+}
+
 function createMainWindow(): BaseWindow {
   const state = loadWindowState()
   const win = new BaseWindow({
@@ -66,16 +60,20 @@ function createMainWindow(): BaseWindow {
     title: 'DeepSeek Harness',
     // win/linux 任务栏与窗口图标（macOS 用 dock 图标，忽略此项）
     icon: appIconPath(),
-    // darwin：vibrancy 是启动层高斯模糊的氛围来源。不能用 transparent: true
-    // （会弄没原生标题栏与红绿灯）。backgroundColor 透明让材质透出；
-    // webui 视图不透明，揭幕后盖住材质，不影响日常窗口观感。
+    // hiddenInset：红绿灯叠在内容上，无独立标题栏。不能用 transparent: true
+    // （会弄没红绿灯）。backgroundColor 透明让 vibrancy 透出；webui 视图
+    // 同样透明，由页面中栏自己铺实底，侧栏才能吃到桌面模糊。
     ...(process.platform === 'darwin'
       ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 14 },
           vibrancy: 'under-window' as const,
           visualEffectState: 'active' as const,
           backgroundColor: '#00000000',
         }
-      : {}),
+      : {
+          titleBarStyle: 'hidden' as const,
+        }),
   })
   if (state.isMaximized) win.maximize()
   trackWindowState(win)
@@ -98,9 +96,7 @@ function createMainWindow(): BaseWindow {
 }
 
 function clearAgentTransport(): void {
-  closeAllAgentSockets()
-  setAgentEndpoint(null)
-  allowedOrigin = null
+  allowedPort = null
 }
 
 function sendAgentStatus(status: 'running' | 'restarting' | 'stopped'): void {
@@ -110,19 +106,18 @@ function sendAgentStatus(status: 'running' | 'restarting' | 'stopped'): void {
   }
 }
 
-/** 把监管器的每一代随机端口接回协议桥，并在恢复后重载失联页面。 */
+/** 把监管器每一代的随机端口接到导航锁，并在恢复后重载失联页面。 */
 function wireSupervisor(candidate: AgentSupervisor): void {
   let recovering = false
   candidate.on('ready', (ready: AgentReadyInfo) => {
     if (supervisor !== candidate || quitRequested) return
-    setAgentEndpoint({ port: ready.port, token: ready.token })
-    allowedOrigin = DSH_ORIGIN
+    allowedPort = ready.port
     sendAgentStatus('running')
     if (!recovering) return
     recovering = false
     const view = webuiView
     if (view !== null && !view.webContents.isDestroyed()) {
-      void view.webContents.loadURL(dshAppUrl()).catch((error: unknown) => {
+      void view.webContents.loadURL(agentPageUrl(ready.port)).catch((error: unknown) => {
         console.warn('[agent] 恢复后重载 WebUI 失败', error)
       })
     }
@@ -169,17 +164,18 @@ async function runStartup(generation: number): Promise<void> {
 
   controller.sendPhase('starting')
   controller.sendProgress(5)
-  await candidate.start()
+  const ready = await candidate.start()
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) {
     await candidate.stop()
     return
   }
+  allowedPort = ready.port
   controller.sendProgress(70)
   controller.sendPhase('loading')
 
   const view = controller.attachWebui({ visible: false })
   webuiView = view
-  await view.webContents.loadURL(dshAppUrl())
+  await view.webContents.loadURL(agentPageUrl(ready.port))
   const mounted = await controller.waitForMount(view, MOUNT_TIMEOUT_MS)
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) return
   if (!mounted) console.warn('[splash] 应用挂载检测超时，强制揭幕')
@@ -212,9 +208,7 @@ function reportStartupFailure(err: unknown): void {
 }
 
 async function bootstrap(): Promise<void> {
-  installSecurityHooks(() => allowedOrigin !== null)
-  installDshProtocolHandler()
-  installWsBridge()
+  installSecurityHooks(() => allowedPort)
   // dev 态 dock 图标（打包态由 app bundle 的 icns 提供，无需设置）
   if (process.platform === 'darwin' && !app.isPackaged) {
     app.dock?.setIcon(nativeImage.createFromPath(appIconPath()))
@@ -279,10 +273,10 @@ if (!app.requestSingleInstanceLock()) {
     }
     mainWindow = createMainWindow()
     // agent 还活着：直挂 webui 立即显示，不重播启动动画
-    if (allowedOrigin !== null && supervisor !== null && supervisor.state !== 'stopped') {
+    if (allowedPort !== null && supervisor !== null && supervisor.state !== 'stopped') {
       splash = createSplashController(mainWindow)
       webuiView = splash.attachWebui({ visible: true })
-      void webuiView.webContents.loadURL(dshAppUrl())
+      void webuiView.webContents.loadURL(webuiUrl())
       mainWindow.show()
     }
   })

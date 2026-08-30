@@ -115,8 +115,8 @@ export function createSplashController(win: BaseWindow): SplashController {
           additionalArguments: app.isPackaged ? [] : ['--dsh-dev'],
         },
       })
-      // 不透明兜底：揭幕后盖住 vibrancy，与日常窗口白底一致
-      webuiView.setBackgroundColor('#ffffff')
+      // 透明：侧栏 CSS wash 才能透出窗口 vibrancy；中栏由页面铺实底
+      webuiView.setBackgroundColor('#00000000')
       // index 0：压在 splash 之下
       win.contentView.addChildView(webuiView, 0)
       webuiView.setVisible(visible)
@@ -130,15 +130,21 @@ export function createSplashController(win: BaseWindow): SplashController {
       const deadline = Date.now() + timeoutMs
       while (Date.now() < deadline) {
         if (view.webContents.isDestroyed()) return false
+        const slice = Math.min(MOUNT_POLL_MS, Math.max(0, deadline - Date.now()))
         try {
-          // boot 页挂出时 #root 带 data-dsh-boot 标记；应用挂载后标记消失且 #root 有子树
-          const mounted: unknown = await view.webContents.executeJavaScript(
-            "document.querySelector('[data-dsh-boot]') === null && (document.querySelector('#root')?.children.length ?? 0) > 0",
-          )
+          // boot 页挂出时 #root 带 data-dsh-boot 标记；应用挂载后标记消失且 #root 有子树。
+          // 必须和超时竞速：渲染进程主线程卡住时 executeJavaScript 永不返回。
+          const mounted: unknown = await Promise.race([
+            view.webContents.executeJavaScript(
+              "document.querySelector('[data-dsh-boot]') === null && (document.querySelector('#root')?.children.length ?? 0) > 0",
+            ),
+            delay(slice).then(() => 'poll' as const),
+          ])
           if (mounted === true) return true
         } catch {
           // 文档卸载中等瞬态：下一轮再试
         }
+        if (Date.now() >= deadline) break
         await delay(MOUNT_POLL_MS)
       }
       return false

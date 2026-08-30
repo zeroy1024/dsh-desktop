@@ -1,6 +1,9 @@
 /**
- * preload — 向 dsh webui 暴露最小桌面能力，以及 P3 WebSocket IPC。
+ * preload — 向 dsh webui 暴露最小桌面能力。
  * sandbox 模式下只能使用 electron 的 ipcRenderer/contextBridge，输出必须为 CJS。
+ *
+ * launch token 不进页面：当前上游无 token 消费者；即便 ready 行再带 token，
+ * 也留在主进程，不挂到 window、不进文档 URL。
  */
 import { contextBridge, ipcRenderer } from 'electron'
 
@@ -18,28 +21,5 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     const wrapped = (_event: Electron.IpcRendererEvent, status: string): void => listener(status)
     ipcRenderer.on('dsh-desktop:agent-status', wrapped)
     return () => ipcRenderer.removeListener('dsh-desktop:agent-status', wrapped)
-  },
-  /** 同步分配 id 并通知主进程去连 agent WS；垫片靠这个避免丢首帧。 */
-  wsOpen: (path: string): string => {
-    if (typeof path !== 'string' || path.length === 0 || path.length > 2048) {
-      throw new TypeError('invalid WebSocket path')
-    }
-    const id = crypto.randomUUID()
-    ipcRenderer.send('dsh-bridge:ws-open', { id, path })
-    return id
-  },
-  wsClose: (id: string): void => {
-    if (typeof id !== 'string' || id.length > 128) return
-    ipcRenderer.send('dsh-bridge:ws-close', id)
-  },
-  onWsEvent: (
-    listener: (ev: { id: string; type: string; data?: string }) => void,
-  ): (() => void) => {
-    const wrapped = (
-      _event: Electron.IpcRendererEvent,
-      ev: { id: string; type: string; data?: string },
-    ): void => listener(ev)
-    ipcRenderer.on('dsh-bridge:ws-event', wrapped)
-    return () => ipcRenderer.removeListener('dsh-bridge:ws-event', wrapped)
   },
 })

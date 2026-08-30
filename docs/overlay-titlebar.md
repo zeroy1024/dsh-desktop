@@ -1,10 +1,10 @@
 # 方案：原生标题栏与侧栏融为一体
 
-- 状态：提案（未实施）
+- 状态：v1 已实施；折叠 0 宽由 `patches/0002-sidebar-collapsed-track-overlay.patch` + desktop-chrome 覆盖 `--dsh-sidebar-collapsed-track`
 - 日期：2026-08-30
 - 参照：`/Users/zeroy/Projects/dsh-desktop`（Tauri 桌面壳）运行时预览
 
-目标视觉（用户截图）：去掉侧栏顶部 logo；折叠按钮与红绿灯同一行；「新会话」从胶囊按钮改成会话树同款整行 item；侧栏走 macOS 高斯模糊。**本文只评估与分期，不改代码。**
+目标视觉（用户截图）：去掉侧栏顶部 logo；折叠按钮与红绿灯同一行；「新会话」从胶囊按钮改成会话树同款整行 item；侧栏走 macOS 高斯模糊。本文记录已落地方案与维护边界。
 
 ## 1. 参照项目实际改了什么
 
@@ -17,7 +17,7 @@
 | 侧栏折叠到 **0 宽**（不是 56px 轨道） | `ui-layout` 的 grid / 折叠语义 | 折叠 = 固定 **56px rail**（`columns.ts` `SIDEBAR_COLLAPSED`） |
 | 去掉侧栏品牌 | 从 `SidebarRoot` 拿掉 logo 行；`ui-brand-official` 只填会话英雄位 | `SidebarRoot` 顶部 `logoRow`：品牌（点了等于新会话）+ 折叠钮 |
 | 新会话改成树行 | `SidebarRoot.module.css` `.newSession` 34px / radius 8 / 透明底 hover | 胶囊按钮（描边、居中） |
-| 侧栏 vibrancy | 窗材质 `sidebar`；`.frame` 透明；`.sidebarCol` 75% wash；中栏/详情实底 | 侧栏 `var(--dsw-specific-sidebar-fill)` 实底；我们的 webui 视图还是不透明白 |
+| 侧栏 vibrancy | 窗材质 `sidebar`；`.frame` 透明；`.sidebarCol` 90% wash；中栏/详情实底 | 侧栏 `var(--dsw-specific-sidebar-fill)` 实底；我们的 webui 视图还是不透明白 |
 | 顶栏拖窗口 / 双击最大化 | AppKit 监视器 + iframe `postMessage` 交互矩形桥 + CSS hit-test 洞 | Electron 有 `-webkit-app-region`，**不需要这套** |
 
 参照项目的拖拽栈（`window_drag.rs`、`desktopTitleband.ts`、跨源 `dsh_host_origin`）是 Tauri「壳页 + iframe、主文档吃不到子文档点击」逼出来的。我们窗口自身就是 webui，再抄会把简单问题做复杂，且和边界铁律相反。
@@ -63,17 +63,16 @@
 
 做不到、也不该在 v1 用插件硬做的：
 
-- 折叠到 **0 宽**：宽度写死在 `columns.ts`，插件改不了 grid track。v1 **保留 56px rail**。overlay 折叠钮在灯右侧；rail 里原 toggle 藏掉后，rail 只剩新会话图标 / 工作区轨，观感接近但不等于截图。
+- 折叠到 **0 宽**：`columns.ts` 仍是 56px rail；桌面通过 `--dsh-sidebar-collapsed-track: 0px` 覆盖主布局 track。overlay 折叠钮在灯右侧。
 - 会话顶栏并进 44px titleband、轨迹 tab 退休：那是 `ui-conversation` 的 header 几何，参照用 CSS 变量跨包继承。v1 不碰。
 
 代价：CSS 选择器绑官方 class / DOM（`logoRow`、`newSession`）。上游改 class 要跟。比维护一份 layout fork 轻得多，也符合「UI 走客户端插件」。
 
-### C. `patches/` 改 ui-layout / ui-sidebar（最后手段）
+### C. `patches/` 提供插件无法获得的最小布局缝
 
-才能得到参照的完整几何：`shell.toolbar` 进 AppFrame、折叠 0 宽、会话 header 吃 `--dsh-titleband-*`。每次 `sync-upstream` 都要重打，和「非必要不动源码」冲突。只在出现这些情况时才开：
+当前仅 `0002-sidebar-collapsed-track-overlay.patch` 修改 `AppFrame`：折叠默认仍回落官方 56px rail，桌面插件可用 CSS 变量把实际 track 设为 0。补丁不修改 store、`SIDEBAR_COLLAPSED` 或 SidebarRoot，也不引入完整 layout fork。
 
-- 官方自己加了 desktop titleband（补丁可删）；或
-- 产品拍板「折叠必须 0 宽、灯行必须是 layout 一等公民」，插件 overlay 对不齐。
+`sync-upstream.ts` 会自动 pack 并 override 所有登记补丁触及的 workspace package，确保运行时 CLI 使用本地补丁包，而不是重新从 registry 安装官方版本。
 
 **不要**为了拖拽去 patch。那是 Electron 的本职。
 
@@ -93,7 +92,7 @@
          shell.overlay 挂灯行折叠钮（折叠态再挂新会话图标）
          Linux 实底回落
     │
-    └─ 明确不做（除非再开补丁）：0 宽折叠、会话 header 并入 titleband、AppKit 拖拽桥
+    └─ 折叠 0 宽：最小补丁覆盖 collapsed track；会话 header 并入 titleband、AppKit 拖拽桥仍不做
 ```
 
 **不要**单独先合 `hiddenInset`。灯和 logo 重叠比「独立标题栏」更糟。Electron 与插件同一里程碑上。
@@ -113,6 +112,6 @@
 - 无独立系统标题栏；红绿灯叠在侧栏顶带，不挡住折叠钮与新会话。
 - 侧栏无 DeepSeek / HARNESS logo；英雄区品牌仍在。
 - 宽态「新会话」是整行 item，不是胶囊。
-- 侧栏能看到桌面模糊（或 75% wash 后的模糊）；中栏不透墙纸。
+- 侧栏能看到桌面模糊（或 90% wash 后的模糊）；中栏不透墙纸。
 - 顶带空白处拖窗口、双击缩放；按钮可点。
-- `pnpm -r typecheck` / `pnpm lint` / agent-host 单测保持绿；零 `upstream/` 改动、零新 patch。
+- `pnpm typecheck` / `pnpm lint` / 根与上游聚焦测试保持绿；`upstream/` 工作树只包含 `patches.yml` 登记补丁。

@@ -1,8 +1,8 @@
 /**
  * security.ts — 渲染进程安全基线。
  *
- * dsh webui 只需要与 127.0.0.1 上的 agent 通信：拒绝一切权限请求、
- * 禁止 window.open、导航只允许 agent origin，其余一律交给系统浏览器。
+ * dsh webui 只与当前这一代 agent 的 127.0.0.1:<port> 通信：拒绝一切权限请求、
+ * 禁止 window.open、导航只允许该 origin，其余一律交给系统浏览器。
  */
 import {
   app,
@@ -11,7 +11,9 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron'
-import { isDshRendererUrl } from '@dsh-desktop/bridge'
+import { isAgentRendererUrl } from '@dsh-desktop/bridge'
+
+let allowedPort: () => number | null = () => null
 
 function externalHttpUrl(value: string): string | null {
   try {
@@ -30,22 +32,23 @@ function openExternal(value: string): void {
   })
 }
 
-/** IPC 只接受固定 dsh origin 的主 frame，拒绝子 frame 与其他 WebContents。 */
+/** IPC 只接受当前 agent origin 的主 frame，拒绝子 frame 与其他 WebContents。 */
 export function isTrustedIpcSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  const port = allowedPort()
   const frame = event.senderFrame
-  return frame !== null && frame === event.sender.mainFrame && isDshRendererUrl(frame.url)
+  return port !== null
+    && frame !== null
+    && frame === event.sender.mainFrame
+    && isAgentRendererUrl(frame.url, port)
 }
 
 /**
  * 安装全局安全钩子。
  *
- * 放行规则是常量级的：只允许固定 origin `dsh://127.0.0.1`（由
- * `isDshRendererUrl` 精确判定）。origin 字符串本身不参与判断。
- *
- * @param isAgentReady - agent 是否已 ready。未 ready 时拒绝一切页内导航，
- *   防止 ready 前的空窗期被导航到别处。
+ * @param getAllowedPort - 当前 agent 监听端口；null 表示未 ready，拒绝一切页内导航。
  */
-export function installSecurityHooks(isAgentReady: () => boolean): void {
+export function installSecurityHooks(getAllowedPort: () => number | null): void {
+  allowedPort = getAllowedPort
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false)
   })
@@ -57,7 +60,8 @@ export function installSecurityHooks(isAgentReady: () => boolean): void {
       return { action: 'deny' }
     })
     contents.on('will-navigate', (event, url) => {
-      if (isAgentReady() && isDshRendererUrl(url)) return
+      const port = getAllowedPort()
+      if (port !== null && isAgentRendererUrl(url, port)) return
       event.preventDefault()
       openExternal(url)
     })

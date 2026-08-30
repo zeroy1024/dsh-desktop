@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "P3：渲染进程不直连 127.0.0.1。dsh:// 代理 agent HTTP；/api WebSocket 经 IPC。",
+  "description": "当前一代 agent 的 loopback HTTP origin 判定（页面直连 127.0.0.1，不含自定义协议）。",
   "exports": {
     ".": "./src/index.ts"
   },

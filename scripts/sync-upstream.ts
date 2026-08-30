@@ -43,8 +43,16 @@ const upstreamDir = join(rootDir, 'upstream')
 const patchesDir = join(rootDir, 'patches')
 const vendorDir = join(rootDir, 'vendor')
 
-/** 需要 pack 到 vendor/ 的上游包（相对 upstream/ 的目录） */
-const PACK_TARGETS = ['apps/cli', 'apps/web']
+/** 无论补丁内容如何都要分发的基础包（相对 upstream/ 的目录）。 */
+const BASE_PACK_TARGETS = ['apps/cli', 'apps/web']
+
+interface PackedPackage {
+  target: string
+  name: string
+  version: string
+  tarball: string
+  specifier: string
+}
 
 const args = process.argv.slice(2)
 const skipBuild = args.includes('--skip-build')
@@ -124,6 +132,53 @@ function registeredPatchPath(file: string): string {
     throw new Error(`[patches] 非法补丁路径：${file}`)
   }
   return path
+}
+
+/** 找到一个补丁文件所属的最近 workspace package；根配置/文档返回 null。 */
+function packageTargetForFile(file: string): string | null {
+  let cursor = dirname(file)
+  while (cursor !== '.' && cursor !== sep) {
+    if (existsSync(join(upstreamDir, cursor, 'package.json'))) return cursor
+    const parent = dirname(cursor)
+    if (parent === cursor) break
+    cursor = parent
+  }
+  return null
+}
+
+/** 基础分发包 + 所有登记补丁触及的 package，确保 patch 真正进入运行时闭包。 */
+function packTargetsFor(patches: readonly PatchEntry[]): string[] {
+  const targets = new Set(BASE_PACK_TARGETS)
+  for (const entry of patches) {
+    const numstat = capture('git', ['apply', '--numstat', registeredPatchPath(entry.file)], upstreamDir)
+    for (const row of numstat.split('\n')) {
+      if (row === '') continue
+      const file = row.split('\t').at(-1)
+      if (file === undefined || file === '') continue
+      const target = packageTargetForFile(file)
+      if (target !== null) targets.add(target)
+    }
+  }
+  const extras = [...targets].filter(target => !BASE_PACK_TARGETS.includes(target)).toSorted()
+  return [...BASE_PACK_TARGETS, ...extras]
+}
+
+function packedPackage(target: string): PackedPackage {
+  const manifest = JSON.parse(readFileSync(join(upstreamDir, target, 'package.json'), 'utf8')) as {
+    name?: unknown
+    version?: unknown
+  }
+  if (typeof manifest.name !== 'string' || typeof manifest.version !== 'string') {
+    throw new Error(`[vendor] package 缺少 name/version：${target}`)
+  }
+  const tarball = `${manifest.name.replace(/^@/, '').replaceAll('/', '-')}-${manifest.version}.tgz`
+  return {
+    target,
+    name: manifest.name,
+    version: manifest.version,
+    tarball,
+    specifier: `file:../${tarball}`,
+  }
 }
 
 function syncFingerprint(patches: readonly PatchEntry[]): string {
@@ -244,25 +299,38 @@ function installAndBuild(): void {
   }
 }
 
-function packTargets(): void {
-  if (effectiveSkipPack) return
+function packTargets(patches: readonly PatchEntry[]): PackedPackage[] {
+  if (effectiveSkipPack) return []
   mkdirSync(vendorDir, { recursive: true })
   for (const old of readdirSync(vendorDir).filter((f) => f.endsWith('.tgz'))) {
     rmSync(join(vendorDir, old))
   }
-  for (const target of PACK_TARGETS) {
-    run('pnpm', ['pack', '--pack-destination', vendorDir], join(upstreamDir, target))
+  const packages = packTargetsFor(patches).map(packedPackage)
+  for (const pkg of packages) {
+    run('pnpm', ['pack', '--pack-destination', vendorDir], join(upstreamDir, pkg.target))
+    if (!existsSync(join(vendorDir, pkg.tarball))) {
+      throw new Error(`[vendor] pnpm pack 未生成预期文件：${pkg.tarball}`)
+    }
   }
   console.log(`\n[vendor] 已生成：${readdirSync(vendorDir).join(', ')}`)
+  return packages
 }
 
-/** 把 CLI tarball 安装成 vendor/dsh-cli/（完整 node_modules 布局，桌面运行时实际使用）。 */
-function installCli(): void {
+/**
+ * 把 CLI 与本次构建的本地 packages 安装成 vendor/dsh-cli/。
+ * pnpm pack 会把 workspace 依赖改写成 registry 范围；所有补丁涉及的包
+ * 必须同时作为本地依赖和 override，否则测试/build 虽绿，运行时仍是官方包。
+ */
+function installCli(packages: readonly PackedPackage[]): void {
   if (effectiveSkipPack) return
   const cliInstallDir = join(vendorDir, 'dsh-cli')
   mkdirSync(cliInstallDir, { recursive: true })
-  const cliManifest = JSON.parse(readFileSync(join(upstreamDir, 'apps/cli/package.json'), 'utf8')) as {
-    version: string
+  const dependencies = Object.fromEntries(packages.map(pkg => [pkg.name, pkg.specifier]))
+  const overrides = Object.fromEntries(
+    packages.filter(pkg => pkg.name !== '@deepseek-ai/dsh').map(pkg => [pkg.name, pkg.specifier]),
+  )
+  if (dependencies['@deepseek-ai/dsh'] === undefined) {
+    throw new Error('[vendor] 基础 CLI tarball 缺失：@deepseek-ai/dsh')
   }
   writeFileSync(
     join(cliInstallDir, 'package.json'),
@@ -270,33 +338,39 @@ function installCli(): void {
       {
         name: 'dsh-desktop-cli-install',
         private: true,
-        dependencies: { '@deepseek-ai/dsh': `file:../deepseek-ai-dsh-${cliManifest.version}.tgz` },
+        dependencies,
       },
       null,
       2,
     )}\n`,
   )
-  // 独立 workspace 根：避免被本仓库主 workspace 吞并。
-  // allowBuilds：pnpm 11 默认禁止依赖安装脚本且将被禁视为失败；
-  // koffi/node-pty 的原生预编译与 subprocess-local 的 spawn helper 是运行时必需。
+  // pnpm 11 已把 overrides 从 package.json 的 `pnpm` 字段迁到
+  // pnpm-workspace.yaml；放错位置会被静默忽略并安装出两个同版本实例。
   writeFileSync(
     join(cliInstallDir, 'pnpm-workspace.yaml'),
-    [
-      'packages: []',
-      'allowBuilds:',
-      "  '@deepseek-ai/dsh-subprocess-local': true",
-      "  '@google/genai': true",
-      '  koffi: true',
-      '  node-pty: true',
-      '  protobufjs: true',
-      '',
-    ].join('\n'),
+    yaml.dump({
+      packages: [],
+      overrides,
+      // pnpm 11 默认禁止依赖安装脚本且将被禁视为失败；这些原生预编译
+      // 与 subprocess-local 的 spawn helper 是运行时必需。
+      allowBuilds: {
+        '@deepseek-ai/dsh-subprocess-local': true,
+        '@google/genai': true,
+        koffi: true,
+        'node-pty': true,
+        protobufjs: true,
+      },
+    }, { lineWidth: -1, noRefs: true }),
   )
-  const lockfilePath = join(cliInstallDir, 'pnpm-lock.yaml')
-  const installArgs = existsSync(lockfilePath)
-    ? ['install', '--prod', '--frozen-lockfile']
-    : ['install', '--prod']
-  run('pnpm', installArgs, cliInstallDir, { CI: 'true' })
+  // 本地 tarball 每次同步都会以相同版本号重建。--force 让 pnpm 重新导入，
+  // --no-frozen-lockfile 只更新 tarball integrity，同时复用其余锁定解析。
+  run('pnpm', ['install', '--prod', '--force', '--no-frozen-lockfile'], cliInstallDir, { CI: 'true' })
+  const lockfile = readFileSync(join(cliInstallDir, 'pnpm-lock.yaml'), 'utf8')
+  for (const pkg of packages) {
+    if (!lockfile.includes(`specifier: ${pkg.specifier}`)) {
+      throw new Error(`[vendor] lockfile 未使用本地包：${pkg.name} -> ${pkg.specifier}`)
+    }
+  }
 }
 
 checkEnvironment()
@@ -306,7 +380,7 @@ verifyOnlyRegisteredPatches(patches)
 const fingerprint = syncFingerprint(patches)
 cleanIfInputsChanged(fingerprint)
 installAndBuild()
-packTargets()
-installCli()
+const packed = packTargets(patches)
+installCli(packed)
 markFullySynced(fingerprint)
 console.log('\nsync-upstream 完成 ✓')

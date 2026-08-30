@@ -8,7 +8,7 @@ DeepSeek Harness Desktop：用 Electron 封装 [deepseek-harness](https://github
 2. 新功能实现优先级：**dsh 插件 > cordis.patch.yml 配置叠层 > patches/*.patch**。功能大头全部放 `packages/plugins/`。
 3. UI 变更优先做**客户端插件**（package.json 的 `dsh.client` 段），不改上游 `apps/web` 源码。
 4. 我们的代码**不 import 上游 src**；编译期依赖只经 `vendor/` 里 `pnpm pack` 产出的 tarball。
-5. 运行时依赖只经「子进程 + 协议」（当前为 127.0.0.1 HTTP/SSE + launch token，P3 迁 IPC 桥），不把上游进程内嵌进 Electron 主进程。
+5. 运行时依赖只经「子进程 + 协议」（当前为渲染进程直连 `http://127.0.0.1:<port>/`；真 IPC 等上游有实现再做），不把上游进程内嵌进 Electron 主进程。不维护自定义协议 HTTP 代理。
 
 ## 目录结构
 
@@ -17,8 +17,8 @@ upstream/           git submodule，pin 到 npm 已发布版本对应的 tag（�
 patches/            对上游的最小补丁队列 + patches.yml 登记
 apps/desktop/       Electron 壳（主进程 + preload）
 packages/agent-host/  dsh 子进程监管库（纯 Node，可单测）
-packages/bridge/    dsh:// 映射 + WS 垫片（P3，渲染进程不直连 agent HTTP）
-packages/webui/     (P3) 自组 WebUI 构建
+packages/bridge/    当前一代 agent 的 loopback HTTP origin 判定
+packages/webui/     自组 WebUI 构建（预留，真 IPC 时才需要）
 packages/plugin-kit/  客户端插件打包（ModuleLoader 工厂，镜像上游 tsdown.client 契约）
 packages/plugins/   我们的 dsh 插件群（功能大头；app 内置分发，ADR-0004，不走 dsh plugin add 装用户 profile）
 scripts/            sync-upstream / dev / bundle-node
@@ -29,7 +29,7 @@ docs/               architecture.md + adr/
 ## 常用命令
 
 ```bash
-pnpm sync:upstream      # 上游同步：套用补丁 → install → build → pack 到 vendor/
+pnpm sync:upstream      # 套补丁 → build → 自动 pack/override 补丁涉及的包 → 重建 vendor/dsh-cli
 pnpm dev                # 一键开发：校验产物 → 构建插件 + desktop → 启动 Electron
 pnpm test               # 全部单测
 pnpm lint               # oxlint

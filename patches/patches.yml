@@ -7,7 +7,11 @@
 #   file:     补丁文件名（相对本目录，建议 NNNN-描述.patch 命名）
 #   reason:   为什么必须改源码（而不是插件/配置）
 #   upstream: 对应的上游 issue/PR（有则填，上游修复后应移除本补丁）
-patches: []
+patches:
+  - file: 0001-session-row-archive-context-menu.patch
+    reason: 上游 ui-workspace 无 session-row/action slot，客户端插件只能劫持 DOM 且不可靠；因此最小修改原生会话行交互
+  - file: 0002-sidebar-collapsed-track-overlay.patch
+    reason: AppFrame 用内联 grid 写死折叠轨为 56px rail，插件无法把桌面折叠收到 0px；仅增加可覆盖 CSS 变量，默认仍为官方 rail
 
 # 示例：
 # patches:

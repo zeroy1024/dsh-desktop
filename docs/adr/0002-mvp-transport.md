@@ -1,4 +1,4 @@
-# ADR-0002：MVP 传输 —— HTTP 内嵌；P3 迁 file:// + IPC 桥
+# ADR-0002：MVP 传输 —— HTTP 内嵌；真 IPC 暂缓
 
 - 状态：已接受
 - 日期：2026-08-29
@@ -9,18 +9,20 @@
 
 ## 选项
 
-- **A. `dsh web` 子进程 + `loadURL`**：复用上游现成的 HTTP/SSE/WS 服务与 token 认证，零上游改动，今天就能跑通全功能。代价：多一个 127.0.0.1 端口与 token 交换面。
+- **A. `dsh web` 子进程 + `loadURL`**：复用上游现成的 HTTP/SSE/WS 服务，零上游改动，今天就能跑通全功能。代价：渲染进程直连 127.0.0.1 端口。
 - **B. 直接实现 IPC 桥**：符合官方最终方向，但 fetch-over-IPC 含 SSE/WS 流桥接，工作量大且未验证，会拖住 MVP。
+- **C. 自定义协议 `dsh://` + 主进程 `net.fetch` 代理**：token/端口不出现在渲染 URL，底下仍是 HTTP。曾作为 P3 落地。
 
 ## 决定
 
-MVP 用 A（`--no-open --port 0`，AgentSupervisor 解析 ready 行）；P3 再做 B：`packages/bridge` 实现 fetch-over-IPC（流用 MessagePort 逐消息桥），webui 以 `file://`（或自定义协议）加载，并组装专用 `desktop` profile（cordis.patch.yml 配置叠层，不动源码）。
+MVP 用 A（`--no-open --port 0`，AgentSupervisor 解析 ready 行）。真 IPC（B）等上游 webserver 有实现再做。
 
-> 更新（2026-08-29）：专用 `desktop` profile 的组装提前到 P2（内置插件分发的载体，见 ADR-0004）；P3 只剩 file:// 加载 + IPC 桥本身。
+> 更新（2026-08-29）：专用 `desktop` profile 的组装提前到 P2（内置插件分发的载体，见 ADR-0004）。
 >
-> 更新（2026-08-30）：P3 落地为自定义协议 `dsh://127.0.0.1`（等价于官方说的 file://，且避开 file:// CORS）+ 主进程 `net.fetch` 代理 agent HTTP；`/api/events.*` WebSocket 经 IPC。agent 子进程仍听 127.0.0.1（上游 webserver 无 IPC 实现），但 token 与端口不出渲染进程。官方 `__DSH_TRANSPORT__` 未用——页面继续走 WebApiClient，fetch 走同 origin 的 dsh://，WS 被注入垫片替换。
+> 更新（2026-08-30）：P3 曾落地 C（`dsh://127.0.0.1` + `net.fetch` 代理，WS 经 IPC）。随后证实：抄浏览器 `Host` + 流式 passthrough 会让模块脚本 `net::ERR_FAILED`，页面停在空 `#root`；自定义协议还要永久承担 Chromium 代理表面。C 买到的隔离（token 不进 URL）配不上成本——上游当前 ready 行已无 launch token，鉴权是 Host/Origin fence；即便 XSS 也仍能 `fetch('/api')`。P3 的自定义协议已撤销，回到 A：`loadURL(http://127.0.0.1:<port>/)`，导航锁死这一代端口，token 不进文档 URL、不进 preload。
 
 ## 后果
 
-- 阶段 A 的端口只绑 127.0.0.1（上游禁止 `--host 0.0.0.0`），token 不出主进程。
-- 迁 B 时 Electron 层对渲染侧暴露的 preload API 保持不变，webui 无感。
+- 端口只绑 127.0.0.1（上游禁止 `--host 0.0.0.0`）。
+- 渲染进程看得到端口，这和「本机已有一个 loopback HTTP」是同一档事实。
+- 迁 B 时再引入 `file://` / 自定义协议 + `__DSH_TRANSPORT__`，preload API 保持最小桌面能力，不提前养一条 HTTP 代理。
