@@ -46,11 +46,15 @@ export function apply(ctx: ClientContext): void {
   // inspect 的三步在同一同步手势里完成——openPanel/openPage/request 经 React
   // 批处理后一次 commit，页面 seat 可见后 TrajectoryView 的滚动 effect 才跑
   // （display:none 下 scrollIntoView 无效）。页面未注册时整体丢弃，避免写出
-  // 无人认领的悬挂目标；交接目标带 pageId 归属，下发时定向投递。
+  // 无人认领的悬挂目标；但静默丢弃会让半坏的插件安装（元数据半注册失败）
+  // 完全无迹可循，留一条警告。交接目标带 pageId 归属，下发时定向投递。
   const service = registry as PanelShellController & PanelShellFocus
   service.openPage = (id) => { ledger.openPage(id) }
   service.inspect = (pageId, callId) => {
-    if (registry.page(pageId) === undefined) return
+    if (registry.page(pageId) === undefined) {
+      console.warn(`panel-shell: inspect dropped — page "${pageId}" is not registered`)
+      return
+    }
     ctx.layout.openPanel()
     ledger.openPage(pageId)
     handoff.request(pageId, callId)
