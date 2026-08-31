@@ -126,10 +126,10 @@ index 2696dc91fa..36b23b4a40 100644
 + * decisions: the sidebar slot renders HERE with live parameters from the
 + * concession solve, and the session-aware occupants render in fixed column
 + * positions; strict entries gate themselves on current-session availability
-+ * while session-maybe entries retain identity. Panel open/close/fullscreen
-+ * ride the frame's own eased grid-track transition — the push-panel
-+ * standard, where the content re-wraps along with the expansion; dragging
-+ * suspends the easing. Pure component: everything arrives
++ * while session-maybe entries retain identity. Panel open/close ride the
++ * frame's own eased grid-track transition (the push-panel standard; dragging
++ * suspends the easing); fullscreen is an overlay that covers the content
++ * without ever re-wrapping it. Pure component: everything arrives
   * through the three framework shares — zero cordis or framework imports,
   * zero self-made hooks.
   */
@@ -151,7 +151,7 @@ index 2696dc91fa..36b23b4a40 100644
    const [dragging, setDragging] = useState(false)
    const origin = useRef(0)
    const latest = useRef(0)
-@@ -139,35 +142,65 @@ export function AppFrame({
+@@ -139,35 +142,74 @@ export function AppFrame({
    const sidebarPreference = sidebarCollapsed
      ? 0
      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -164,21 +164,30 @@ index 2696dc91fa..36b23b4a40 100644
 +    detailsSession === undefined ? 0 : panels.details,
 +    panels.panel,
 +  )
-+  // Panel fullscreen (focus mode): the open panel takes over the CONTENT
-+  // area only — center and details collapse to zero; the sidebar keeps its
-+  // own track. The store preference is untouched, so restoring falls back to
-+  // the exact previous layout.
++  // Panel fullscreen (focus mode): an OVERLAY presentation. The grid tracks
++  // are untouched — the center gets covered, never re-wrapped (zero layout
++  // work per animation frame) — and the panel column leaves the flow at an
++  // inline target width (CSS anchors on data-panel-overlay). `panelExpanded`
++  // is the store intent (the titlebar icon flips immediately); `overlay` is
++  // the presentation, which outlives the intent on restore so the width can
++  // ease back down before the column rejoins the flow at the same geometry.
 +  const panelExpanded = panels.panelExpanded && cols.panel > 0
-+  const layout = panelExpanded
-+    ? { sidebar: cols.sidebar, details: 0, panel: Math.max(0, viewport - cols.sidebar) }
-+    : cols
++  const [overlay, setOverlay] = useState(false)
++  useEffect(() => {
++    if (panelExpanded) setOverlay(true)
++  }, [panelExpanded])
++  const layout = cols
 +  const colsRef = useRef(layout)
 +  colsRef.current = layout
 +  // The panel interior's pinned width. While the track collapses to zero the
 +  // target reads 0, but the pin must keep the last real width so the content
-+  // slides out unchanged instead of re-wrapping to nothing.
++  // slides out unchanged instead of re-wrapping to nothing. Under the overlay
++  // the pin rides the animated target, so the eased width only moves the
++  // clip box — the interior never re-wraps mid-flight.
 +  const lastPanelWidth = useRef(0)
-+  if (layout.panel > 0) lastPanelWidth.current = layout.panel
++  const boxTarget = panelExpanded ? Math.max(0, viewport - layout.sidebar) : layout.panel
++  if (boxTarget > 0) lastPanelWidth.current = boxTarget
++  const pinWidth = boxTarget > 0 ? boxTarget : lastPanelWidth.current
  
    // The drag base is the rendered width captured at drag start (grabbing a
    // concession-clamped panel must not jump back to the stored preference);
@@ -222,7 +231,7 @@ index 2696dc91fa..36b23b4a40 100644
        data-dragging={dragging || undefined}
      >
        <div className={css.sidebarCol}>
-@@ -175,10 +208,11 @@ export function AppFrame({
+@@ -175,10 +217,11 @@ export function AppFrame({
              sidebar keeps the mounted slot at the compact-rail width, and the
              component sees its rendered state as owner params decided here
              (collapsed follows the resolved rail, so a derived auto-collapse
@@ -236,19 +245,30 @@ index 2696dc91fa..36b23b4a40 100644
          })}
        </div>
        <>
-@@ -189,13 +223,28 @@ export function AppFrame({
+@@ -189,13 +232,41 @@ export function AppFrame({
              empty while no session is current. */}
          <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
          <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
 +        {/* Panel column grid item; width 0 keeps the subtree mounted (never
 +            unmount on close). The inner layer pins to the column's LEFT
 +            edge at the target width, so the eased track motion (open,
-+            close, fullscreen) reveals or covers the panel content without
-+            ever re-wrapping it — the interior never squeezes while the
-+            exterior pushes naturally. On release the column width equals
-+            the pin width, so re-joining the flow is seamless. */}
-+        <div className={css.panelCol}>
-+          <div className={css.panelColPin} style={{ width: layout.panel > 0 ? layout.panel : lastPanelWidth.current }}>
++            close) reveals the panel content without ever re-wrapping it.
++            Fullscreen swaps the presentation to a right-anchored overlay:
++            the inline width eases between the track width and the
++            content-area width, and only when the restore transition ends
++            does the column rejoin the flow — at the track width, so the
++            switch is seamless. The in-flow width is the pin width in px
++            (explicit px keeps the expand transition interpolable — auto
++            would not animate — while matching the track exactly). */}
++        <div
++          className={css.panelCol}
++          data-panel-overlay={overlay || undefined}
++          style={{ width: overlay ? boxTarget : pinWidth }}
++          onTransitionEnd={(event) => {
++            if (event.target === event.currentTarget && event.propertyName === 'width' && !panelExpanded) setOverlay(false)
++          }}
++        >
++          <div className={css.panelColPin} style={{ width: pinWidth }}>
 +            {renderSlot('panel', {})}
 +          </div>
 +        </div>
@@ -260,11 +280,13 @@ index 2696dc91fa..36b23b4a40 100644
 -      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
 -      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
 +      {/* The collapsed rail is fixed-width: no resize handle while closed.
-+          Panel fullscreen keeps the sidebar handle (its track survives);
-+          the panel handle goes with its interior edge. */}
++          The overlay covers the details column and its handle (frozen
++          underneath), keeps the sidebar handle (usable at the overlay's
++          left edge), and suspends the panel handle for the whole overlay
++          episode (expand, eased restore, release). */}
 +      {!sidebarCollapsed && <DragHandle side="sidebar" left={layout.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-+      {layout.details > 0 && <DragHandle side="details" left={viewport - layout.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
-+      {!panelExpanded && layout.panel > 0 && <DragHandle side="panel" left={viewport - layout.panel} onStart={onPanelStart} onDrag={onPanelDrag} onEnd={onDragEnd} />}
++      {!overlay && layout.details > 0 && <DragHandle side="details" left={viewport - layout.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
++      {!overlay && layout.panel > 0 && <DragHandle side="panel" left={viewport - layout.panel} onStart={onPanelStart} onDrag={onPanelDrag} onEnd={onDragEnd} />}
      </div>
    )
  }
@@ -436,7 +458,7 @@ index d865a5c186..9e34859a39 100644
      expect(getByTestId('details-content')).toBeTruthy()
      expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
    })
-@@ -254,22 +267,56 @@ describe('AppFrame', () => {
+@@ -254,22 +267,69 @@ describe('AppFrame', () => {
    it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
      const { frame, instance, slotCalls, getByTestId } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -462,7 +484,7 @@ index d865a5c186..9e34859a39 100644
 +    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
 +  })
 +
-+  it('panel fullscreen takes over the content area and restores exactly', () => {
++  it('panel fullscreen is an overlay: tracks untouched, eased exact restore', () => {
 +    const { frame, instance } = mountFrame()
 +    act(() => { instance.actions.togglePanelExpanded() })
 +    // No-op while the panel is closed.
@@ -470,12 +492,25 @@ index d865a5c186..9e34859a39 100644
 +    act(() => { instance.actions.togglePanel() })
 +    act(() => { instance.actions.togglePanelExpanded() })
 +    expect(frame.hasAttribute('data-panel-expanded')).toBe(true)
-+    // The open panel takes the whole content area; the sidebar track survives.
-+    expect(tracks(frame)).toEqual([320, 0, 1600])
-+    // Fullscreen suspends the panel drag handle (there is no free edge).
++    // Overlay presentation: the grid tracks are untouched (the center gets
++    // covered, never re-wrapped) and the column leaves the flow at the
++    // content-area width.
++    expect(tracks(frame)).toEqual([320, 0, 400])
++    const col = frame.querySelector<HTMLElement>('[data-panel-overlay]')
++    expect(col).toBeTruthy()
++    expect(col!.style.width).toBe('1600px')
++    // The overlay covers the details handle and the panel handle; the
++    // sidebar handle survives at the overlay's left edge.
 +    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
 +    act(() => { instance.actions.togglePanelExpanded() })
++    // The presentation outlives the intent so the width can ease back down.
 +    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
++    expect(col!.style.width).toBe('400px')
++    const end = new Event('transitionend', { bubbles: true })
++    Object.assign(end, { propertyName: 'width' })
++    act(() => { col!.dispatchEvent(end) })
++    // Released back into the flow at the track width — a seamless switch.
++    expect(frame.querySelector('[data-panel-overlay]')).toBeNull()
 +    expect(tracks(frame)).toEqual([320, 0, 400])
 +    // Closing the panel resets the flag in the store.
 +    act(() => { instance.actions.closePanel() })
@@ -497,7 +532,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('drag handles disappear for collapsed columns', () => {
-@@ -279,6 +326,10 @@ describe('AppFrame', () => {
+@@ -279,6 +339,10 @@ describe('AppFrame', () => {
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
      act(() => { instance.actions.closeDetails() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
@@ -508,7 +543,7 @@ index d865a5c186..9e34859a39 100644
      act(() => { instance.actions.toggleSidebar() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
    })
-@@ -288,7 +339,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -288,7 +352,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
    it('mounts collapsed below the breakpoint with no sidebar handle', () => {
      frameWidth = 980
      const { frame, slotCalls } = mountFrame()
@@ -517,7 +552,7 @@ index d865a5c186..9e34859a39 100644
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -298,11 +349,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -298,11 +362,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -531,7 +566,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -312,7 +363,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -312,7 +376,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      act(() => { instance.actions.toggleSidebar() })
@@ -540,7 +575,7 @@ index d865a5c186..9e34859a39 100644
      expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
    })
  
-@@ -321,10 +372,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -321,10 +385,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      act(() => { instance.actions.setSidebar(400) })
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
@@ -613,7 +648,7 @@ index d865a5c186..9e34859a39 100644
  })
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
-@@ -48,6 +48,43 @@
+@@ -48,6 +48,71 @@
    border-left: none;
  }
  
@@ -622,10 +657,9 @@ index d865a5c186..9e34859a39 100644
 +   dropping it lets the pin anchor to the whole frame and the panel renders
 +   over the window's left edge. The stroke rides the column's own left edge,
 +   so it is present for the whole eased track motion instead of popping in
-+   when the reveal completes. Two suppressions: collapsed (a 0-width column
-+   would still paint it) and fullscreen (the panel adjoins the SIDEBAR, whose
-+   edge is a fill change by convention — never a stroke — matching the
-+   sidebar|center seam). */
++   when the reveal completes. Collapsed suppresses it (a 0-width column would
++   still paint it); the overlay presentation swaps it for a shadow (see
++   data-panel-overlay below). */
 +.panelCol {
 +  position: relative;
 +  min-width: 0;
@@ -634,9 +668,38 @@ index d865a5c186..9e34859a39 100644
 +  border-left: 1px solid var(--dsw-alias-border-l2);
 +}
 +
-+.frame[data-panel-collapsed] .panelCol,
-+.frame[data-panel-expanded] .panelCol {
++.frame[data-panel-collapsed] .panelCol {
 +  border-left: none;
++}
++
++/* Fullscreen overlay presentation. data-panel-overlay is the presentation
++   flag — it outlives data-panel-expanded for the length of the restore ease
++   (the render releases it on the width transition end). The column leaves
++   the flow, pins to the window's right edge, and eases its width over the
++   untouched center: zero reflow of the covered columns, the interior is
++   pinned at the target width, so the animation only moves a clip box.
++   z-index sits above the columns but below the drag handles (the sidebar
++   handle stays usable at the overlay's left edge; the details and panel
++   handles are suppressed in the render for the whole episode). The left
++   stroke becomes a shadow: an overlay floats over covered content, it does
++   not adjoin it. */
++.frame[data-panel-overlay] .panelCol {
++  position: absolute;
++  top: 0;
++  right: 0;
++  bottom: 0;
++  z-index: 1;
++  border-left: none;
++  box-shadow: -16px 0 32px rgb(0 0 0 / 14%);
++  transition: width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .frame[data-panel-overlay] .panelCol {
++    /* Duration 0, not `transition: none`: the transition must still exist
++       so its end event releases the overlay presentation after the snap. */
++    transition-duration: 0s;
++  }
 +}
 +
 +/* The panel interior, anchored to the column's LEFT edge at its target
