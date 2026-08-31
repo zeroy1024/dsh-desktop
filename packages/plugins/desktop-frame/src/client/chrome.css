@@ -271,13 +271,13 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 }
 
 /* 面板关闭时 details 列直达窗口右缘，其 header 的关闭按钮（28×28 贴右缘，
-   header padding-right 12px）会被钉角按钮簇（2×40px）盖住——单按钮时代就
-   互相踩，簇加宽后彻底埋掉。让 details header 自让 88px（簇宽 + 呼吸 8），
-   只在面板关（data-panel-collapsed）时生效；面板开时 details 列右缘止于
-   面板列之前，无需让位。锚点用 data-slot 渲染位包裹层 + 结构位
-   （DetailsPanel 根的首个子 div 是唯一 header），不碰 CSS module hash。 */
+   header padding-right 12px）会被钉角按钮盖住——单按钮时代就互相踩。此时
+   簇里只剩开关一枚（放大钮仅面板展开时渲染），让 details header 自让
+   48px（40 + 呼吸 8）。面板开时 details 列右缘止于面板列之前，无需让位。
+   锚点用 data-slot 渲染位包裹层 + 结构位（DetailsPanel 根的首个子 div 是
+   唯一 header），不碰 CSS module hash。 */
 html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [data-slot='details'] > div > div:first-child {
-  padding-right: 88px !important;
+  padding-right: 48px !important;
 }
 
 [data-dsh-titleband] button:hover {

@@ -7,7 +7,6 @@ export interface ClientContext {
   layout: {
     toggleSidebar: () => void
     togglePanel: () => void
-    openPanel: () => void
     togglePanelExpanded: () => void
   }
   workspaces: { startSession: (workspaceId?: string) => void }

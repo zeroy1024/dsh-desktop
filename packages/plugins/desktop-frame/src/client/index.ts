@@ -21,11 +21,9 @@ export function apply(ctx: ClientContext): void {
     togglePanel: () => {
       ctx.layout.togglePanel()
     },
-    // 放大语义矩阵收拢成一个无状态动作：面板关 → openPanel + 放大（两连）；
-    // 面板开 → 翻转放大/恢复。openPanel 对已开面板保持原宽，togglePanelExpanded
-    // 只在面板开时生效（0006 store 守卫），组合对三种初态都落到正确终态。
+    // 放大钮只在面板展开时渲染（Titleband 管），这里的动作只需翻转放大态：
+    // togglePanelExpanded 自带 0006 store 守卫（面板关时不生效）。
     togglePanelExpand: () => {
-      ctx.layout.openPanel()
       ctx.layout.togglePanelExpanded()
     },
   })

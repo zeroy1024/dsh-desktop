@@ -163,22 +163,25 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
           </button>
         ) : null}
       </div>
-      {/* 面板按钮簇（放大/恢复 + 开关）钉在窗口 header 最右端（trailing 位）：
-          不随 titleband 跟侧栏宽度走，面板开时正好落在 PanelShell header
-          预留的右端 88px 空位里。放大语义矩阵收拢在 togglePanelExpand 一个
-          动作里（接线处组合 openPanel），按钮只管反映当前态。 */}
+      {/* 面板按钮簇钉在窗口 header 最右端（trailing 位）：不随 titleband 跟
+          侧栏宽度走，面板开时正好落在 PanelShell header 预留的右端 88px 空位
+          里。放大钮只在面板展开时存在（面板关着没有"放大"语义，也避免死
+          状态）；拖动带延伸到右缘的中栏 header 之上，app-region 的挖洞只认
+          显式 no-drag（默认值 none 不挖），漏掉这行点击会被拖动手势吞掉。 */}
       <div data-dsh-panel-cluster="">
-        <button
-          type="button"
-          data-dsh-panel-expand=""
-          aria-label={panelExpanded ? 'Restore panel width' : 'Expand side panel'}
-          title={panelExpanded ? '恢复面板宽度' : '放大面板'}
-          onClick={() => {
-            togglePanelExpand()
-          }}
-        >
-          <PanelExpandIcon expanded={panelExpanded} />
-        </button>
+        {!panelCollapsed && (
+          <button
+            type="button"
+            data-dsh-panel-expand=""
+            aria-label={panelExpanded ? 'Restore panel width' : 'Expand side panel'}
+            title={panelExpanded ? '恢复面板宽度' : '放大面板'}
+            onClick={() => {
+              togglePanelExpand()
+            }}
+          >
+            <PanelExpandIcon expanded={panelExpanded} />
+          </button>
+        )}
         <button
           type="button"
           data-dsh-panel-toggle=""
@@ -232,11 +235,12 @@ function SidePanelIcon({ open }: { open: boolean }) {
   )
 }
 
-/** 面板放大/恢复图标（Codex 同语义的对向双箭头）：放大态箭头朝外示意撑满
-    内容区，恢复态朝内示意收回默认宽。 */
+/** 面板放大/恢复图标（Codex 同语义的对向双箭头，动作语义：箭头指向即点击
+    后的流向）——未放大显示朝外双箭头（点击放大），放大态显示朝内双箭头
+    （点击收回默认宽）。 */
 function PanelExpandIcon({ expanded }: { expanded: boolean }) {
-  const left = expanded ? 'M6.5 5 3.5 8l3 3' : 'M3.5 5l3 3-3 3'
-  const right = expanded ? 'M9.5 5l3 3-3 3' : 'M12.5 5l-3 3 3 3'
+  const left = expanded ? 'M3.5 5l3 3-3 3' : 'M6.5 5 3.5 8l3 3'
+  const right = expanded ? 'M12.5 5l-3 3 3 3' : 'M9.5 5l3 3-3 3'
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path d={left} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
