@@ -105,8 +105,94 @@
 +  // (may drop below CENTER_MIN).
 +  return { sidebar: s, center: Math.max(0, viewport - s), details: 0, panel: 0 }
  }
+diff --git a/packages/client/ui-layout/src/client/AppFrame.module.css b/packages/client/ui-layout/src/client/AppFrame.module.css
+index ae56780133..f313faef67 100644
+--- a/packages/client/ui-layout/src/client/AppFrame.module.css
++++ b/packages/client/ui-layout/src/client/AppFrame.module.css
+@@ -48,6 +48,81 @@
+   border-left: none;
+ }
+ 
++/* The conversation column contains its own elevated layers (the input dock
++   rides z-index above the message flow, the context meter higher still).
++   Without a local stacking context those values compete frame-wide and the
++   dock floats over the fullscreen panel overlay. isolation keeps every
++   internal z-index local: the overlay is a frame-level sibling, so it
++   covers the column no matter what its children raise. */
++.centerCol,
++.detailsCol {
++  isolation: isolate;
++}
++
++/* The panel column, with the left stroke dividing it from the CENTER column.
++   position: relative anchors the interior pin (panelColPin) to THIS column —
++   dropping it lets the pin anchor to the whole frame and the panel renders
++   over the window's left edge. The stroke rides the column's own left edge,
++   so it is present for the whole eased track motion instead of popping in
++   when the reveal completes. Collapsed suppresses it (a 0-width column would
++   still paint it); the overlay presentation suppresses it as well (see
++   data-panel-overlay below). */
++.panelCol {
++  position: relative;
++  min-width: 0;
++  overflow: hidden;
++  background: var(--dsw-alias-bg-base);
++  border-left: 1px solid var(--dsw-alias-border-l2);
++}
++
++.frame[data-panel-collapsed] .panelCol {
++  border-left: none;
++}
++
++/* Fullscreen overlay presentation. data-panel-overlay is the presentation
++   flag — it outlives data-panel-expanded for the length of the restore ease
++   (the render releases it on the width transition end). The column leaves
++   the flow, pins to the window's right edge, and eases its width over the
++   untouched center: zero reflow of the covered columns, the interior is
++   pinned at the target width, so the animation only moves a clip box.
++   z-index sits above the columns but below the drag handles (the sidebar
++   handle stays usable at the overlay's left edge; the details and panel
++   handles are suppressed in the render for the whole episode). The left
++   stroke stays suppressed: at full width the overlay adjoins the sidebar,
++   whose seam is a fill change by convention — never a stroke. */
++.frame[data-panel-overlay] .panelCol {
++  position: absolute;
++  top: 0;
++  right: 0;
++  bottom: 0;
++  z-index: 1;
++  border-left: none;
++  transition: width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .frame[data-panel-overlay] .panelCol {
++    /* Duration 0, not `transition: none`: the transition must still exist
++       so its end event releases the overlay presentation after the snap. */
++    transition-duration: 0s;
++  }
++}
++
++/* The panel interior, anchored to the column's LEFT edge at its target
++   width. Anchoring left (not right) makes the interior's position derive
++   from the same layout pass as the eased track: it slides with the moving
++   seam in lockstep — one animated property, no compositor/main-thread
++   desync — while its fixed width keeps the content from ever re-wrapping.
++   The column's overflow clips the part that still lies beyond the window
++   edge mid-motion. On release the column width equals the pin width, so
++   re-joining the flow is seamless. */
++.panelColPin {
++  position: absolute;
++  top: 0;
++  bottom: 0;
++  left: 0;
++}
++
+ /* Drag handles are frame children (columns clip overflow): an 8px hit strip
+    centered on the column border via inline left, above column content. Details
+    adds a visible 12x32 pill at vertical center; sidebar keeps only the hit strip. */
 diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
-index 2696dc91fa..36b23b4a40 100644
+index 2696dc91fa..beb0037fd4 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.tsx
 +++ b/packages/client/ui-layout/src/client/AppFrame.tsx
 @@ -1,12 +1,15 @@
@@ -151,7 +237,7 @@ index 2696dc91fa..36b23b4a40 100644
    const [dragging, setDragging] = useState(false)
    const origin = useRef(0)
    const latest = useRef(0)
-@@ -139,35 +142,84 @@ export function AppFrame({
+@@ -139,35 +142,92 @@ export function AppFrame({
    const sidebarPreference = sidebarCollapsed
      ? 0
      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -187,16 +273,24 @@ index 2696dc91fa..36b23b4a40 100644
 +  const layout = cols
 +  const colsRef = useRef(layout)
 +  colsRef.current = layout
-+  // The panel interior's pinned width. While the track collapses to zero the
-+  // target reads 0, but the pin must keep the last real width so the content
-+  // slides out unchanged instead of re-wrapping to nothing. Under the overlay
-+  // the pin rides the animated target, so the eased width only moves the
-+  // clip box — the interior never re-wraps mid-flight.
-+  const lastPanelWidth = useRef(0)
-+  const boxTarget = panelExpanded ? Math.max(0, viewport - layout.sidebar) : layout.panel
-+  if (boxTarget > 0) lastPanelWidth.current = boxTarget
-+  const pinTarget = overlay ? boxTarget : layout.panel
-+  const pinWidth = pinTarget > 0 ? pinTarget : lastPanelWidth.current
++  // The first grid track as a CSS expression: a shell may override the
++  // collapsed rail (--dsh-sidebar-collapsed-track; the desktop overlay uses
++  // 0), so only the expression — never the solved number — matches the
++  // rendered track. Shared by the grid template and the fullscreen target.
++  const sidebarTrack = sidebarCollapsed ? `var(--dsh-sidebar-collapsed-track, ${layout.sidebar}px)` : `${layout.sidebar}px`
++  // The panel interior's pinned width, as CSS width values. The fullscreen
++  // target subtracts the rendered sidebar track in the engine (a calc over
++  // the track expression), so the overlay hugs the sidebar exactly under
++  // track overrides. While the track collapses to zero the target reads 0px,
++  // but the pin must keep the last real width so the content slides out
++  // unchanged instead of re-wrapping to nothing. Under the overlay the pin
++  // rides the animated target, so the eased width only moves the clip box —
++  // the interior never re-wraps mid-flight.
++  const lastPanelWidth = useRef('0px')
++  const boxTarget = panelExpanded ? `calc(100% - ${sidebarTrack})` : `${layout.panel}px`
++  if (boxTarget !== '0px') lastPanelWidth.current = boxTarget
++  const pinTarget = overlay ? boxTarget : `${layout.panel}px`
++  const pinWidth = pinTarget !== '0px' ? pinTarget : lastPanelWidth.current
  
    // The drag base is the rendered width captured at drag start (grabbing a
    // concession-clamped panel must not jump back to the stored preference);
@@ -231,7 +325,7 @@ index 2696dc91fa..36b23b4a40 100644
        ref={frameRef}
        className={css.frame}
 -      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
-+      style={{ gridTemplateColumns: `${sidebarCollapsed ? `var(--dsh-sidebar-collapsed-track, ${layout.sidebar}px)` : `${layout.sidebar}px`} minmax(0, 1fr) ${layout.details}px ${layout.panel}px` }}
++      style={{ gridTemplateColumns: `${sidebarTrack} minmax(0, 1fr) ${layout.details}px ${layout.panel}px` }}
        data-sidebar-collapsed={sidebarCollapsed || undefined}
 -      data-details-collapsed={cols.details === 0 || undefined}
 +      data-details-collapsed={(layout.details === 0) || undefined}
@@ -241,7 +335,7 @@ index 2696dc91fa..36b23b4a40 100644
        data-dragging={dragging || undefined}
      >
        <div className={css.sidebarCol}>
-@@ -175,10 +228,11 @@ export function AppFrame({
+@@ -175,10 +235,11 @@ export function AppFrame({
              sidebar keeps the mounted slot at the compact-rail width, and the
              component sees its rendered state as owner params decided here
              (collapsed follows the resolved rail, so a derived auto-collapse
@@ -255,7 +349,7 @@ index 2696dc91fa..36b23b4a40 100644
          })}
        </div>
        <>
-@@ -189,13 +243,40 @@ export function AppFrame({
+@@ -189,13 +250,43 @@ export function AppFrame({
              empty while no session is current. */}
          <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
          <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
@@ -292,15 +386,222 @@ index 2696dc91fa..36b23b4a40 100644
 +          The overlay covers the details column and its handle (frozen
 +          underneath), keeps the sidebar handle (usable at the overlay's
 +          left edge), and suspends the panel handle for the whole overlay
-+          episode (expand, eased restore, release). */}
++          episode (expand, eased restore, release). The details handle sits
++          on the center|details seam, which yields to the open panel column:
++          the panel opens to the RIGHT of details, so the seam's left offset
++          subtracts both right-side tracks. */}
 +      {!sidebarCollapsed && <DragHandle side="sidebar" left={layout.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-+      {!overlay && layout.details > 0 && <DragHandle side="details" left={viewport - layout.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
++      {!overlay && layout.details > 0 && <DragHandle side="details" left={viewport - layout.details - layout.panel} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
 +      {!overlay && layout.panel > 0 && <DragHandle side="panel" left={viewport - layout.panel} onStart={onPanelStart} onDrag={onPanelDrag} onEnd={onDragEnd} />}
      </div>
    )
  }
+diff --git a/packages/client/ui-layout/src/client/index.ts b/packages/client/ui-layout/src/client/index.ts
+index c56d83bfbb..bdc3cbd130 100644
+--- a/packages/client/ui-layout/src/client/index.ts
++++ b/packages/client/ui-layout/src/client/index.ts
+@@ -1,7 +1,7 @@
+ /**
+  * Layout plugin, browser half: one register() call contributes AppFrame into
+  * the runtime's built-in 'root' slot and, in the same breath, declares the
+- * four child slots (declaration = exclusive render authority), seats the
++ * five child slots (declaration = exclusive render authority), seats the
+  * layout store (panel geometry), and wires the panel-action service face.
+  * ctx.layout is the cross-plugin panel-action contract; navigation state lives
+  * with the runtime sessions service. A second effect seats the theme
+@@ -33,7 +33,7 @@ declare module '@deepseek-ai/cordis' {
+ declare module '@deepseek-ai/dsh-client-ui-slots' {
+   interface SlotMap {
+     // The 'root' entry itself is the runtime's built-in slot (declared
+-    // there); these four are the frame's children, declared by the same
++    // there); these five are the frame's children, declared by the same
+     // register() call that contributes AppFrame. Session owners never pass
+     // sessionId: the framework injects it as a standard prop.
+     /**
+@@ -70,6 +70,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+      * `session` scope, and `ctx.layout` owns whether the column is open.
+      */
+     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
++    /**
++     * The right side-panel column, shown when the layout opens it. OCCUPIED
++     * by a panel container (which declares its page seats inside it) —
++     * registering here replaces the column and takes those seats with it.
++     * Absent an occupant the column renders nothing.
++     *
++     * Current-session-optional like `conversation`: the panel survives
++     * session switches (its own chrome is session-independent), while the
++     * page seats inside are session-scoped. `ctx.layout` owns whether the
++     * column is open (toggle/open/close).
++     */
++    'panel': { kind: 'single'; scope: 'session-maybe'; owner: PanelOwnerProps }
+     /**
+      * Frame-wide floating layer, above every column and outside their scroll
+      * containers. Deliberately generic and unowned by any feature: a badge, a
+@@ -104,12 +116,15 @@ export interface ConvOwnerProps {}
+ /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
+ export interface DetailsOwnerProps {}
+ 
++/** Panel owner share: empty — the container reads the layout share and session hooks itself. */
++export interface PanelOwnerProps {}
++
+ /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
+ export const inject = ['slots', 'theme']
+ 
+ /**
+  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
+- * into 'root' with the four child-slot declarations, the layout store seat,
++ * into 'root' with the five child-slot declarations, the layout store seat,
+  * and the inject hook that hands the store's bound actions to the service.
+  * @param ctx - client root context.
+  */
+@@ -123,6 +138,7 @@ export function apply(ctx: ClientContext): void {
+         'sidebar': { kind: 'single', scope: 'root' },
+         'conversation': { kind: 'single', scope: 'session-maybe' },
+         'details': { kind: 'single', scope: 'session' },
++        'panel': { kind: 'single', scope: 'session-maybe' },
+         'shell.overlay': { kind: 'list', scope: 'root' },
+       },
+       // Exclusive store: the factory itself — the framework instantiates per
+diff --git a/packages/client/ui-layout/src/client/service.ts b/packages/client/ui-layout/src/client/service.ts
+index 2b2e50e5d5..310c0fe44e 100644
+--- a/packages/client/ui-layout/src/client/service.ts
++++ b/packages/client/ui-layout/src/client/service.ts
+@@ -27,6 +27,17 @@ export interface ILayout {
+   openDetails(): void
+   /** Close the details panel. */
+   closeDetails(): void
++  /** Toggle the side panel column (closed ⟷ contract default width). */
++  togglePanel(): void
++  /** Open the side panel column (no-op when already open). */
++  openPanel(): void
++  /** Close the side panel column. */
++  closePanel(): void
++  /**
++   * Toggle panel fullscreen over an open panel (no-op while closed); closing
++   * the panel resets the flag.
++   */
++  togglePanelExpanded(): void
+ }
+ 
+ /** Cross-plugin panel-action face (ctx.layout). */
+@@ -59,6 +70,29 @@ export class LayoutController implements ILayout {
+     this.#require().closeDetails()
+   }
+ 
++  /** Toggle the side panel column (closed ⟷ contract default width). */
++  togglePanel(): void {
++    this.#require().togglePanel()
++  }
++
++  /** Open the side panel column (no-op when already open). */
++  openPanel(): void {
++    this.#require().openPanel()
++  }
++
++  /** Close the side panel column. */
++  closePanel(): void {
++    this.#require().closePanel()
++  }
++
++  /**
++   * Toggle panel fullscreen over an open panel (no-op while closed); closing
++   * the panel resets the flag.
++   */
++  togglePanelExpanded(): void {
++    this.#require().togglePanelExpanded()
++  }
++
+   #require(): PanelActions {
+     // Callers are UI gestures, which cannot fire before the root entry
+     // rendered (the inject hook runs in its first render) — reaching this
+diff --git a/packages/client/ui-layout/src/client/stores.ts b/packages/client/ui-layout/src/client/stores.ts
+index d2de668a9c..cf1099c6ca 100644
+--- a/packages/client/ui-layout/src/client/stores.ts
++++ b/packages/client/ui-layout/src/client/stores.ts
+@@ -10,17 +10,27 @@
+ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+ import {
+   clampWidth, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
++  PANEL_DEFAULT, PANEL_MAX, PANEL_MIN,
+   SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
+ } from './columns.ts'
+ 
+ /**
+- * Layout store state: panel width preferences in px (0 = closed), plus the
+- * narrow-viewport pair — `narrow` mirrors AppFrame's breakpoint reading
++ * Layout store state: panel width preferences in px (0 = closed), the
++ * panel-fullscreen flag (`panelExpanded` — the open panel takes over the
++ * content area; only meaningful while `panel > 0`), plus the narrow-viewport
++ * pair — `narrow` mirrors AppFrame's breakpoint reading
+  * (viewport < SIDEBAR_AUTO_COLLAPSE) so toggleSidebar can pick semantics, and
+  * `narrowExpanded` is the manual override that re-expands the auto-collapsed
+  * sidebar over the squeezed center without rewriting the width preference.
+  */
+-type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
++type LayoutState = {
++  sidebar: number
++  details: number
++  panel: number
++  panelExpanded: boolean
++  narrow: boolean
++  narrowExpanded: boolean
++}
+ 
+ /**
+  * Annotation twin of the actions literal below (the export needs a declared
+@@ -29,10 +39,15 @@ type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowEx
+ type LayoutActions = {
+   setSidebar: (draft: LayoutState, px: number) => void
+   setDetails: (draft: LayoutState, px: number) => void
++  setPanel: (draft: LayoutState, px: number) => void
+   toggleSidebar: (draft: LayoutState) => void
+   setNarrow: (draft: LayoutState, narrow: boolean) => void
+   openDetails: (draft: LayoutState) => void
+   closeDetails: (draft: LayoutState) => void
++  togglePanel: (draft: LayoutState) => void
++  openPanel: (draft: LayoutState) => void
++  closePanel: (draft: LayoutState) => void
++  togglePanelExpanded: (draft: LayoutState) => void
+ }
+ 
+ /**
+@@ -47,10 +62,13 @@ type LayoutActions = {
+  */
+ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
+   const handle = defineStore({
+-    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false }),
++    init: (): LayoutState => ({
++      sidebar: SIDEBAR_DEFAULT, details: 0, panel: 0, panelExpanded: false, narrow: false, narrowExpanded: false,
++    }),
+     actions: {
+       setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
+       setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
++      setPanel: (d, px: number) => { d.panel = clampWidth(px, PANEL_MIN, PANEL_MAX) },
+       // Narrow toggles flip only the override: the width preference survives
+       // untouched, so re-widening restores the pre-squeeze layout.
+       toggleSidebar: (d) => {
+@@ -66,6 +84,19 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
+       },
+       openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
+       closeDetails: (d) => { d.details = 0 },
++      // Toggle is the open/closed write set: closing forgets the drag width
++      // and reopening restores the contract default (clamp keeps the range
++      // declared in one place for the solver). Closing exits fullscreen —
++      // the flag is only meaningful over an open panel.
++      togglePanel: (d) => {
++        if (d.panel === 0) d.panel = PANEL_DEFAULT
++        else { d.panel = 0; d.panelExpanded = false }
++      },
++      openPanel: (d) => { d.panel = clampWidth(d.panel === 0 ? PANEL_DEFAULT : d.panel, PANEL_MIN, PANEL_MAX) },
++      closePanel: (d) => { d.panel = 0; d.panelExpanded = false },
++      // Fullscreen flips only over an open panel; AppFrame additionally
++      // treats the flag as false while the solved width is zero.
++      togglePanelExpanded: (d) => { if (d.panel > 0) d.panelExpanded = !d.panelExpanded },
+     },
+   })
+   return handle
 diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-index d865a5c186..9e34859a39 100644
+index d865a5c186..f85d75e75a 100644
 --- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
 +++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
 @@ -5,8 +5,8 @@
@@ -433,7 +734,7 @@ index d865a5c186..9e34859a39 100644
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
      const handles = frame.querySelectorAll('[class*="handle"]')
-@@ -234,19 +238,28 @@ describe('AppFrame', () => {
+@@ -234,19 +238,41 @@ describe('AppFrame', () => {
      expect(tracks(frame)[1]).toBe(420)
    })
  
@@ -444,6 +745,19 @@ index d865a5c186..9e34859a39 100644
 +    expect(handles).toHaveLength(2)
 +    drag(handles[1]!, 1520, 1460)
 +    expect(tracks(frame)[2]).toBe(460)
++  })
++
++  it('details handle yields to the open panel column', () => {
++    const { frame, instance } = mountFrame()
++    act(() => { instance.actions.openDetails() })
++    act(() => { instance.actions.togglePanel() })
++    const handles = frame.querySelectorAll<HTMLElement>('[class*="handle"]')
++    expect(handles).toHaveLength(3)
++    // 1920 frame: sidebar 320 | center | details 360 | panel 400. The panel
++    // opens to the RIGHT of details, so the center|details seam sits at
++    // viewport - details - panel; the panel seam stays at viewport - panel.
++    expect(handles[1]!.style.left).toBe('1160px')
++    expect(handles[2]!.style.left).toBe('1520px')
 +  })
 +
    it('drag base is the rendered (concession-clamped) width, not the preference', () => {
@@ -467,7 +781,7 @@ index d865a5c186..9e34859a39 100644
      expect(getByTestId('details-content')).toBeTruthy()
      expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
    })
-@@ -254,22 +267,73 @@ describe('AppFrame', () => {
+@@ -254,22 +280,73 @@ describe('AppFrame', () => {
    it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
      const { frame, instance, slotCalls, getByTestId } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -511,7 +825,7 @@ index d865a5c186..9e34859a39 100644
 +    expect(frame.hasAttribute('data-panel-overlay')).toBe(true)
 +    const col = frame.querySelector<HTMLElement>('[class*="panelCol"]')
 +    expect(col).toBeTruthy()
-+    expect(col!.style.width).toBe('1600px')
++    expect(col!.style.width).toBe('calc(100% - 320px)')
 +    // The overlay covers the details handle and the panel handle; the
 +    // sidebar handle survives at the overlay's left edge.
 +    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
@@ -545,7 +859,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('drag handles disappear for collapsed columns', () => {
-@@ -279,6 +342,10 @@ describe('AppFrame', () => {
+@@ -279,6 +356,10 @@ describe('AppFrame', () => {
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
      act(() => { instance.actions.closeDetails() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
@@ -556,7 +870,7 @@ index d865a5c186..9e34859a39 100644
      act(() => { instance.actions.toggleSidebar() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
    })
-@@ -288,7 +355,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -288,7 +369,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
    it('mounts collapsed below the breakpoint with no sidebar handle', () => {
      frameWidth = 980
      const { frame, slotCalls } = mountFrame()
@@ -565,7 +879,7 @@ index d865a5c186..9e34859a39 100644
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -298,11 +365,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -298,11 +379,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -579,7 +893,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -312,7 +379,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -312,7 +393,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      act(() => { instance.actions.toggleSidebar() })
@@ -588,7 +902,7 @@ index d865a5c186..9e34859a39 100644
      expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
    })
  
-@@ -321,10 +388,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -321,10 +402,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      act(() => { instance.actions.setSidebar(400) })
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
@@ -601,7 +915,7 @@ index d865a5c186..9e34859a39 100644
    })
  })
  
-@@ -345,28 +396,28 @@ describe('AppFrame — guard branches', () => {
+@@ -345,28 +426,28 @@ describe('AppFrame — guard branches', () => {
    it('two moves inside one frame coalesce through the pending rAF', () => {
      const { frame, instance } = mountFrame()
      const handle = frame.querySelectorAll('[class*="handle"]')[0]!
@@ -639,7 +953,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('zero-width resize reports are ignored (display:none window)', () => {
-@@ -374,7 +425,7 @@ describe('AppFrame — guard branches', () => {
+@@ -374,7 +455,7 @@ describe('AppFrame — guard branches', () => {
      frameWidth = 0
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      // Track template still reflects the last non-zero viewport.
@@ -648,7 +962,7 @@ index d865a5c186..9e34859a39 100644
    })
  })
  
-@@ -391,8 +442,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
+@@ -391,8 +472,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
    it('double resize inside one frame rides the pending rAF (??= guard)', () => {
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
@@ -659,288 +973,8 @@ index d865a5c186..9e34859a39 100644
 +    expect(tracks(frame)).toEqual([320, 340, 0])
    })
  })
---- a/packages/client/ui-layout/src/client/AppFrame.module.css
-+++ b/packages/client/ui-layout/src/client/AppFrame.module.css
-@@ -48,6 +48,81 @@
-   border-left: none;
- }
- 
-+/* The conversation column contains its own elevated layers (the input dock
-+   rides z-index above the message flow, the context meter higher still).
-+   Without a local stacking context those values compete frame-wide and the
-+   dock floats over the fullscreen panel overlay. isolation keeps every
-+   internal z-index local: the overlay is a frame-level sibling, so it
-+   covers the column no matter what its children raise. */
-+.centerCol,
-+.detailsCol {
-+  isolation: isolate;
-+}
-+
-+/* The panel column, with the left stroke dividing it from the CENTER column.
-+   position: relative anchors the interior pin (panelColPin) to THIS column —
-+   dropping it lets the pin anchor to the whole frame and the panel renders
-+   over the window's left edge. The stroke rides the column's own left edge,
-+   so it is present for the whole eased track motion instead of popping in
-+   when the reveal completes. Collapsed suppresses it (a 0-width column would
-+   still paint it); the overlay presentation suppresses it as well (see
-+   data-panel-overlay below). */
-+.panelCol {
-+  position: relative;
-+  min-width: 0;
-+  overflow: hidden;
-+  background: var(--dsw-alias-bg-base);
-+  border-left: 1px solid var(--dsw-alias-border-l2);
-+}
-+
-+.frame[data-panel-collapsed] .panelCol {
-+  border-left: none;
-+}
-+
-+/* Fullscreen overlay presentation. data-panel-overlay is the presentation
-+   flag — it outlives data-panel-expanded for the length of the restore ease
-+   (the render releases it on the width transition end). The column leaves
-+   the flow, pins to the window's right edge, and eases its width over the
-+   untouched center: zero reflow of the covered columns, the interior is
-+   pinned at the target width, so the animation only moves a clip box.
-+   z-index sits above the columns but below the drag handles (the sidebar
-+   handle stays usable at the overlay's left edge; the details and panel
-+   handles are suppressed in the render for the whole episode). The left
-+   stroke stays suppressed: at full width the overlay adjoins the sidebar,
-+   whose seam is a fill change by convention — never a stroke. */
-+.frame[data-panel-overlay] .panelCol {
-+  position: absolute;
-+  top: 0;
-+  right: 0;
-+  bottom: 0;
-+  z-index: 1;
-+  border-left: none;
-+  transition: width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
-+}
-+
-+@media (prefers-reduced-motion: reduce) {
-+  .frame[data-panel-overlay] .panelCol {
-+    /* Duration 0, not `transition: none`: the transition must still exist
-+       so its end event releases the overlay presentation after the snap. */
-+    transition-duration: 0s;
-+  }
-+}
-+
-+/* The panel interior, anchored to the column's LEFT edge at its target
-+   width. Anchoring left (not right) makes the interior's position derive
-+   from the same layout pass as the eased track: it slides with the moving
-+   seam in lockstep — one animated property, no compositor/main-thread
-+   desync — while its fixed width keeps the content from ever re-wrapping.
-+   The column's overflow clips the part that still lies beyond the window
-+   edge mid-motion. On release the column width equals the pin width, so
-+   re-joining the flow is seamless. */
-+.panelColPin {
-+  position: absolute;
-+  top: 0;
-+  bottom: 0;
-+  left: 0;
-+}
-+
- /* Drag handles are frame children (columns clip overflow): an 8px hit strip
-    centered on the column border via inline left, above column content. Details
-    adds a visible 12x32 pill at vertical center; sidebar keeps only the hit strip. */
---- a/packages/client/ui-layout/src/client/stores.ts
-+++ b/packages/client/ui-layout/src/client/stores.ts
-@@ -10,17 +10,27 @@
- import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
- import {
-   clampWidth, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
-+  PANEL_DEFAULT, PANEL_MAX, PANEL_MIN,
-   SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
- } from './columns.ts'
- 
- /**
-- * Layout store state: panel width preferences in px (0 = closed), plus the
-- * narrow-viewport pair — `narrow` mirrors AppFrame's breakpoint reading
-+ * Layout store state: panel width preferences in px (0 = closed), the
-+ * panel-fullscreen flag (`panelExpanded` — the open panel takes over the
-+ * content area; only meaningful while `panel > 0`), plus the narrow-viewport
-+ * pair — `narrow` mirrors AppFrame's breakpoint reading
-  * (viewport < SIDEBAR_AUTO_COLLAPSE) so toggleSidebar can pick semantics, and
-  * `narrowExpanded` is the manual override that re-expands the auto-collapsed
-  * sidebar over the squeezed center without rewriting the width preference.
-  */
--type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
-+type LayoutState = {
-+  sidebar: number
-+  details: number
-+  panel: number
-+  panelExpanded: boolean
-+  narrow: boolean
-+  narrowExpanded: boolean
-+}
- 
- /**
-  * Annotation twin of the actions literal below (the export needs a declared
-@@ -29,10 +39,15 @@
- type LayoutActions = {
-   setSidebar: (draft: LayoutState, px: number) => void
-   setDetails: (draft: LayoutState, px: number) => void
-+  setPanel: (draft: LayoutState, px: number) => void
-   toggleSidebar: (draft: LayoutState) => void
-   setNarrow: (draft: LayoutState, narrow: boolean) => void
-   openDetails: (draft: LayoutState) => void
-   closeDetails: (draft: LayoutState) => void
-+  togglePanel: (draft: LayoutState) => void
-+  openPanel: (draft: LayoutState) => void
-+  closePanel: (draft: LayoutState) => void
-+  togglePanelExpanded: (draft: LayoutState) => void
- }
- 
- /**
-@@ -47,10 +62,13 @@
-  */
- export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
-   const handle = defineStore({
--    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false }),
-+    init: (): LayoutState => ({
-+      sidebar: SIDEBAR_DEFAULT, details: 0, panel: 0, panelExpanded: false, narrow: false, narrowExpanded: false,
-+    }),
-     actions: {
-       setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
-       setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
-+      setPanel: (d, px: number) => { d.panel = clampWidth(px, PANEL_MIN, PANEL_MAX) },
-       // Narrow toggles flip only the override: the width preference survives
-       // untouched, so re-widening restores the pre-squeeze layout.
-       toggleSidebar: (d) => {
-@@ -66,6 +84,19 @@
-       },
-       openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
-       closeDetails: (d) => { d.details = 0 },
-+      // Toggle is the open/closed write set: closing forgets the drag width
-+      // and reopening restores the contract default (clamp keeps the range
-+      // declared in one place for the solver). Closing exits fullscreen —
-+      // the flag is only meaningful over an open panel.
-+      togglePanel: (d) => {
-+        if (d.panel === 0) d.panel = PANEL_DEFAULT
-+        else { d.panel = 0; d.panelExpanded = false }
-+      },
-+      openPanel: (d) => { d.panel = clampWidth(d.panel === 0 ? PANEL_DEFAULT : d.panel, PANEL_MIN, PANEL_MAX) },
-+      closePanel: (d) => { d.panel = 0; d.panelExpanded = false },
-+      // Fullscreen flips only over an open panel; AppFrame additionally
-+      // treats the flag as false while the solved width is zero.
-+      togglePanelExpanded: (d) => { if (d.panel > 0) d.panelExpanded = !d.panelExpanded },
-     },
-   })
-   return handle
---- a/packages/client/ui-layout/src/client/service.ts
-+++ b/packages/client/ui-layout/src/client/service.ts
-@@ -27,6 +27,17 @@
-   openDetails(): void
-   /** Close the details panel. */
-   closeDetails(): void
-+  /** Toggle the side panel column (closed ⟷ contract default width). */
-+  togglePanel(): void
-+  /** Open the side panel column (no-op when already open). */
-+  openPanel(): void
-+  /** Close the side panel column. */
-+  closePanel(): void
-+  /**
-+   * Toggle panel fullscreen over an open panel (no-op while closed); closing
-+   * the panel resets the flag.
-+   */
-+  togglePanelExpanded(): void
- }
- 
- /** Cross-plugin panel-action face (ctx.layout). */
-@@ -59,6 +70,29 @@
-     this.#require().closeDetails()
-   }
- 
-+  /** Toggle the side panel column (closed ⟷ contract default width). */
-+  togglePanel(): void {
-+    this.#require().togglePanel()
-+  }
-+
-+  /** Open the side panel column (no-op when already open). */
-+  openPanel(): void {
-+    this.#require().openPanel()
-+  }
-+
-+  /** Close the side panel column. */
-+  closePanel(): void {
-+    this.#require().closePanel()
-+  }
-+
-+  /**
-+   * Toggle panel fullscreen over an open panel (no-op while closed); closing
-+   * the panel resets the flag.
-+   */
-+  togglePanelExpanded(): void {
-+    this.#require().togglePanelExpanded()
-+  }
-+
-   #require(): PanelActions {
-     // Callers are UI gestures, which cannot fire before the root entry
-     // rendered (the inject hook runs in its first render) — reaching this
---- a/packages/client/ui-layout/src/client/index.ts
-+++ b/packages/client/ui-layout/src/client/index.ts
-@@ -1,7 +1,7 @@
- /**
-  * Layout plugin, browser half: one register() call contributes AppFrame into
-  * the runtime's built-in 'root' slot and, in the same breath, declares the
-- * four child slots (declaration = exclusive render authority), seats the
-+ * five child slots (declaration = exclusive render authority), seats the
-  * layout store (panel geometry), and wires the panel-action service face.
-  * ctx.layout is the cross-plugin panel-action contract; navigation state lives
-  * with the runtime sessions service. A second effect seats the theme
-@@ -33,7 +33,7 @@
- declare module '@deepseek-ai/dsh-client-ui-slots' {
-   interface SlotMap {
-     // The 'root' entry itself is the runtime's built-in slot (declared
--    // there); these four are the frame's children, declared by the same
-+    // there); these five are the frame's children, declared by the same
-     // register() call that contributes AppFrame. Session owners never pass
-     // sessionId: the framework injects it as a standard prop.
-     /**
-@@ -71,6 +71,18 @@
-      */
-     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
-     /**
-+     * The right side-panel column, shown when the layout opens it. OCCUPIED
-+     * by a panel container (which declares its page seats inside it) —
-+     * registering here replaces the column and takes those seats with it.
-+     * Absent an occupant the column renders nothing.
-+     *
-+     * Current-session-optional like `conversation`: the panel survives
-+     * session switches (its own chrome is session-independent), while the
-+     * page seats inside are session-scoped. `ctx.layout` owns whether the
-+     * column is open (toggle/open/close).
-+     */
-+    'panel': { kind: 'single'; scope: 'session-maybe'; owner: PanelOwnerProps }
-+    /**
-      * Frame-wide floating layer, above every column and outside their scroll
-      * containers. Deliberately generic and unowned by any feature: a badge, a
-      * toast stack or a status pill all belong here, and entries order among
-@@ -104,12 +116,15 @@
- /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
- export interface DetailsOwnerProps {}
- 
-+/** Panel owner share: empty — the container reads the layout share and session hooks itself. */
-+export interface PanelOwnerProps {}
-+
- /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
- export const inject = ['slots', 'theme']
- 
- /**
-  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
-- * into 'root' with the four child-slot declarations, the layout store seat,
-+ * into 'root' with the five child-slot declarations, the layout store seat,
-  * and the inject hook that hands the store's bound actions to the service.
-  * @param ctx - client root context.
-  */
-@@ -123,6 +138,7 @@
-         'sidebar': { kind: 'single', scope: 'root' },
-         'conversation': { kind: 'single', scope: 'session-maybe' },
-         'details': { kind: 'single', scope: 'session' },
-+        'panel': { kind: 'single', scope: 'session-maybe' },
-         'shell.overlay': { kind: 'list', scope: 'root' },
-       },
-       // Exclusive store: the factory itself — the framework instantiates per
+diff --git a/packages/client/ui-layout/tests/columns.client.spec.ts b/packages/client/ui-layout/tests/columns.client.spec.ts
+index ae8c39a117..21206366a9 100644
 --- a/packages/client/ui-layout/tests/columns.client.spec.ts
 +++ b/packages/client/ui-layout/tests/columns.client.spec.ts
 @@ -1,7 +1,8 @@
@@ -953,7 +987,7 @@ index d865a5c186..9e34859a39 100644
  } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
  
  // Numeric preference form (0 = closed); helpers keep the scenario names readable.
-@@ -18,78 +19,108 @@
+@@ -18,78 +19,108 @@ describe('clampWidth', () => {
  
  describe('computeColumns', () => {
    it('step 1: everything fits at preferred widths', () => {
@@ -1012,8 +1046,8 @@ index d865a5c186..9e34859a39 100644
 +    // 1600-320-300-640) = 340, and 320+300+340+640 = 1600 fits exactly.
 +    const cols = computeColumns(1600, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
 +    expect(cols).toEqual({ sidebar: 320, center: CENTER_MIN, details: 300, panel: 340 })
-   })
- 
++  })
++
 +  it('step 4: details auto-closes when its min still starves center — sidebar holds its preference', () => {
 +    // 320 + 300 + 640 = 1260 > 1210 → details 0; sidebar untouched: center = 1210-320 = 890.
 +    const cols = computeColumns(1210, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
@@ -1033,8 +1067,8 @@ index d865a5c186..9e34859a39 100644
 +    // 320 + 320 + 640 = 1280 > 1200 → panel 0 too; center absorbs: 1200-320 = 880.
 +    const cols = computeColumns(1200, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT), open(PANEL_MIN))
 +    expect(cols).toEqual({ sidebar: 320, center: 880, details: 0, panel: 0 })
-+  })
-+
+   })
+ 
    it('the sidebar never concedes: center absorbs the deficit below CENTER_MIN', () => {
 -    // 700 < 280+640: sidebar keeps 280, center takes 420 < CENTER_MIN.
 -    const cols = computeColumns(700, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT))
@@ -1094,9 +1128,11 @@ index d865a5c186..9e34859a39 100644
 +      .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 500 - SIDEBAR_COLLAPSED, details: 0, panel: 0 })
    })
  })
+diff --git a/packages/client/ui-layout/tests/layout-store.client.spec.ts b/packages/client/ui-layout/tests/layout-store.client.spec.ts
+index c6f0069197..5c21e761c3 100644
 --- a/packages/client/ui-layout/tests/layout-store.client.spec.ts
 +++ b/packages/client/ui-layout/tests/layout-store.client.spec.ts
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
  import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
  import {
    DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
@@ -1104,7 +1140,7 @@ index d865a5c186..9e34859a39 100644
    SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
  } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
  
-@@ -17,9 +18,11 @@
+@@ -17,9 +18,11 @@ const PERSIST_KEY = 'dsh.layout.panels'
  beforeEach(() => { localStorage.clear() })
  
  describe('createLayoutStore', () => {
@@ -1118,7 +1154,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('each create() is an independent instance (factory is not a singleton)', () => {
-@@ -29,7 +32,7 @@
+@@ -29,7 +32,7 @@ describe('createLayoutStore', () => {
      expect(b.store.getSnapshot().sidebar).toBe(SIDEBAR_DEFAULT)
    })
  
@@ -1127,7 +1163,7 @@ index d865a5c186..9e34859a39 100644
      const { store, actions } = createLayoutStore().create()
      actions.setSidebar(1)
      expect(store.getSnapshot().sidebar).toBe(SIDEBAR_MIN)
-@@ -39,6 +42,12 @@
+@@ -39,6 +42,12 @@ describe('createLayoutStore', () => {
      expect(store.getSnapshot().details).toBe(DETAILS_MIN)
      actions.setDetails(9999)
      expect(store.getSnapshot().details).toBe(DETAILS_MAX)
@@ -1140,7 +1176,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('toggleSidebar flips closed <-> contract default (drag width forgotten)', () => {
-@@ -55,7 +64,9 @@
+@@ -55,7 +64,9 @@ describe('createLayoutStore', () => {
      actions.setSidebar(400)
      actions.setNarrow(true)
      actions.toggleSidebar()
@@ -1151,7 +1187,7 @@ index d865a5c186..9e34859a39 100644
      actions.toggleSidebar()
      expect(store.getSnapshot().narrowExpanded).toBe(false)
      expect(store.getSnapshot().sidebar).toBe(400)
-@@ -85,17 +96,50 @@
+@@ -85,17 +96,50 @@ describe('createLayoutStore', () => {
      expect(store.getSnapshot().details).toBe(0)
    })
  
@@ -1202,6 +1238,8 @@ index d865a5c186..9e34859a39 100644
        narrow: false,
        narrowExpanded: false,
      })
+diff --git a/packages/client/ui-layout/tests/service.client.spec.ts b/packages/client/ui-layout/tests/service.client.spec.ts
+index e1267b4f49..1129d657f9 100644
 --- a/packages/client/ui-layout/tests/service.client.spec.ts
 +++ b/packages/client/ui-layout/tests/service.client.spec.ts
 @@ -1,7 +1,7 @@
@@ -1213,7 +1251,7 @@ index d865a5c186..9e34859a39 100644
   * unwired fail-loud, and re-attach overwriting a stale action set.
   */
  import { describe, expect, it, vi } from 'vitest'
-@@ -12,15 +12,20 @@
+@@ -12,15 +12,20 @@ function fakePanels(): PanelActions {
    return {
      setSidebar: vi.fn(),
      setDetails: vi.fn(),
@@ -1235,7 +1273,7 @@ index d865a5c186..9e34859a39 100644
      const service = new LayoutController()
      const panels = fakePanels()
      service.attachPanels(panels)
-@@ -28,12 +33,21 @@
+@@ -28,12 +33,21 @@ describe('LayoutController', () => {
      service.toggleSidebar()
      service.openDetails()
      service.closeDetails()
@@ -1257,7 +1295,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('fails loud before the root entry wired its actions', () => {
-@@ -41,6 +55,10 @@
+@@ -41,6 +55,10 @@ describe('LayoutController', () => {
      expect(() => { service.toggleSidebar() }).toThrow(/panel actions not wired/)
      expect(() => { service.openDetails() }).toThrow(/panel actions not wired/)
      expect(() => { service.closeDetails() }).toThrow(/panel actions not wired/)
@@ -1268,7 +1306,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('re-attach overwrites the stale action set (entry re-register)', () => {
-@@ -51,8 +69,11 @@
+@@ -51,8 +69,11 @@ describe('LayoutController', () => {
      service.attachPanels(fresh)
  
      service.toggleSidebar()
