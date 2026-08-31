@@ -17,16 +17,17 @@
 
 /* Single-row titleband geometry: same band height and hairline as the
    conversation header (ConversationRoot header / AppFrame.module.css). The
-   trailing padding reserves the frame toolbar's right-edge button group (the
-   panel toggle rides the full-width toolbar above this header), so the "+"
-   menu anchor never sits under it. */
+   trailing padding reserves the frame toolbar's right-edge button cluster
+   (放大/恢复 + 开关，2×40px + 呼吸 8px = 88px；桌面壳的两枚按钮骑在
+   full-width toolbar 之上), so the tab strip and the "+" menu anchor never
+   sit under them. */
 .header {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
   height: var(--dsh-titleband-height, 44px);
-  padding: 0 44px 0 12px;
+  padding: 0 88px 0 12px;
   box-sizing: border-box;
 }
 

@@ -222,15 +222,21 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   cursor: pointer;
 }
 
-/* 面板开关钉在窗口 header 最右端（trailing 位），不随 titleband 跟侧栏
-   宽度走；面板开时正好落在 PanelShell header 预留的右端 44px 空位里。
-   中栏 header 的拖动带延伸到右缘：app-region 的挖洞只认显式 no-drag
-   （默认值 none 不挖），漏掉这行点击会被窗口拖动手势吞掉。 */
-[data-dsh-panel-toggle] {
+/* 面板按钮簇（放大/恢复 + 开关）钉在窗口 header 最右端（trailing 位），不随
+   titleband 跟侧栏宽度走；面板开时正好落在 PanelShell header 预留的右端
+   88px 空位里。中栏 header 的拖动带延伸到右缘：app-region 的挖洞只认显式
+   no-drag（默认值 none 不挖），漏掉这行点击会被窗口拖动手势吞掉。 */
+[data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
   right: 0;
   z-index: 4;
+  display: flex;
+  pointer-events: auto;
+}
+
+[data-dsh-panel-cluster] button {
+  position: relative; /* hover 高亮伪元素的定位基准 */
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -249,7 +255,7 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 /* hover 高亮与侧栏折叠钮同款：24×24、6px 圆角的内嵌块，画在伪元素上——
    40×44 的点击区本身不上色，否则是一条大横条高亮，与左侧按钮观感不一致。
    伪元素以图标中心（40/2, 44/2）定位：left 8 / top 10。 */
-[data-dsh-panel-toggle]::before {
+[data-dsh-panel-cluster] button::before {
   content: '';
   position: absolute;
   left: 8px;
@@ -260,8 +266,18 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   background: transparent;
 }
 
-[data-dsh-panel-toggle]:hover::before {
+[data-dsh-panel-cluster] button:hover::before {
   background: var(--dsw-alias-interactive-bg-hover, rgba(16, 18, 26, 0.06));
+}
+
+/* 面板关闭时 details 列直达窗口右缘，其 header 的关闭按钮（28×28 贴右缘，
+   header padding-right 12px）会被钉角按钮簇（2×40px）盖住——单按钮时代就
+   互相踩，簇加宽后彻底埋掉。让 details header 自让 88px（簇宽 + 呼吸 8），
+   只在面板关（data-panel-collapsed）时生效；面板开时 details 列右缘止于
+   面板列之前，无需让位。锚点用 data-slot 渲染位包裹层 + 结构位
+   （DetailsPanel 根的首个子 div 是唯一 header），不碰 CSS module hash。 */
+html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [data-slot='details'] > div > div:first-child {
+  padding-right: 88px !important;
 }
 
 [data-dsh-titleband] button:hover {

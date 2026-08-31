@@ -21,6 +21,11 @@ function readPanelCollapsed(): boolean {
   return document.querySelector('[data-panel-collapsed]') !== null
 }
 
+/** 面板放大态（AppFrame 的 data-panel-expanded 标记，0006 补丁引入）。 */
+function readPanelExpanded(): boolean {
+  return document.querySelector('[data-panel-expanded]') !== null
+}
+
 /** 面板列渲染宽（markDesktopFrame 打的 panel-col 标记；未标/未开时为 0）。 */
 function readPanelWidth(): number {
   const col = document.querySelector('[data-dsh-frame="panel-col"]')
@@ -44,6 +49,7 @@ export interface TitlebandProps {
   toggleSidebar: () => void
   startSession: () => void
   togglePanel: () => void
+  togglePanelExpand: () => void
 }
 
 export function createTitleband(actions: TitlebandProps) {
@@ -52,11 +58,12 @@ export function createTitleband(actions: TitlebandProps) {
   }
 }
 
-export function Titleband({ toggleSidebar, startSession, togglePanel }: TitlebandProps) {
+export function Titleband({ toggleSidebar, startSession, togglePanel, togglePanelExpand }: TitlebandProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [width, setWidth] = useState(280)
   const [fullBleed, setFullBleed] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(true)
+  const [panelExpanded, setPanelExpanded] = useState(false)
   const [panelWidth, setPanelWidth] = useState(0)
 
   useEffect(() => {
@@ -93,6 +100,7 @@ export function Titleband({ toggleSidebar, startSession, togglePanel }: Titleban
       setWidth(Math.round(readSidebarWidth()))
       setPanelWidth(Math.round(readPanelWidth()))
       setPanelCollapsed(readPanelCollapsed())
+      setPanelExpanded(readPanelExpanded())
       // blank ↔ 会话态切换伴随 titleRow 子树增删，现有 childList observer
       // 已能捕获，无需扩大 attributeFilter（观察 class 会被官方高频写打满）。
       const headerHeight = readCenterHeaderHeight()
@@ -116,7 +124,7 @@ export function Titleband({ toggleSidebar, startSession, togglePanel }: Titleban
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['data-sidebar-collapsed', 'data-panel-collapsed'],
+      attributeFilter: ['data-sidebar-collapsed', 'data-panel-collapsed', 'data-panel-expanded'],
     })
     window.addEventListener('resize', schedule)
     return () => {
@@ -155,19 +163,35 @@ export function Titleband({ toggleSidebar, startSession, togglePanel }: Titleban
           </button>
         ) : null}
       </div>
-      {/* 面板开关钉在窗口 header 最右端（trailing 位）：不随 titleband 跟侧栏
-          宽度走，面板开时正好落在 PanelShell header 预留的右端空位里。 */}
-      <button
-        type="button"
-        data-dsh-panel-toggle=""
-        aria-label={panelCollapsed ? 'Open side panel' : 'Close side panel'}
-        aria-expanded={!panelCollapsed}
-        onClick={() => {
-          togglePanel()
-        }}
-      >
-        <SidePanelIcon open={!panelCollapsed} />
-      </button>
+      {/* 面板按钮簇（放大/恢复 + 开关）钉在窗口 header 最右端（trailing 位）：
+          不随 titleband 跟侧栏宽度走，面板开时正好落在 PanelShell header
+          预留的右端 88px 空位里。放大语义矩阵收拢在 togglePanelExpand 一个
+          动作里（接线处组合 openPanel），按钮只管反映当前态。 */}
+      <div data-dsh-panel-cluster="">
+        <button
+          type="button"
+          data-dsh-panel-expand=""
+          aria-label={panelExpanded ? 'Restore panel width' : 'Expand side panel'}
+          title={panelExpanded ? '恢复面板宽度' : '放大面板'}
+          onClick={() => {
+            togglePanelExpand()
+          }}
+        >
+          <PanelExpandIcon expanded={panelExpanded} />
+        </button>
+        <button
+          type="button"
+          data-dsh-panel-toggle=""
+          aria-label={panelCollapsed ? 'Open side panel' : 'Close side panel'}
+          aria-expanded={!panelCollapsed}
+          title={panelCollapsed ? '打开面板' : '关闭面板'}
+          onClick={() => {
+            togglePanel()
+          }}
+        >
+          <SidePanelIcon open={!panelCollapsed} />
+        </button>
+      </div>
     </>
   )
 }
@@ -204,6 +228,19 @@ function SidePanelIcon({ open }: { open: boolean }) {
         stroke="currentColor"
         strokeWidth={open ? 2 : 1.2}
       />
+    </svg>
+  )
+}
+
+/** 面板放大/恢复图标（Codex 同语义的对向双箭头）：放大态箭头朝外示意撑满
+    内容区，恢复态朝内示意收回默认宽。 */
+function PanelExpandIcon({ expanded }: { expanded: boolean }) {
+  const left = expanded ? 'M6.5 5 3.5 8l3 3' : 'M3.5 5l3 3-3 3'
+  const right = expanded ? 'M9.5 5l3 3-3 3' : 'M12.5 5l-3 3 3 3'
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d={left} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={right} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
