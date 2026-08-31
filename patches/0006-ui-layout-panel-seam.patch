@@ -661,10 +661,21 @@ index d865a5c186..9e34859a39 100644
  })
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
-@@ -48,6 +48,70 @@
+@@ -48,6 +48,81 @@
    border-left: none;
  }
  
++/* The conversation column contains its own elevated layers (the input dock
++   rides z-index above the message flow, the context meter higher still).
++   Without a local stacking context those values compete frame-wide and the
++   dock floats over the fullscreen panel overlay. isolation keeps every
++   internal z-index local: the overlay is a frame-level sibling, so it
++   covers the column no matter what its children raise. */
++.centerCol,
++.detailsCol {
++  isolation: isolate;
++}
++
 +/* The panel column, with the left stroke dividing it from the CENTER column.
 +   position: relative anchors the interior pin (panelColPin) to THIS column —
 +   dropping it lets the pin anchor to the whole frame and the panel renders
