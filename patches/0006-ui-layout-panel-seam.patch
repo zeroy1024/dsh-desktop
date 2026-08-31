@@ -151,7 +151,7 @@ index 2696dc91fa..36b23b4a40 100644
    const [dragging, setDragging] = useState(false)
    const origin = useRef(0)
    const latest = useRef(0)
-@@ -139,35 +142,74 @@ export function AppFrame({
+@@ -139,35 +142,84 @@ export function AppFrame({
    const sidebarPreference = sidebarCollapsed
      ? 0
      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -176,6 +176,14 @@ index 2696dc91fa..36b23b4a40 100644
 +  useEffect(() => {
 +    if (panelExpanded) setOverlay(true)
 +  }, [panelExpanded])
++  // Belt-and-braces release: the presentation normally drops on the width
++  // transition end; if that event is ever lost, time out back to the flow
++  // (visually identical — on restore the overlay targets the track width).
++  useEffect(() => {
++    if (panelExpanded || !overlay) return
++    const timer = window.setTimeout(() => { setOverlay(false) }, 1000)
++    return () => { window.clearTimeout(timer) }
++  }, [overlay, panelExpanded])
 +  const layout = cols
 +  const colsRef = useRef(layout)
 +  colsRef.current = layout
@@ -187,7 +195,8 @@ index 2696dc91fa..36b23b4a40 100644
 +  const lastPanelWidth = useRef(0)
 +  const boxTarget = panelExpanded ? Math.max(0, viewport - layout.sidebar) : layout.panel
 +  if (boxTarget > 0) lastPanelWidth.current = boxTarget
-+  const pinWidth = boxTarget > 0 ? boxTarget : lastPanelWidth.current
++  const pinTarget = overlay ? boxTarget : layout.panel
++  const pinWidth = pinTarget > 0 ? pinTarget : lastPanelWidth.current
  
    // The drag base is the rendered width captured at drag start (grabbing a
    // concession-clamped panel must not jump back to the stored preference);
@@ -228,10 +237,11 @@ index 2696dc91fa..36b23b4a40 100644
 +      data-details-collapsed={(layout.details === 0) || undefined}
 +      data-panel-collapsed={(layout.panel === 0) || undefined}
 +      data-panel-expanded={panelExpanded || undefined}
++      data-panel-overlay={overlay || undefined}
        data-dragging={dragging || undefined}
      >
        <div className={css.sidebarCol}>
-@@ -175,10 +217,11 @@ export function AppFrame({
+@@ -175,10 +228,11 @@ export function AppFrame({
              sidebar keeps the mounted slot at the compact-rail width, and the
              component sees its rendered state as owner params decided here
              (collapsed follows the resolved rail, so a derived auto-collapse
@@ -245,7 +255,7 @@ index 2696dc91fa..36b23b4a40 100644
          })}
        </div>
        <>
-@@ -189,13 +232,41 @@ export function AppFrame({
+@@ -189,13 +243,40 @@ export function AppFrame({
              empty while no session is current. */}
          <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
          <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
@@ -262,7 +272,6 @@ index 2696dc91fa..36b23b4a40 100644
 +            would not animate — while matching the track exactly). */}
 +        <div
 +          className={css.panelCol}
-+          data-panel-overlay={overlay || undefined}
 +          style={{ width: overlay ? boxTarget : pinWidth }}
 +          onTransitionEnd={(event) => {
 +            if (event.target === event.currentTarget && event.propertyName === 'width' && !panelExpanded) setOverlay(false)
@@ -458,7 +467,7 @@ index d865a5c186..9e34859a39 100644
      expect(getByTestId('details-content')).toBeTruthy()
      expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
    })
-@@ -254,22 +267,69 @@ describe('AppFrame', () => {
+@@ -254,22 +267,73 @@ describe('AppFrame', () => {
    it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
      const { frame, instance, slotCalls, getByTestId } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -496,7 +505,11 @@ index d865a5c186..9e34859a39 100644
 +    // covered, never re-wrapped) and the column leaves the flow at the
 +    // content-area width.
 +    expect(tracks(frame)).toEqual([320, 0, 400])
-+    const col = frame.querySelector<HTMLElement>('[data-panel-overlay]')
++    // The presentation flag rides the frame root (same anchor family as the
++    // collapsed/expanded markers); the column is found via its CSS-module
++    // class — the established [class*=…] anchor for hashed names.
++    expect(frame.hasAttribute('data-panel-overlay')).toBe(true)
++    const col = frame.querySelector<HTMLElement>('[class*="panelCol"]')
 +    expect(col).toBeTruthy()
 +    expect(col!.style.width).toBe('1600px')
 +    // The overlay covers the details handle and the panel handle; the
@@ -510,7 +523,7 @@ index d865a5c186..9e34859a39 100644
 +    Object.assign(end, { propertyName: 'width' })
 +    act(() => { col!.dispatchEvent(end) })
 +    // Released back into the flow at the track width — a seamless switch.
-+    expect(frame.querySelector('[data-panel-overlay]')).toBeNull()
++    expect(frame.hasAttribute('data-panel-overlay')).toBe(false)
 +    expect(tracks(frame)).toEqual([320, 0, 400])
 +    // Closing the panel resets the flag in the store.
 +    act(() => { instance.actions.closePanel() })
@@ -532,7 +545,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('drag handles disappear for collapsed columns', () => {
-@@ -279,6 +339,10 @@ describe('AppFrame', () => {
+@@ -279,6 +342,10 @@ describe('AppFrame', () => {
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
      act(() => { instance.actions.closeDetails() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
@@ -543,7 +556,7 @@ index d865a5c186..9e34859a39 100644
      act(() => { instance.actions.toggleSidebar() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
    })
-@@ -288,7 +352,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -288,7 +355,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
    it('mounts collapsed below the breakpoint with no sidebar handle', () => {
      frameWidth = 980
      const { frame, slotCalls } = mountFrame()
@@ -552,7 +565,7 @@ index d865a5c186..9e34859a39 100644
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -298,11 +362,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -298,11 +365,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -566,7 +579,7 @@ index d865a5c186..9e34859a39 100644
    })
  
    it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -312,7 +376,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -312,7 +379,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      act(() => { instance.actions.toggleSidebar() })
@@ -575,7 +588,7 @@ index d865a5c186..9e34859a39 100644
      expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
    })
  
-@@ -321,10 +385,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -321,10 +388,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      act(() => { instance.actions.setSidebar(400) })
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
