@@ -4,7 +4,7 @@
  * 用法：pnpm dev
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,8 +44,10 @@ if (process.platform === 'darwin') {
   const srcApp = join(dirname(electronPkg), 'dist', 'Electron.app')
   const stampPath = join(brandParent, '.electron-version')
   const electronVersion = JSON.parse(readFileSync(electronPkg, 'utf8')).version as string
+  // 品牌修订号：品牌化步骤变更（如换图标策略）时递增，让已有克隆重建一次。
+  const stampValue = `${electronVersion}:brand-1`
   const stampOk =
-    existsSync(stampPath) && readFileSync(stampPath, 'utf8').trim() === electronVersion
+    existsSync(stampPath) && readFileSync(stampPath, 'utf8').trim() === stampValue
   if (!stampOk || !existsSync(brandApp)) {
     rmSync(brandParent, { recursive: true, force: true })
     mkdirSync(brandParent, { recursive: true })
@@ -62,11 +64,24 @@ if (process.platform === 'darwin') {
         spawnSync('/usr/libexec/PlistBuddy', ['-c', `Add :${key} string ${value}`, infoPlist])
       }
     }
+    // bundle 图标必须落在克隆里：Dock 在进程 spawn 瞬间按 bundle icns 渲染、
+    // 退出拆栈时也会按它重渲染一拍，运行时 app.dock.setIcon 盖不住这两头，
+    // 会闪出 Electron logo。CFBundleIconFile 仍指向 electron.icns，直接覆盖
+    // 同名文件，不动 plist。
+    copyFileSync(
+      join(desktopDir, 'resources', 'icons', 'icon.icns'),
+      join(brandApp, 'Contents', 'Resources', 'electron.icns'),
+    )
+    // 改了 Resources 即签名失效；本地开发用 ad-hoc 重签保持可启动。
+    const sign = spawnSync('codesign', ['--force', '--deep', '--sign', '-', brandApp])
+    if (sign.status !== 0) {
+      console.warn('[dev] 品牌 bundle ad-hoc 重签名失败（未隔离的本地 bundle 一般仍可启动）：', sign.stderr?.toString() ?? '')
+    }
     spawnSync(
       '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
       ['-f', brandApp],
     )
-    writeFileSync(stampPath, electronVersion)
+    writeFileSync(stampPath, stampValue)
   }
   devElectronBin = join(brandApp, 'Contents', 'MacOS', 'Electron')
 }

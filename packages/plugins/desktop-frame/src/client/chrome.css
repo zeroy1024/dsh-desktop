@@ -1,0 +1,278 @@
+/* 桌面窗框适配：只认 data-dsh-frame / data-dsh-desktop 明文标记，避开官方 CSS module hash。 */
+
+html[data-dsh-desktop] {
+  --dsh-sidebar-collapsed-track: 0px;
+  background: transparent;
+}
+
+html[data-dsh-desktop] body {
+  background: transparent;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='frame'] {
+  background: transparent !important;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='sidebar-col'] {
+  background: rgb(246 247 249 / 90%) !important;
+  border-right-color: transparent !important;
+}
+
+html[data-dsh-desktop] body[data-ds-dark-theme] [data-dsh-frame='sidebar-col'] {
+  background: rgb(28 28 30 / 90%) !important;
+}
+
+html[data-dsh-desktop][data-dsh-platform='linux'] [data-dsh-frame='sidebar-col'],
+html[data-dsh-desktop][data-dsh-platform='win32'] [data-dsh-frame='sidebar-col'] {
+  background: var(--dsw-specific-sidebar-fill, #f6f7f9) !important;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='sidebar-root'] {
+  background: transparent !important;
+  padding-top: 48px !important;
+}
+
+/* 官方会在会话列表底部覆盖一层 sidebar-fill 渐变；半透明侧栏下会重复
+   合成同一底色，形成亮色横带。槽位锚点仅局部取消该颜色覆盖。 */
+html[data-dsh-desktop] [data-slot='sidebar.workspaces'] {
+  --dsw-specific-sidebar-fill: transparent;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='logo-row'] {
+  display: none !important;
+}
+
+/* 官方 Session log 下载胶囊已迁至会话行右键菜单（patch 0001），藏起 header
+   右上角的 utilities 槽。锚点是 ui-renderer 的 anchor contract——每个槽渲染
+   位都有 [data-slot="<key>"] 包裹层（scoped-slots.tsx），与上方
+   sidebar.workspaces 同款机制。注意这会藏掉整个槽：上游将来往 utilities
+   塞其他工具时，需改按 occupant 精确隐藏。 */
+html[data-dsh-desktop] [data-slot='conversation.session.header.utilities'] {
+  display: none !important;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='center-col'],
+html[data-dsh-desktop] [data-dsh-frame='details-col'] {
+  background: var(--dsw-alias-bg-base, #fff) !important;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='new-session'] {
+  display: flex !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  height: 32px !important;
+  margin: 0 0 8px !important;
+  padding: 0 8px !important;
+  border: none !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  font-weight: 400 !important;
+}
+
+/* 展开侧栏的主操作、项目、会话和设置统一使用 32px 高度和 8px 圆角。
+   treeitem 使用语义角色定位，避免依赖官方 CSS module hash。 */
+html[data-dsh-desktop] [data-slot='sidebar.workspaces'] div[role='treeitem'],
+html[data-dsh-desktop] [data-slot='sidebar.settings'] > button {
+  height: 32px !important;
+  border-radius: 8px !important;
+}
+
+html[data-dsh-desktop] [data-slot='sidebar.settings'] > button {
+  width: 100% !important;
+  margin-inline: 0 !important;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='new-session']:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(16, 18, 26, 0.06)) !important;
+}
+
+/* 会话页只留一行标题栏：藏掉 header 内的 view tab 条（chat + trajectory
+   恒为 2 项所以 tablist 常驻渲染）。上游还有两处带 aria-label 的 tablist
+   （轨迹详情、插件设置），必须用中栏列锚点 + header 语义元素双限定防误伤；
+   trajectory 的 view 条目仍在注册表里，setView('trajectory') 依旧可渲染，
+   这里只藏导航不砍功能。markDesktopFrame 没跑成时规则整体不生效，官方 UI
+   原样降级。 */
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header [role='tablist'] {
+  display: none !important;
+}
+
+/* 会话标题垂直居中：官方 header 的 padding 是 `12px 28px 0 20px`——上 12
+   下 0，因为 titleRow 下面原本还有 tabs 条占位；桌面藏掉 tabs 后底部空了，
+   内容整体压向 border-bottom（内容中心 28px vs 容器中心 22.5px）。上下
+   padding 清零、titleRow 撑到 44px（与侧栏顶带同高同线），titleRow 自带
+   align-items:center，内容即垂直居中。水平方向维持官方布局（标题组 flex:1
+   靠左、utilities 靠右）。 */
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header > div:first-child {
+  min-height: 44px;
+}
+
+/* 中栏会话 header 整行并入窗口拖动带（与侧栏顶带拼成同一行 44px 拖动区，
+   双击最大化行为一致）。header 内交互元素挖 no-drag 洞；crumb 是 disabled
+   button（当前会话名，点击无意义），恢复为 drag 保持拖动带连续。crumb 的
+   hover 卡片走 portal 渲染在 body 上，不受 header 内 app-region 影响。 */
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header {
+  -webkit-app-region: drag;
+  /* padding 的折叠/展开过渡必须挂在常驻规则上：CSS transition 取"变化后"
+     样式里的 transition 声明，若只写在折叠态规则里，展开时规则随属性一起
+     失效，padding 瞬跳回 20px，标题会先落进灯区再随轨道滑出。 */
+  transition: padding-left var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsh-desktop] [data-dsh-frame='center-col'] header,
+  html[data-dsh-desktop] [data-dsh-frame='center-col'] header::before {
+    transition: none;
+  }
+}
+
+/* 折叠态：侧栏收 0 轨后中栏 header 从窗口左缘起排，标题会钻进原生红绿灯
+   （trafficLightPosition x:16，原生层永远画在内容之上）和 titleband 控件区
+   （92–148px：灯区 92 + 折叠钮 24 + 间隙 8 + 新会话钮 24）底下。用 AppFrame
+   的明文属性 data-sidebar-collapsed 做锚点（Titleband.readCollapsed 同源，
+   非 CSS module hash）。168 = + 按钮盒末端 148 + 光学分隔区，标题字形实际
+   起于 176（面包屑按钮自带 padding 4px 8px）；几何改动时与 geometry.ts
+   互为镜像，patch 0003 落地后由 --dsh-titleband-indent 变量缝收编。
+
+   padding 挂在瞬时翻转的属性上，而上游轨道动画走
+   `transition: grid-template-columns slow ease-in-out`——需要 padding 与
+   轨道同步动画，否则标题会在灯区和落点之间瞬跳或滑经灯区。照官方拖拽
+   把手的同款做法（AppFrame.module.css .handle："rides the same curve
+   as the tracks"），padding 引用同一条主题曲线（transition 声明在上面
+   常驻的 header 规则里）；reduced-motion 下轨道瞬移，padding 过渡同样
+   关闭，否则又会短暂重叠。 */
+html[data-dsh-desktop] [data-sidebar-collapsed] [data-dsh-frame='center-col'] header {
+  padding-left: 168px !important;
+}
+
+/* 折叠态分隔线：+ 按钮（止于盒 148）与标题之间，参照项目同款（仅折叠态
+   可见；blank 态 header 整体隐藏，分隔线随之消失）。锚在 header 自身的
+   padding box（position:relative 是上游现值），不随 padding 动画；透明度
+   与 padding 走同一条曲线，展开时随标题一起淡出。
+   位置按视觉锚点光学居中，不能按盒距离算：+ 图标右缘 144（16px 图标居中于
+   124–148 按钮盒），标题字形左缘 176（168 + crumb 内边距 8）；中点 160，
+   线宽 1px 放 159.5，两侧各 15.5px。 */
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header::before {
+  content: '';
+  position: absolute;
+  left: 159.5px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--dsw-alias-border-l2);
+  opacity: 0;
+  transition: opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+html[data-dsh-desktop] [data-sidebar-collapsed] [data-dsh-frame='center-col'] header::before {
+  opacity: 1;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header button,
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header a,
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header input,
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header select,
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header textarea,
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header [role='button'],
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header [contenteditable] {
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-desktop] [data-dsh-frame='center-col'] header button:disabled {
+  -webkit-app-region: drag;
+}
+
+[data-dsh-titleband] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding-left: 12px;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+}
+
+html[data-dsh-platform='darwin'] [data-dsh-titleband] {
+  padding-left: 92px;
+}
+
+[data-dsh-titleband] button {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #5c5c5c);
+  cursor: pointer;
+}
+
+/* 面板开关钉在窗口 header 最右端（trailing 位），不随 titleband 跟侧栏
+   宽度走；面板开时正好落在 PanelShell header 预留的右端 44px 空位里。
+   中栏 header 的拖动带延伸到右缘：app-region 的挖洞只认显式 no-drag
+   （默认值 none 不挖），漏掉这行点击会被窗口拖动手势吞掉。 */
+[data-dsh-panel-toggle] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #5c5c5c);
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+/* hover 高亮与侧栏折叠钮同款：24×24、6px 圆角的内嵌块，画在伪元素上——
+   40×44 的点击区本身不上色，否则是一条大横条高亮，与左侧按钮观感不一致。
+   伪元素以图标中心（40/2, 44/2）定位：left 8 / top 10。 */
+[data-dsh-panel-toggle]::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+}
+
+[data-dsh-panel-toggle]:hover::before {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(16, 18, 26, 0.06));
+}
+
+[data-dsh-titleband] button:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(16, 18, 26, 0.06));
+}
+
+/* 可折叠行头是控件不是内容：禁选让快速连点展开/收起不再触发原生双击选词。
+   data-disclosure-row 是 ui-primitives DisclosureRow 行头的呈现层标记，覆盖
+   活动分组行、组内成员行、平铺工具行与 Think 行（含不可展开的纯摘要行）；
+   行头内的成员内容、命令输出、回答正文不在此层，照常可选中复制。上游 PR
+   合入后本规则可撤。 */
+html[data-dsh-desktop] [data-disclosure-row] {
+  user-select: none;
+}

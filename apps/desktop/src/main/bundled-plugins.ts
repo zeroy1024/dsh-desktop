@@ -21,7 +21,7 @@ export function bundledPluginsRoot(): string {
     : join(import.meta.dirname, '..', '..', '..', 'packages', 'plugins')
 }
 
-/** 每个含 package.json 的子目录即一个内置插件。 */
+/** 每个含 package.json 的子目录即一个内置插件；`dshDesktop.enabled: false` 表示保留在仓库但默认不装配。 */
 export function resolveBundledPlugins(): BundledPlugin[] {
   const root = bundledPluginsRoot()
   if (!existsSync(root)) return []
@@ -31,8 +31,12 @@ export function resolveBundledPlugins(): BundledPlugin[] {
     const dir = join(root, entry.name)
     const manifestPath = join(dir, 'package.json')
     if (!existsSync(manifestPath)) continue
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: string }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      name?: string
+      dshDesktop?: { enabled?: boolean }
+    }
     if (typeof manifest.name !== 'string' || manifest.name === '') continue
+    if (manifest.dshDesktop?.enabled === false) continue
     plugins.push({ name: manifest.name, dir })
   }
   plugins.sort((a, b) => a.name.localeCompare(b.name))

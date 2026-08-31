@@ -20,7 +20,7 @@ await build({
 })
 
 await buildClientBundle({
-  id: '@dsh-desktop/desktop-chrome',
+  id: '@dsh-desktop/desktop-frame',
   entry: resolve(appDir, 'src/client/index.ts'),
   outfile: resolve(appDir, 'lib/client.js'),
 })

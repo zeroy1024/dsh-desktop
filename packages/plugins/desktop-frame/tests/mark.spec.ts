@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { markDesktopChrome } from '../src/mark.ts'
+import { markDesktopFrame } from '../src/mark.ts'
 
 class FakeElement {
   parentElement: FakeElement | null = null
@@ -55,8 +55,8 @@ class FakeElement {
 
   closest(selector: string): FakeElement | null {
     if (
-      selector === '[data-dsh-chrome="logo-row"]'
-      && this.getAttribute('data-dsh-chrome') === 'logo-row'
+      selector === '[data-dsh-frame="logo-row"]'
+      && this.getAttribute('data-dsh-frame') === 'logo-row'
     ) return this
     return this.parentElement?.closest(selector) ?? null
   }
@@ -73,7 +73,7 @@ afterAll(() => {
   else Object.defineProperty(globalThis, 'HTMLElement', { value: originalHTMLElement, configurable: true })
 })
 
-describe('markDesktopChrome', () => {
+describe('markDesktopFrame', () => {
   it('跳过 display:contents 的 sidebar slot 锚点，只把真实首行标成 logo-row', () => {
     const documentRoot = new FakeElement()
     const frame = new FakeElement()
@@ -85,7 +85,7 @@ describe('markDesktopChrome', () => {
     const sidebarSlot = new FakeElement()
     sidebarSlot.setAttribute('data-slot', 'sidebar')
     // 模拟旧版热替换留下的错误标记。
-    sidebarSlot.setAttribute('data-dsh-chrome', 'sidebar-root')
+    sidebarSlot.setAttribute('data-dsh-frame', 'sidebar-root')
     const sidebarRoot = new FakeElement()
     const logoRow = new FakeElement()
     const brandButton = new FakeElement('BUTTON')
@@ -100,14 +100,47 @@ describe('markDesktopChrome', () => {
     frame.append(sidebarCol, centerCol, overlay)
     documentRoot.append(frame)
 
-    markDesktopChrome(documentRoot as unknown as ParentNode)
+    markDesktopFrame(documentRoot as unknown as ParentNode)
 
-    expect(frame.getAttribute('data-dsh-chrome')).toBe('frame')
-    expect(sidebarCol.getAttribute('data-dsh-chrome')).toBe('sidebar-col')
-    expect(sidebarSlot.getAttribute('data-dsh-chrome')).toBeNull()
-    expect(sidebarRoot.getAttribute('data-dsh-chrome')).toBe('sidebar-root')
-    expect(logoRow.getAttribute('data-dsh-chrome')).toBe('logo-row')
-    expect(newSession.getAttribute('data-dsh-chrome')).toBe('new-session')
-    expect(centerCol.getAttribute('data-dsh-chrome')).toBe('center-col')
+    expect(frame.getAttribute('data-dsh-frame')).toBe('frame')
+    expect(sidebarCol.getAttribute('data-dsh-frame')).toBe('sidebar-col')
+    expect(sidebarSlot.getAttribute('data-dsh-frame')).toBeNull()
+    expect(sidebarRoot.getAttribute('data-dsh-frame')).toBe('sidebar-root')
+    expect(logoRow.getAttribute('data-dsh-frame')).toBe('logo-row')
+    expect(newSession.getAttribute('data-dsh-frame')).toBe('new-session')
+    expect(centerCol.getAttribute('data-dsh-frame')).toBe('center-col')
+  })
+
+  it('没有 data-shell-overlay 锚点时不落任何标记', () => {
+    const documentRoot = new FakeElement()
+    const frame = new FakeElement()
+    const sidebarCol = new FakeElement()
+    frame.append(sidebarCol)
+    documentRoot.append(frame)
+
+    markDesktopFrame(documentRoot as unknown as ParentNode)
+
+    expect(frame.getAttribute('data-dsh-frame')).toBeNull()
+    expect(sidebarCol.getAttribute('data-dsh-frame')).toBeNull()
+  })
+
+  it('找不到 sidebar slot 时不把 SidebarRoot 误标为 logo-row，中列标记照常', () => {
+    const documentRoot = new FakeElement()
+    const frame = new FakeElement()
+    const sidebarCol = new FakeElement()
+    const centerCol = new FakeElement()
+    const overlay = new FakeElement()
+    overlay.setAttribute('data-shell-overlay', '')
+    const sidebarRoot = new FakeElement()
+    sidebarCol.append(sidebarRoot)
+    frame.append(sidebarCol, centerCol, overlay)
+    documentRoot.append(frame)
+
+    markDesktopFrame(documentRoot as unknown as ParentNode)
+
+    expect(frame.getAttribute('data-dsh-frame')).toBe('frame')
+    expect(sidebarCol.getAttribute('data-dsh-frame')).toBe('sidebar-col')
+    expect(sidebarRoot.getAttribute('data-dsh-frame')).toBeNull()
+    expect(centerCol.getAttribute('data-dsh-frame')).toBe('center-col')
   })
 })

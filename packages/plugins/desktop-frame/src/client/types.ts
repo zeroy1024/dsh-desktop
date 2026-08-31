@@ -4,7 +4,7 @@ export interface ClientContext {
     inject: (name: string, factory: () => unknown) => unknown
     register: (opts: { name: string; id: string; order?: number }, component: unknown) => unknown
   }
-  layout: { toggleSidebar: () => void }
+  layout: { toggleSidebar: () => void; togglePanel: () => void }
   workspaces: { startSession: (workspaceId?: string) => void }
 }
 

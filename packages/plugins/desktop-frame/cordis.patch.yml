@@ -1,0 +1,3 @@
+- insert:
+    - id: desktop-frame
+      name: '@dsh-desktop/desktop-frame'

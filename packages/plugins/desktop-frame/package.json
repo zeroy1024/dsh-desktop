@@ -1,9 +1,9 @@
 {
-  "name": "@dsh-desktop/desktop-chrome",
+  "name": "@dsh-desktop/desktop-frame",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "桌面壳皮肤：hiddenInset 顶带、藏 logo、新会话整行、侧栏 wash。",
+  "description": "桌面窗框适配：44px 顶带、藏 logo、新会话整行、侧栏 wash、折叠 0 轨、藏会话 tab。",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",

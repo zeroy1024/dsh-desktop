@@ -18,11 +18,14 @@ export function apply(ctx: ClientContext): void {
     startSession: () => {
       ctx.workspaces.startSession()
     },
+    togglePanel: () => {
+      ctx.layout.togglePanel()
+    },
   })
 
   ctx.effect(() => {
     ctx.slots.inject('shell.overlay', () =>
-      ctx.slots.register({ name: 'shell.overlay', id: 'desktop-chrome', order: 0 }, DesktopTitleband),
+      ctx.slots.register({ name: 'shell.overlay', id: 'desktop-frame', order: 0 }, DesktopTitleband),
     )
-  }, 'desktop-chrome: titleband')
+  }, 'desktop-frame: titleband')
 }

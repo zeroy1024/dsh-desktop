@@ -11,8 +11,10 @@ const REFRESH_MS = 150
 const JANK_FLASH_MS = 250
 
 /**
- * 右上角实时 FPS。500ms 窗口平均，掉帧时闪红。
+ * 右下角实时 FPS。500ms 窗口平均，掉帧时闪红。
  * 只在 dshDesktop.dev 为 true 时挂载（preload 在 unpackaged 时注入 --dsh-dev）。
+ * 放右下角避开 header 工具区（模式徽标 / utilities 槽）；hello-panel 已默认
+ * 禁用，右下角不再有竞争元素。
  */
 export function FpsBadge() {
   const [label, setLabel] = useState('—')
@@ -73,7 +75,7 @@ export function FpsBadge() {
       data-dsh-fps-overlay=""
       style={{
         position: 'absolute',
-        top: 12,
+        bottom: 12,
         right: 16,
         zIndex: 30,
         padding: '4px 8px',
