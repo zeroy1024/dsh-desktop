@@ -31,9 +31,11 @@
 }
 
 /* Tab strip hugs its content so the "+" add-page button trails the last tab
-   (the header has no other trailing occupant). */
+   (the header has no other trailing occupant)。空间不足时 tab 区是 header 里
+   唯一可收缩段（flex 0 1 auto + min-width 0）：容器被压缩后，内部 tab 再按
+   各自的 shrink 因子等比收缩，overflow hidden 只做最后兜底裁切。 */
 .tabs {
-  flex: none;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -41,15 +43,15 @@
   overflow: hidden;
 }
 
-/* Tab 固定宽（Codex 风格）：图标+标题左对齐、× 钉右缘，宽度不随内容收缩。
-   140px 在面板最小列宽 320px 下仍能完整并排两枚 tab + "+" 按钮；标题超长
-   由 .tabLabel 的 ellipsis 兜底。 */
+/* Tab 首选宽 140px（Codex 风格：图标+标题左对齐、× 钉右缘），空间不足时
+   等比收缩到 56px 下限（图标位 + 数字符），标题超长由 .tabLabel 的
+   ellipsis 兜底。active 保宽优先级最高（flex-shrink: 0）。 */
 .tab {
-  flex: none;
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
   width: 140px;
-  min-width: 0;
+  min-width: 56px;
   height: 28px;
   padding: 0 4px;
   border-radius: 8px;
@@ -62,6 +64,7 @@
 }
 
 .tab.tabActive {
+  flex-shrink: 0;
   background: var(--dsw-alias-interactive-bg-active);
 }
 
@@ -102,6 +105,8 @@
   text-align: center;
 }
 
+/* × 惰性显示（Codex 同款）：active 常显、非 active hover 浮出；始终占位
+   （opacity 切换而非收宽），tab 收缩时布局不跳。 */
 .tabClose {
   flex: none;
   display: inline-flex;
@@ -115,11 +120,13 @@
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 100ms ease;
 }
 
-.tabClose:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+.tab:hover .tabClose,
+.tab.tabActive .tabClose {
+  opacity: 1;
 }
 
 .plusWrap {
