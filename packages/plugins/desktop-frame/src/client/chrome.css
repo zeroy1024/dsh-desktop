@@ -186,6 +186,16 @@ html[data-dsh-desktop] [data-dsh-frame='center-col'] header button:disabled {
   -webkit-app-region: drag;
 }
 
+/* 放大态（覆盖层激活）：中栏整列被面板盖住，header 拖动带失去意义——但
+   app-region 的命中判定不理会绘制层序，指针落进拖动矩形就被窗口拖拽吞掉
+   （blank 态拖动带遮面板 tab 的同款机制），必须显式解除，面板 header 的
+   tab / × / ＋ 才能点。crumb 的 disabled=drag 一并解除，避免覆盖层表面
+   出现零星的可拖窗口矩形。特异性压过上方两条 drag 声明。 */
+html[data-dsh-desktop] [data-panel-overlay] [data-dsh-frame='center-col'] header,
+html[data-dsh-desktop] [data-panel-overlay] [data-dsh-frame='center-col'] header button:disabled {
+  -webkit-app-region: no-drag;
+}
+
 [data-dsh-titleband] {
   position: absolute;
   top: 0;
