@@ -43,17 +43,19 @@
   overflow: hidden;
 }
 
-/* Tab 首选宽 140px（Codex 风格：图标+标题左对齐、× 钉右缘），空间不足时
+/* Tab 首选宽 112px（Codex 风格：icon+标题左对齐、× 钉右缘），空间不足时
    等比收缩到 56px 下限（图标位 + 数字符），标题超长由 .tabLabel 的
-   ellipsis 兜底。active 保宽优先级最高（flex-shrink: 0）。 */
+   ellipsis 兜底。active 保宽优先级最高（flex-shrink: 0）。
+   padding 左 8 / 右 6 是「视觉等距」：右侧 × 图标 12px 居中于 16px 盒，
+   图标右缘到 tab 边缘 = 6 + (16-12)/2 = 8，与左侧 icon/文字的 8 一致。 */
 .tab {
   flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
-  width: 140px;
+  width: 112px;
   min-width: 56px;
   height: 28px;
-  padding: 0 4px;
+  padding: 0 6px 0 8px;
   border-radius: 8px;
   /* Idle tabs carry no pill: the background belongs to hover and the active
      tab only. */
@@ -112,8 +114,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: none;
   border-radius: 50%;

@@ -16,6 +16,8 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
 
   export const IconCloseFill14: (props: IconProps) => ReactElement
   export const IconPlusOutline16: (props: IconProps) => ReactElement
+  export const IconCordisPluginOutline14: (props: IconProps) => ReactElement
+  export const IconDataOutline16: (props: IconProps) => ReactElement
 
   /** 浮层菜单（portal 渲染）：anchor 为触发元素，items 选中即回调。 */
   export interface MenuItem {

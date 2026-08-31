@@ -16,3 +16,7 @@ patches:
     reason: 桌面侧栏默认宽度取 320；columns.ts 是契约常量且 layout 服务面刻意不暴露宽度写入（ILayout 仅 toggle/open/close），插件与配置层均不可达
   - file: 0005-conversation-chat-group-seam.patch
     reason: 对话流活动分组缝（承载 @dsh-desktop/activity-group 插件）：conversation.chat.group 槽位声明 + chatFlowGrouping 可选装配服务（ctx.get 惰性读取）+ ChatNodeSeat 块区间渲染变体（renderMember 委托）；缝属 ui-conversation 内部装配，插件只能经槽位契约消费、无法自声明。摘自参考实现 dsh-desktop 同名缝，未含其去 tab 改动；上游未来若自带此缝应撤补丁
+  - file: 0006-ui-layout-panel-seam.patch
+    reason: 右侧面板列缝（承载 @dsh-desktop/panel-shell 插件）：ui-layout 四列化（panel 让位步骤 3-5 + panel/panelExpanded store 状态 + ctx.layout 四个 panel 动作 + panel 槽声明与渲染点/拖拽手柄/全屏接管）。槽位声明是框架渲染点的专属权力，插件只能消费无法自建。摘自参考实现 dsh-desktop 的 dsh-panel-kit P0 同名缝，仅取 panel 本体（未含其 sidebar 归零、shell.toolbar 行与主题桥改动）；同步修正 columns/app-frame 测试中 0004 遗留的 SIDEBAR_DEFAULT 字面值（280→320）。上游未来自带 panel 列应整体撤补丁，插件改指上游契约
+  - file: 0007-ui-trajectory-panel-page.patch
+    reason: 轨迹视图呈现位迁移（对齐参考实现 dsh-desktop 同款改写）：ui-trajectory 的会话 tab 注册替换为 panel-shell.page 面板页双半注册（数据管线六组定义与注入面逐字保留）。插件层不可达——TrajectoryView 未从 client 入口导出，且 tab 注册内嵌于上游 apply 函数体无法从外部摘除；panel-shell 的类型面在补丁内本地声明合并（上游 workspace 无此包）。依赖 0006 的 panel 缝，撤 0006 须连撤本补丁；上游自带面板页注册或开放导出后撤

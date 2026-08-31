@@ -6,6 +6,8 @@
  * reconciliation never observes one half alone from this plugin, and plugin
  * removal disposes both. 这是后续真面板页插件的最佳实践范本。
  */
+import { createElement } from 'react'
+import { IconCordisPluginOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext } from './types.ts'
 import { StubPage } from './StubPage.tsx'
 import { en, NS, zh } from './locales.ts'
@@ -32,6 +34,7 @@ export function apply(ctx: ClientContext): void {
     const disposeMeta = ctx.panelShell.registerPage({
       id: 'stub',
       title: () => t('page.title'),
+      icon: createElement(IconCordisPluginOutline14, { size: 14 }),
       // Deliberate: no order — the stub sorts after every ordered page.
       badge: () => demoBadge > 0 ? demoBadge : undefined,
       // onActivate/onDeactivate 无独立演示必要：激活翻转已由 StubPage 组件
