@@ -1,0 +1,3 @@
+- insert:
+    - id: panel-page-stub
+      name: '@dsh-desktop/panel-page-stub'

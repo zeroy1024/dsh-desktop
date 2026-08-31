@@ -98,7 +98,31 @@ importers:
         specifier: ^4.1.8
         version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
 
-  packages/plugins/desktop-chrome:
+  packages/plugins/activity-group:
+    devDependencies:
+      '@dsh-desktop/plugin-kit':
+        specifier: workspace:*
+        version: link:../../plugin-kit
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      tsx:
+        specifier: ^4.22.4
+        version: 4.23.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
+
+  packages/plugins/desktop-frame:
     devDependencies:
       '@dsh-desktop/plugin-kit':
         specifier: workspace:*
@@ -166,6 +190,54 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+
+  packages/plugins/panel-page-stub:
+    devDependencies:
+      '@dsh-desktop/plugin-kit':
+        specifier: workspace:*
+        version: link:../../plugin-kit
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      tsx:
+        specifier: ^4.22.4
+        version: 4.23.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
+
+  packages/plugins/panel-shell:
+    devDependencies:
+      '@dsh-desktop/plugin-kit':
+        specifier: workspace:*
+        version: link:../../plugin-kit
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      tsx:
+        specifier: ^4.22.4
+        version: 4.23.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
 
 packages:
 

@@ -1,5 +1,5 @@
 diff --git a/packages/client/ui-workspace/README.md b/packages/client/ui-workspace/README.md
-index 041c886..21cafbd 100644
+index 041c886ae3..21cafbd062 100644
 --- a/packages/client/ui-workspace/README.md
 +++ b/packages/client/ui-workspace/README.md
 @@ -8,7 +8,7 @@ The browser renders grouped or flat Session rows from the global runtime hooks a
@@ -12,7 +12,7 @@ index 041c886..21cafbd 100644
  Workspace and Session hover cards copy the value their row clips: activating a Workspace card writes its full directory path, while activating a non-blank Session card writes its full display title. A provisional blank New Session card remains read-only because its localized label is a placeholder rather than session content. The card reports the dictionary-driven copied state only after the browser accepts the clipboard write.
  
 diff --git a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
-index 08f22ed..7c17605 100644
+index 08f22ed400..7c176052fb 100644
 --- a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
 +++ b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
 @@ -241,7 +241,7 @@ type SessionTreeProps = Pick<
@@ -34,10 +34,14 @@ index 08f22ed..7c17605 100644
    // same posture as reorder rejections.
    const onSessionArchive = (sessionId: SessionNode['id']) => {
 diff --git a/packages/client/ui-workspace/src/client/locales.ts b/packages/client/ui-workspace/src/client/locales.ts
-index c08fd93..213f2da 100644
+index c08fd931de..645eb03ed1 100644
 --- a/packages/client/ui-workspace/src/client/locales.ts
 +++ b/packages/client/ui-workspace/src/client/locales.ts
-@@ -48,7 +48,7 @@ export const zh = {
+@@ -45,10 +45,11 @@ export const zh = {
+   'delete.pending': '正在删除工作区…',
+   'menu.fork': '分叉会话',
+   'menu.archiveSession': '归档会话',
++  'menu.exportSessionLog': '导出会话记录',
    'sessions.count.one': '{n} 个会话',
    'sessions.count.other': '{n} 个会话',
    'actions.workspace.aria': '工作区“{name}”的操作',
@@ -46,7 +50,11 @@ index c08fd93..213f2da 100644
    'actions.newSession.aria': '在“{name}”中新建会话',
    'status.running': '进行中',
    'status.subagentsRunning.one': '{n} 个子代理运行中',
-@@ -117,7 +117,7 @@ export const en = {
+@@ -114,10 +115,11 @@ export const en = {
+   'delete.pending': 'Deleting workspace…',
+   'menu.fork': 'Fork session',
+   'menu.archiveSession': 'Archive session',
++  'menu.exportSessionLog': 'Export Session log',
    'sessions.count.one': '{n} session',
    'sessions.count.other': '{n} sessions',
    'actions.workspace.aria': 'Workspace actions for {name}',
@@ -56,7 +64,7 @@ index c08fd93..213f2da 100644
    'status.running': 'Running',
    'status.subagentsRunning.one': '{n} subagent running',
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.module.css b/packages/client/ui-workspace/src/client/rows/Rows.module.css
-index 5dc899a..8604175 100644
+index 5dc899af45..8604175a8c 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.module.css
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.module.css
 @@ -1,7 +1,7 @@
@@ -69,10 +77,10 @@ index 5dc899a..8604175 100644
  .projectRow,
  .sessionRow {
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index d2d121f..802f3d0 100644
+index d2d121fe4d..cdc2b30de3 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-@@ -1,11 +1,11 @@
+@@ -1,16 +1,16 @@
  /**
   * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
   * all data and callbacks arrive via props. Hover swaps (folder->chevron,
@@ -87,8 +95,41 @@ index d2d121f..802f3d0 100644
 +import { useCallback, useState } from 'react'
  import clsx from 'clsx'
  import {
-   HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
-@@ -346,7 +346,8 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
+-  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
+-  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
+-  IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
++  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconDownloadOutline16,
++  IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
++  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
+ } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+ import { abbreviateHomePath } from '@deepseek-ai/dsh-client-runtime/client'
+@@ -33,6 +33,24 @@ function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
+   return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
+ }
+ 
++/**
++ * Export one Session log as a Host-generated ZIP (descendants and attachments
++ * included). The page origin is the Host origin, so a relative URL reaches the
++ * same endpoint the Session Header's download capsule uses; the browser
++ * download manager owns progress and failures, so no dialog state rides along.
++ * Pure browser verb — no runtime service, hence local to the row instead of a
++ * prop-threaded callback.
++ */
++function downloadSessionLog(sessionId: SessionNode['id']): void {
++  const url = new URL('/api/session.export', window.location.origin)
++  url.searchParams.set('sessionId', sessionId)
++  url.searchParams.set('includeDescendants', 'true')
++  const anchor = document.createElement('a')
++  anchor.href = url.toString()
++  anchor.download = `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`
++  anchor.click()
++}
++
+ /** Hover-card variant: distances wrap in the ago template; the now bucket stays bare (no "now ago"). */
+ function hoverTimeLabel(updatedAt: number, now: number, t: RowTranslate): string {
+   const { unit, n } = relativeTime(updatedAt, now)
+@@ -346,7 +364,8 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  
  /**
   * One top-level 34px session row: status dot (pending user interaction outranks
@@ -98,7 +139,7 @@ index d2d121f..802f3d0 100644
   * @param props.node - derived session node.
   * @param props.currentId - selected session id (row highlight).
   * @param props.now - epoch ms for relative-time formatting.
-@@ -364,11 +365,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -364,11 +383,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
    currentId: string | undefined
    now: number
    onOpen: (id: SessionNode['id']) => void
@@ -113,7 +154,7 @@ index d2d121f..802f3d0 100644
    onArchive: (id: SessionNode['id']) => void
    /** Present only on draggable rows (workspace-group sessions outside search). */
    drag?: RowDragProps | undefined
-@@ -383,6 +384,15 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -383,6 +402,15 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
    const primaryStatus = statuses[0]
    const showStatus = primaryStatus.state !== 'done' || row.completed
    const [menuOpen, setMenuOpen] = useState(false)
@@ -129,7 +170,15 @@ index d2d121f..802f3d0 100644
    // Archive hides the row through the registry-global archive set and never
    // touches the session log, so it is not styled as destructive and needs no
    // confirmation dialog.
-@@ -403,6 +413,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -391,6 +419,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
+     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
+     { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
++    { id: 'export', label: t('menu.exportSessionLog'), icon: <IconDownloadOutline16 /> },
+   ]
+   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
+   const ownRow = (
+@@ -403,6 +432,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
        role="treeitem"
        aria-selected={selected}
        onClick={() => { onOpen(node.id) }}
@@ -146,7 +195,7 @@ index d2d121f..802f3d0 100644
        draggable={drag !== undefined}
        onDragStart={drag === undefined
          ? undefined
-@@ -438,37 +458,42 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -438,37 +477,43 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
        )}
        <span className={css.title}>{title}</span>
        {/* A blank New Session row is a provisional placeholder: nothing has
@@ -204,6 +253,7 @@ index d2d121f..802f3d0 100644
 +            if (id === 'rename') onRename(node.id, row.title)
 +            if (id === 'fork') onFork(node.id)
 +            if (id === 'archive') onArchive(node.id)
++            if (id === 'export') downloadSessionLog(node.id)
 +          }}
 +          portal
 +          closeOnPointerLeave
@@ -215,7 +265,7 @@ index d2d121f..802f3d0 100644
    )
    return (
 diff --git a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
-index c2e2014..772d3ee 100644
+index c2e201469f..772d3ee72b 100644
 --- a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
 @@ -1,18 +1,17 @@
@@ -274,7 +324,7 @@ index c2e2014..772d3ee 100644
      const input = await view.findByLabelText('会话名称')
      fireEvent.change(input, { target: { value: '新名' } })
 diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-index f86e275..5be351c 100644
+index f86e275c5e..5be351cd6c 100644
 --- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
 @@ -56,6 +56,15 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
@@ -444,7 +494,7 @@ index f86e275..5be351c 100644
        vi.useRealTimers()
      }
 diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
-index 820d2bd..2eefa89 100644
+index 820d2bd66b..2eefa896e8 100644
 --- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
 @@ -336,7 +336,7 @@ describe('WorkspaceBrowser', () => {

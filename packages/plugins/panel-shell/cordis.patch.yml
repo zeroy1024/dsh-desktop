@@ -1,0 +1,3 @@
+- insert:
+    - id: panel-shell
+      name: '@dsh-desktop/panel-shell'

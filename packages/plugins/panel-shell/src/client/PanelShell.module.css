@@ -1,0 +1,232 @@
+/*
+ * Side-panel container chrome. The header rides the titleband band height so
+ * the panel's tab strip lines up with the app's single-row titleband（桌面壳
+ * 的 titleband 是跟侧栏宽度的覆盖层，永不盖住右列，无需挖洞标记）。
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+
+/* Single-row titleband geometry: same band height and hairline as the
+   conversation header (ConversationRoot header / AppFrame.module.css). The
+   trailing padding reserves the frame toolbar's right-edge button group (the
+   panel toggle rides the full-width toolbar above this header), so the "+"
+   menu anchor never sits under it. */
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--dsh-titleband-height, 44px);
+  padding: 0 44px 0 12px;
+  box-sizing: border-box;
+}
+
+/* Tab strip hugs its content so the "+" add-page button trails the last tab
+   (the header has no other trailing occupant). */
+.tabs {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 2px 0 0;
+  border-radius: 8px;
+  /* Idle tabs carry no pill: the background belongs to hover and the active
+     tab only. */
+}
+
+.tab:hover:not(.tabActive) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tab.tabActive {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.tabButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 2px 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.tabLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  flex: none;
+  min-width: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-label-primary-bluish);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.tabClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.plusWrap {
+  flex: none;
+  display: inline-flex;
+}
+
+.plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.plus:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.plus:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Reconciliation failure banner (registry ⟷ slot pairing broken): loud and
+   user-visible, never a silent skip. */
+.error {
+  flex: none;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-state-error-primary);
+  color: rgb(255 255 255 / 92%);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-word;
+}
+
+/* Empty-state guide: the add-page list mirrors the "+" menu's entries —
+   flat rows with a hover wash, no outlined cards. */
+.empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.emptyGuide {
+  margin: 0;
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.emptyPages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  width: min(100%, 220px);
+}
+
+.emptyPage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.emptyPage:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Page seats: stacked, one per open tab. Inactive seats keep mounted but
+   invisible (visibility, not display, so embedded surfaces never reflow). */
+.seat {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.seatHidden {
+  display: none;
+}
