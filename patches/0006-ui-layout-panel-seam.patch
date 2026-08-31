@@ -661,7 +661,7 @@ index d865a5c186..9e34859a39 100644
  })
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
-@@ -48,6 +48,71 @@
+@@ -48,6 +48,70 @@
    border-left: none;
  }
  
@@ -671,7 +671,7 @@ index d865a5c186..9e34859a39 100644
 +   over the window's left edge. The stroke rides the column's own left edge,
 +   so it is present for the whole eased track motion instead of popping in
 +   when the reveal completes. Collapsed suppresses it (a 0-width column would
-+   still paint it); the overlay presentation swaps it for a shadow (see
++   still paint it); the overlay presentation suppresses it as well (see
 +   data-panel-overlay below). */
 +.panelCol {
 +  position: relative;
@@ -694,8 +694,8 @@ index d865a5c186..9e34859a39 100644
 +   z-index sits above the columns but below the drag handles (the sidebar
 +   handle stays usable at the overlay's left edge; the details and panel
 +   handles are suppressed in the render for the whole episode). The left
-+   stroke becomes a shadow: an overlay floats over covered content, it does
-+   not adjoin it. */
++   stroke stays suppressed: at full width the overlay adjoins the sidebar,
++   whose seam is a fill change by convention — never a stroke. */
 +.frame[data-panel-overlay] .panelCol {
 +  position: absolute;
 +  top: 0;
@@ -703,7 +703,6 @@ index d865a5c186..9e34859a39 100644
 +  bottom: 0;
 +  z-index: 1;
 +  border-left: none;
-+  box-shadow: -16px 0 32px rgb(0 0 0 / 14%);
 +  transition: width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 +}
 +
