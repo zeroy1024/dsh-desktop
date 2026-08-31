@@ -8,7 +8,7 @@
  * `data-titleband-region` header marker is dropped: our desktop-frame
  * titleband is an overlay that never covers the right column.
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { IconCloseFill14, IconPlusOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PanelShellComponentProps } from './types.ts'
 import type { PanelPageMeta } from './registry.ts'
@@ -24,11 +24,16 @@ function cx(...names: Array<string | false | undefined>): string {
  * @param props - composed slot props (see {@link PanelShellComponentProps}).
  * @returns the panel element tree.
  */
-export function PanelShell({ ledger, renderSlot, registry, t }: PanelShellComponentProps) {
+export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelShellComponentProps) {
   // The ledger is container-owned (injected), not the framework store seat:
   // `panel` is session-maybe and the renderer withholds store instances while
   // no session is current, but the tab strip must work in both phases.
   const { openTabs, activeId } = useSyncExternalStore(ledger.subscribe, ledger.getSnapshot)
+  // 跨缝 inspect 交接（0008 缝的消费侧）：定向单槽——owner props 只投递给
+  // pageId 匹配的页面座位（slot 组装里 owner 最后摊开、优先级最高），其余
+  // 座位显式收到 null，杜绝多页面下的广播误伤。ack 取 store 动作本体（引用
+  // 稳定，配合上游 effect 的依赖数组语义）。
+  const inspection = useSyncExternalStore(handoff.subscribe, handoff.getSnapshot)
   // Tab strip follows metadata registration, badge notifications, and
   // reconciliation results: one version counter covers all three.
   const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion)
@@ -50,11 +55,17 @@ export function PanelShell({ ledger, renderSlot, registry, t }: PanelShellCompon
   // the tab strip is the mount contract, so a deregistered page's tab (and
   // its mounted seat) goes with it, and the active fallback rides closePage.
   // The version rides the deps so every registry change re-runs the sweep.
+  // Tab 关闭连带清悬挂：该页名下尚未 ack 的 inspect 目标随之作废（页面插件
+  // 卸载 / 用户关 tab 都不会留下幽灵目标），其余页目标不受影响。
+  const closePage = useCallback((id: string): void => {
+    ledger.closePage(id)
+    handoff.clearFor(id)
+  }, [ledger, handoff])
   useEffect(() => {
     for (const id of openTabs) {
-      if (registry.page(id) === undefined) ledger.closePage(id)
+      if (registry.page(id) === undefined) closePage(id)
     }
-  }, [ledger, openTabs, registry, registryVersion])
+  }, [closePage, openTabs, registry, registryVersion])
   // Opening keeps page order stable (append at the tail) and activates.
   const openPage = (id: string): void => {
     ledger.openPage(id)
@@ -96,7 +107,7 @@ export function PanelShell({ ledger, renderSlot, registry, t }: PanelShellCompon
                       type="button"
                       className={css.tabClose}
                       aria-label={`${t('tab.close')}: ${meta.title()}`}
-                      onClick={() => { ledger.closePage(id) }}
+                      onClick={() => { closePage(id) }}
                     >
                       <IconCloseFill14 size={12} />
                     </button>
@@ -160,7 +171,13 @@ export function PanelShell({ ledger, renderSlot, registry, t }: PanelShellCompon
             // One persistent seat per open tab: switching tabs flips `active`
             // and hides the seat — page state survives until the tab closes.
             <div key={id} className={cx(css.seat, id !== activeId && css.seatHidden)} data-panel-page-seat={id}>
-              {renderSlot('panel-shell.page', { active: id === activeId }, { only: id })}
+              {renderSlot('panel-shell.page', {
+                active: id === activeId,
+                inspect: inspection.pageId === id && inspection.callId !== null
+                  ? { callId: inspection.callId }
+                  : null,
+                onInspectDone: handoff.clear,
+              }, { only: id })}
             </div>
           ))}
     </div>

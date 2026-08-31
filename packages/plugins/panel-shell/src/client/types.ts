@@ -15,7 +15,7 @@
  */
 import type { ReactNode } from 'react'
 import type { PanelShellController } from './registry.ts'
-import type { PanelLedger } from './panel-store.ts'
+import type { InspectHandoff, PanelLedger } from './panel-store.ts'
 
 /* ===== 1. 契约面（镜像 fork ui-panel-shell 的 contract/slots.ts + registry.ts）===== */
 
@@ -26,6 +26,15 @@ export interface PanelPageOwnerProps {
    * 页面应停掉昂贵订阅、暂停轮询。
    */
   active: boolean
+  /**
+   * 跨视图 inspect 交接（镜像上游 ConvViewOwnerProps 契约，0008 缝的消费
+   * 侧）：一次性选中目标；null/absent = 空闲。交接为定向投递——只有归属
+   * 页座位收到非 null，其余座位永远为 null。非面板语义的页面直接忽略，
+   * 轨迹页透传给 TrajectoryView 的同名 props 即可。
+   */
+  inspect?: { callId: string } | null
+  /** 页面认领（resolve 成功或确认无解）后回调，容器清空交接目标。 */
+  onInspectDone?: () => void
 }
 
 /** 页面插件的渲染半：容器提供的 panel-shell.page 渲染委托。 */
@@ -47,6 +56,8 @@ export interface ClientContext {
   reflect: {
     provide: (key: string, value: unknown) => () => void
   }
+  /** 布局面板动作（0006 缝的 ctx.layout 面；本插件只用开列）。 */
+  layout: { openPanel: () => void }
   slots: {
     /** 声明「本插件作为某槽的占位者」的装配工厂（框架在渲染点调用）。 */
     inject: (name: string, factory: () => unknown) => unknown
@@ -81,12 +92,29 @@ export interface PanelShellContext extends ClientContext {
   panelShell: PanelShellController
 }
 
+/**
+ * panelShell 服务的聚焦动作面：容器在 apply 编排层挂到注册表实例上
+ * （Object.assign 同一身份，registerPage 消费者不受影响）。0008 缝
+ * （ui-conversation 的 inspectCall 探测）经 ctx.get('panelShell') 结构化
+ * 读取本面。目标交接为定向单槽：inspect 写入的归属页 id 驱动容器只向该页
+ * 座位投递（其余座位收到 null）；轨迹页是第一个消费者，后续页面（变更
+ * 审查、文件浏览器等）按需扩展对应的 owner 字段，路由层无需再动。
+ */
+export interface PanelShellFocus {
+  /** 激活某面板页（tab 未开则先开）；不负责面板列开合。 */
+  openPage(id: string): void
+  /** 一次性 inspect 交接：开面板列 → 开页 → 定向写目标；页面未注册则整体丢弃。 */
+  inspect(pageId: string, callId: string): void
+}
+
 /* ===== 3. 容器与页面的组件 props（渲染半的注入货币）===== */
 
 /** 容器完整 props：运行时座位 + 容器自持注入面 + 翻译座位。 */
 export interface PanelShellComponentProps {
   registry: PanelShellController
   ledger: PanelLedger
+  /** 跨缝 inspect 交接 store：容器订阅后经 owner props 下发给页面座位。 */
+  handoff: InspectHandoff
   renderSlot: RenderPanelPageSlot
   t: Translate
 }

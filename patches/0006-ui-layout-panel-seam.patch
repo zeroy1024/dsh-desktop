@@ -105,6 +105,8 @@
 +  // (may drop below CENTER_MIN).
 +  return { sidebar: s, center: Math.max(0, viewport - s), details: 0, panel: 0 }
  }
+diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
+index 2696dc91fa..36b23b4a40 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.tsx
 +++ b/packages/client/ui-layout/src/client/AppFrame.tsx
 @@ -1,12 +1,15 @@
@@ -131,7 +133,7 @@
   * through the three framework shares — zero cordis or framework imports,
   * zero self-made hooks.
   */
-@@ -20,7 +23,7 @@
+@@ -20,7 +23,7 @@ import css from './AppFrame.module.css'
  /** Full composed props: runtime share + child-slot render share + store share. */
  export type AppFrameProps =
    & PropsRuntime<'root'>
@@ -140,7 +142,7 @@
    & PropsStore<ReturnType<typeof createLayoutStore>>
  
  /** Center column grid item (session-body building block). */
-@@ -37,7 +40,7 @@
+@@ -37,7 +40,7 @@ function DetailsColumn(props: { children?: ReactNode }) {
   * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
   * `side` keys the hover-reveal CSS to the owning column.
   */
@@ -149,7 +151,7 @@
    const [dragging, setDragging] = useState(false)
    const origin = useRef(0)
    const latest = useRef(0)
-@@ -139,27 +142,53 @@
+@@ -139,35 +142,65 @@ export function AppFrame({
    const sidebarPreference = sidebarCollapsed
      ? 0
      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -204,13 +206,13 @@
 +    actions.setPanel(panelBase.current - dx)
 +  }, [actions])
  
-   // Collapsed rail stays SIDEBAR_COLLAPSED unless a shell sets
-   // --dsh-sidebar-collapsed-track (desktop overlay uses 0).
-@@ -167,9 +196,11 @@
++  // Collapsed rail stays SIDEBAR_COLLAPSED unless a shell sets
++  // --dsh-sidebar-collapsed-track (desktop overlay uses 0).
+   return (
      <div
        ref={frameRef}
        className={css.frame}
--      style={{ gridTemplateColumns: `${sidebarCollapsed ? `var(--dsh-sidebar-collapsed-track, ${cols.sidebar}px)` : `${cols.sidebar}px`} minmax(0, 1fr) ${cols.details}px` }}
+-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
 +      style={{ gridTemplateColumns: `${sidebarCollapsed ? `var(--dsh-sidebar-collapsed-track, ${layout.sidebar}px)` : `${layout.sidebar}px`} minmax(0, 1fr) ${layout.details}px ${layout.panel}px` }}
        data-sidebar-collapsed={sidebarCollapsed || undefined}
 -      data-details-collapsed={cols.details === 0 || undefined}
@@ -220,7 +222,7 @@
        data-dragging={dragging || undefined}
      >
        <div className={css.sidebarCol}>
-@@ -177,10 +208,11 @@
+@@ -175,10 +208,11 @@ export function AppFrame({
              sidebar keeps the mounted slot at the compact-rail width, and the
              component sees its rendered state as owner params decided here
              (collapsed follows the resolved rail, so a derived auto-collapse
@@ -234,7 +236,7 @@
          })}
        </div>
        <>
-@@ -191,13 +223,28 @@
+@@ -189,13 +223,28 @@ export function AppFrame({
              empty while no session is current. */}
          <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
          <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
@@ -266,6 +268,349 @@
      </div>
    )
  }
+diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
+index d865a5c186..9e34859a39 100644
+--- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
++++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
+@@ -5,8 +5,8 @@
+  * path), a recording renderSlot stub, and a render-prop SessionProvider stub
+  * (the real one is framework-wired to the renderer host; its own behavior is
+  * ui-renderer's spec territory). Drag sequences (pointer capture + rAF flush),
+- * concession response to viewport change, and details staying mounted at
+- * zero width are the preserved behavior assertions. jsdom has no layout
++ * concession response to viewport change, and details/panel staying mounted
++ * at zero width are the preserved behavior assertions. jsdom has no layout
+  * engine, so the frame width comes from a mocked getBoundingClientRect and
+  * resizes are driven through the ResizeObserver stub.
+  */
+@@ -61,6 +61,7 @@ function mountFrame() {
+     if (key === 'sidebar') return <div data-testid="sidebar-content" />
+     if (key === 'conversation') return <div data-testid="center-content" />
+     if (key === 'details') return <div data-testid="details-content" />
++    if (key === 'panel') return <div data-testid="panel-content" />
+     if (key === 'conversation.empty') return <div data-testid="empty-content" />
+     return <div data-testid="other-content" />
+   }) as AppFrameProps['renderSlot']
+@@ -95,10 +96,11 @@ function mountFrame() {
+   return { instance, frame, slotCalls, rerenderFrame: () => { utils.rerender(element()) }, ...utils }
+ }
+ 
++/** [sidebar, details, panel] rendered widths from the live template string. */
+ function tracks(frame: HTMLElement): number[] {
+-  const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px$/.exec(frame.style.gridTemplateColumns)
++  const m = /^(?:var\(--dsh-sidebar-collapsed-track, )?(\d+)px(?:\))? minmax\(0, 1fr\) (\d+)px (\d+)px$/.exec(frame.style.gridTemplateColumns)
+   if (m === null) throw new Error(`unexpected template: ${frame.style.gridTemplateColumns}`)
+-  return [Number(m[1]), Number(m[2])]
++  return [Number(m[1]), Number(m[2]), Number(m[3])]
+ }
+ 
+ function drag(handle: Element, fromX: number, toX: number): void {
+@@ -137,9 +139,9 @@ afterEach(() => {
+ })
+ 
+ describe('AppFrame', () => {
+-  it('renders three tracks from store state', () => {
++  it('renders four tracks from store state', () => {
+     const { frame } = mountFrame()
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+   })
+ 
+   it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
+@@ -149,9 +151,11 @@ describe('AppFrame', () => {
+     const keys = slotCalls.map(c => c.key)
+     expect(keys).toContain('conversation')
+     expect(keys).toContain('details')
++    expect(keys).toContain('panel')
+     expect(keys).not.toContain('conversation.empty')
+     expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
+     expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({})
++    expect(slotCalls.find(c => c.key === 'panel')!.props).toEqual({})
+   })
+ 
+   it('keeps the conversation slot mounted while no session is current', () => {
+@@ -174,59 +178,59 @@ describe('AppFrame', () => {
+ 
+   it('ignores unselected states and closes only when the Session id changes', () => {
+     const { frame, instance, rerenderFrame } = mountFrame()
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+ 
+     act(() => { instance.actions.openDetails() })
+-    expect(tracks(frame)).toEqual([280, 360])
++    expect(tracks(frame)).toEqual([320, 360, 0])
+ 
+     selectedSession.current = 's-next' as SessionId
+     act(() => { rerenderFrame() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+ 
+     act(() => { instance.actions.openDetails() })
+     selectedSession.current = 's-blank' as SessionId
+     selectedSessionBlank.current = true
+     act(() => { rerenderFrame() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+     expect(instance.getSnapshot().details).toBe(360)
+ 
+     selectedSession.current = 's-next' as SessionId
+     selectedSessionBlank.current = false
+     act(() => { rerenderFrame() })
+-    expect(tracks(frame)).toEqual([280, 360])
++    expect(tracks(frame)).toEqual([320, 360, 0])
+ 
+     selectedSession.current = undefined
+     act(() => { rerenderFrame() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+     selectedSession.current = 's-test' as SessionId
+     act(() => { rerenderFrame() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+   })
+ 
+   it('keeps details closed when the first Session materializes', () => {
+     selectedSession.current = undefined
+     const { frame, instance, rerenderFrame } = mountFrame()
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+     expect(instance.getSnapshot().details).toBe(0)
+ 
+     selectedSession.current = 's-first' as SessionId
+     act(() => { rerenderFrame() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+   })
+ 
+   it('sidebar slot receives live concession output as owner props', () => {
+     const { slotCalls } = mountFrame()
+-    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
++    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 320 })
+   })
+ 
+   it('sidebar drag widens through rAF-batched pointer moves', () => {
+     const { frame } = mountFrame()
+     const handles = frame.querySelectorAll('[class*="handle"]')
+-    drag(handles[0]!, 280, 350)
+-    expect(tracks(frame)[0]).toBe(350)
++    drag(handles[0]!, 320, 390)
++    expect(tracks(frame)[0]).toBe(390)
+   })
+ 
+-  it('details drag widens leftward (negative dx grows the panel)', () => {
++  it('details drag widens leftward (negative dx grows the column)', () => {
+     const { frame, instance } = mountFrame()
+     act(() => { instance.actions.openDetails() })
+     const handles = frame.querySelectorAll('[class*="handle"]')
+@@ -234,19 +238,28 @@ describe('AppFrame', () => {
+     expect(tracks(frame)[1]).toBe(420)
+   })
+ 
++  it('panel drag widens leftward through its own handle', () => {
++    const { frame, instance } = mountFrame()
++    act(() => { instance.actions.togglePanel() })
++    const handles = frame.querySelectorAll('[class*="handle"]')
++    expect(handles).toHaveLength(2)
++    drag(handles[1]!, 1520, 1460)
++    expect(tracks(frame)[2]).toBe(460)
++  })
++
+   it('drag base is the rendered (concession-clamped) width, not the preference', () => {
+-    frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
++    frameWidth = 1300 // step-2 squeeze: details renders 340 while preference is 360
+     const { frame, instance } = mountFrame()
+     act(() => { instance.actions.openDetails() })
+-    expect(tracks(frame)).toEqual([280, 330])
++    expect(tracks(frame)).toEqual([320, 340, 0])
+     const handles = frame.querySelectorAll('[class*="handle"]')
+-    drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
+-    expect(instance.getSnapshot().details).toBe(320)
++    drag(handles[1]!, 960, 970) // shrink by 10 from the rendered width
++    expect(instance.getSnapshot().details).toBe(330)
+   })
+ 
+   it('details column stays mounted at zero width', () => {
+     const { frame, getByTestId } = mountFrame()
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+     expect(getByTestId('details-content')).toBeTruthy()
+     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
+   })
+@@ -254,22 +267,56 @@ describe('AppFrame', () => {
+   it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
+     const { frame, instance, slotCalls, getByTestId } = mountFrame()
+     act(() => { instance.actions.toggleSidebar() })
+-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
++    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
+     expect(getByTestId('sidebar-content')).toBeTruthy()
+     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+     const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
+     expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
+   })
+ 
++  it('togglePanel opens the panel at the contract default with mounted content', () => {
++    const { frame, instance, getByTestId } = mountFrame()
++    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
++    act(() => { instance.actions.togglePanel() })
++    expect(tracks(frame)).toEqual([320, 0, 400])
++    expect(frame.hasAttribute('data-panel-collapsed')).toBe(false)
++    expect(getByTestId('panel-content')).toBeTruthy()
++    act(() => { instance.actions.togglePanel() })
++    expect(tracks(frame)).toEqual([320, 0, 0])
++    // The subtree stays mounted at zero width (never unmount on close).
++    expect(getByTestId('panel-content')).toBeTruthy()
++    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
++  })
++
++  it('panel fullscreen takes over the content area and restores exactly', () => {
++    const { frame, instance } = mountFrame()
++    act(() => { instance.actions.togglePanelExpanded() })
++    // No-op while the panel is closed.
++    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
++    act(() => { instance.actions.togglePanel() })
++    act(() => { instance.actions.togglePanelExpanded() })
++    expect(frame.hasAttribute('data-panel-expanded')).toBe(true)
++    // The open panel takes the whole content area; the sidebar track survives.
++    expect(tracks(frame)).toEqual([320, 0, 1600])
++    // Fullscreen suspends the panel drag handle (there is no free edge).
++    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
++    act(() => { instance.actions.togglePanelExpanded() })
++    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
++    expect(tracks(frame)).toEqual([320, 0, 400])
++    // Closing the panel resets the flag in the store.
++    act(() => { instance.actions.closePanel() })
++    expect(instance.getSnapshot().panelExpanded).toBe(false)
++  })
++
+   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
+     const { frame, instance } = mountFrame()
+     act(() => { instance.actions.openDetails() })
+-    frameWidth = 1250
++    frameWidth = 1300
+     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+-    expect(tracks(frame)).toEqual([280, 330])
++    expect(tracks(frame)).toEqual([320, 340, 0])
+     frameWidth = 1920
+     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+-    expect(tracks(frame)).toEqual([280, 360])
++    expect(tracks(frame)).toEqual([320, 360, 0])
+   })
+ 
+   it('drag handles disappear for collapsed columns', () => {
+@@ -279,6 +326,10 @@ describe('AppFrame', () => {
+     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
+     act(() => { instance.actions.closeDetails() })
+     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
++    act(() => { instance.actions.togglePanel() })
++    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
++    act(() => { instance.actions.closePanel() })
++    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
+     act(() => { instance.actions.toggleSidebar() })
+     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+   })
+@@ -288,7 +339,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+   it('mounts collapsed below the breakpoint with no sidebar handle', () => {
+     frameWidth = 980
+     const { frame, slotCalls } = mountFrame()
+-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
++    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
+     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+     expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
+     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+@@ -298,11 +349,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+     frameWidth = 980
+     const { frame, instance } = mountFrame()
+     act(() => { instance.actions.toggleSidebar() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
+     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
+     act(() => { instance.actions.toggleSidebar() })
+-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
++    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
+   })
+ 
+   it('a wide-closed preference re-expands at the contract default while narrow', () => {
+@@ -312,7 +363,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+     frameWidth = 980
+     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+     act(() => { instance.actions.toggleSidebar() })
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+     expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
+   })
+ 
+@@ -321,10 +372,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+     act(() => { instance.actions.setSidebar(400) })
+     frameWidth = 980
+     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
++    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
+     frameWidth = 1920
+     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+-    expect(tracks(frame)).toEqual([400, 0])
++    expect(tracks(frame)).toEqual([400, 0, 0])
+   })
+ })
+ 
+@@ -345,28 +396,28 @@ describe('AppFrame — guard branches', () => {
+   it('two moves inside one frame coalesce through the pending rAF', () => {
+     const { frame, instance } = mountFrame()
+     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
+-    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 280, bubbles: true })) })
++    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 320, bubbles: true })) })
+     act(() => {
+       // Two moves before the frame flushes: the second must ride the pending
+       // rAF (frame.current ??= guard), and the flush sees the latest x.
+-      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 320, bubbles: true }))
+-      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 340, bubbles: true }))
++      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 360, bubbles: true }))
++      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 380, bubbles: true }))
+       vi.advanceTimersByTime(20)
+     })
+-    act(() => { handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 340, bubbles: true })) })
+-    expect(instance.getSnapshot().sidebar).toBe(340)
++    act(() => { handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 380, bubbles: true })) })
++    expect(instance.getSnapshot().sidebar).toBe(380)
+   })
+ 
+   it('pointerup with a pending rAF cancels it and commits the final position', () => {
+     const { frame, instance } = mountFrame()
+     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
+-    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 280, bubbles: true })) })
++    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 320, bubbles: true })) })
+     act(() => {
+-      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 360, bubbles: true }))
++      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 400, bubbles: true }))
+       // No timer advance: the rAF is still pending when pointerup arrives.
+-      handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 360, bubbles: true }))
++      handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 400, bubbles: true }))
+     })
+-    expect(instance.getSnapshot().sidebar).toBe(360)
++    expect(instance.getSnapshot().sidebar).toBe(400)
+   })
+ 
+   it('zero-width resize reports are ignored (display:none window)', () => {
+@@ -374,7 +425,7 @@ describe('AppFrame — guard branches', () => {
+     frameWidth = 0
+     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+     // Track template still reflects the last non-zero viewport.
+-    expect(tracks(frame)).toEqual([280, 0])
++    expect(tracks(frame)).toEqual([320, 0, 0])
+   })
+ })
+ 
+@@ -391,8 +442,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
+   it('double resize inside one frame rides the pending rAF (??= guard)', () => {
+     const { frame, instance } = mountFrame()
+     act(() => { instance.actions.openDetails() })
+-    frameWidth = 1250
++    frameWidth = 1300
+     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
+-    expect(tracks(frame)).toEqual([280, 330])
++    expect(tracks(frame)).toEqual([320, 340, 0])
+   })
+ })
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
 @@ -48,6 +48,43 @@
@@ -847,346 +1192,5 @@
      expect(fresh.toggleSidebar).toHaveBeenCalledTimes(1)
 +    expect(stale.togglePanel).not.toHaveBeenCalled()
 +    expect(fresh.togglePanel).toHaveBeenCalledTimes(1)
-   })
- })
---- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-+++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-@@ -5,8 +5,8 @@
-  * path), a recording renderSlot stub, and a render-prop SessionProvider stub
-  * (the real one is framework-wired to the renderer host; its own behavior is
-  * ui-renderer's spec territory). Drag sequences (pointer capture + rAF flush),
-- * concession response to viewport change, and details staying mounted at
-- * zero width are the preserved behavior assertions. jsdom has no layout
-+ * concession response to viewport change, and details/panel staying mounted
-+ * at zero width are the preserved behavior assertions. jsdom has no layout
-  * engine, so the frame width comes from a mocked getBoundingClientRect and
-  * resizes are driven through the ResizeObserver stub.
-  */
-@@ -61,6 +61,7 @@
-     if (key === 'sidebar') return <div data-testid="sidebar-content" />
-     if (key === 'conversation') return <div data-testid="center-content" />
-     if (key === 'details') return <div data-testid="details-content" />
-+    if (key === 'panel') return <div data-testid="panel-content" />
-     if (key === 'conversation.empty') return <div data-testid="empty-content" />
-     return <div data-testid="other-content" />
-   }) as AppFrameProps['renderSlot']
-@@ -95,10 +96,11 @@
-   return { instance, frame, slotCalls, rerenderFrame: () => { utils.rerender(element()) }, ...utils }
- }
- 
-+/** [sidebar, details, panel] rendered widths from the live template string. */
- function tracks(frame: HTMLElement): number[] {
--  const m = /^(?:var\(--dsh-sidebar-collapsed-track, )?(\d+)px(?:\))? minmax\(0, 1fr\) (\d+)px$/.exec(frame.style.gridTemplateColumns)
-+  const m = /^(?:var\(--dsh-sidebar-collapsed-track, )?(\d+)px(?:\))? minmax\(0, 1fr\) (\d+)px (\d+)px$/.exec(frame.style.gridTemplateColumns)
-   if (m === null) throw new Error(`unexpected template: ${frame.style.gridTemplateColumns}`)
--  return [Number(m[1]), Number(m[2])]
-+  return [Number(m[1]), Number(m[2]), Number(m[3])]
- }
- 
- function drag(handle: Element, fromX: number, toX: number): void {
-@@ -137,9 +139,9 @@
- })
- 
- describe('AppFrame', () => {
--  it('renders three tracks from store state', () => {
-+  it('renders four tracks from store state', () => {
-     const { frame } = mountFrame()
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-   })
- 
-   it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
-@@ -149,9 +151,11 @@
-     const keys = slotCalls.map(c => c.key)
-     expect(keys).toContain('conversation')
-     expect(keys).toContain('details')
-+    expect(keys).toContain('panel')
-     expect(keys).not.toContain('conversation.empty')
-     expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
-     expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({})
-+    expect(slotCalls.find(c => c.key === 'panel')!.props).toEqual({})
-   })
- 
-   it('keeps the conversation slot mounted while no session is current', () => {
-@@ -174,59 +178,59 @@
- 
-   it('ignores unselected states and closes only when the Session id changes', () => {
-     const { frame, instance, rerenderFrame } = mountFrame()
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
- 
-     act(() => { instance.actions.openDetails() })
--    expect(tracks(frame)).toEqual([280, 360])
-+    expect(tracks(frame)).toEqual([320, 360, 0])
- 
-     selectedSession.current = 's-next' as SessionId
-     act(() => { rerenderFrame() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
- 
-     act(() => { instance.actions.openDetails() })
-     selectedSession.current = 's-blank' as SessionId
-     selectedSessionBlank.current = true
-     act(() => { rerenderFrame() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-     expect(instance.getSnapshot().details).toBe(360)
- 
-     selectedSession.current = 's-next' as SessionId
-     selectedSessionBlank.current = false
-     act(() => { rerenderFrame() })
--    expect(tracks(frame)).toEqual([280, 360])
-+    expect(tracks(frame)).toEqual([320, 360, 0])
- 
-     selectedSession.current = undefined
-     act(() => { rerenderFrame() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-     selectedSession.current = 's-test' as SessionId
-     act(() => { rerenderFrame() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-   })
- 
-   it('keeps details closed when the first Session materializes', () => {
-     selectedSession.current = undefined
-     const { frame, instance, rerenderFrame } = mountFrame()
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-     expect(instance.getSnapshot().details).toBe(0)
- 
-     selectedSession.current = 's-first' as SessionId
-     act(() => { rerenderFrame() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-   })
- 
-   it('sidebar slot receives live concession output as owner props', () => {
-     const { slotCalls } = mountFrame()
--    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
-+    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 320 })
-   })
- 
-   it('sidebar drag widens through rAF-batched pointer moves', () => {
-     const { frame } = mountFrame()
-     const handles = frame.querySelectorAll('[class*="handle"]')
--    drag(handles[0]!, 280, 350)
--    expect(tracks(frame)[0]).toBe(350)
-+    drag(handles[0]!, 320, 390)
-+    expect(tracks(frame)[0]).toBe(390)
-   })
- 
--  it('details drag widens leftward (negative dx grows the panel)', () => {
-+  it('details drag widens leftward (negative dx grows the column)', () => {
-     const { frame, instance } = mountFrame()
-     act(() => { instance.actions.openDetails() })
-     const handles = frame.querySelectorAll('[class*="handle"]')
-@@ -234,19 +238,28 @@
-     expect(tracks(frame)[1]).toBe(420)
-   })
- 
-+  it('panel drag widens leftward through its own handle', () => {
-+    const { frame, instance } = mountFrame()
-+    act(() => { instance.actions.togglePanel() })
-+    const handles = frame.querySelectorAll('[class*="handle"]')
-+    expect(handles).toHaveLength(2)
-+    drag(handles[1]!, 1520, 1460)
-+    expect(tracks(frame)[2]).toBe(460)
-+  })
-+
-   it('drag base is the rendered (concession-clamped) width, not the preference', () => {
--    frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
-+    frameWidth = 1300 // step-2 squeeze: details renders 340 while preference is 360
-     const { frame, instance } = mountFrame()
-     act(() => { instance.actions.openDetails() })
--    expect(tracks(frame)).toEqual([280, 330])
-+    expect(tracks(frame)).toEqual([320, 340, 0])
-     const handles = frame.querySelectorAll('[class*="handle"]')
--    drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
--    expect(instance.getSnapshot().details).toBe(320)
-+    drag(handles[1]!, 960, 970) // shrink by 10 from the rendered width
-+    expect(instance.getSnapshot().details).toBe(330)
-   })
- 
-   it('details column stays mounted at zero width', () => {
-     const { frame, getByTestId } = mountFrame()
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-     expect(getByTestId('details-content')).toBeTruthy()
-     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
-   })
-@@ -254,22 +267,56 @@
-   it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
-     const { frame, instance, slotCalls, getByTestId } = mountFrame()
-     act(() => { instance.actions.toggleSidebar() })
--    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
-+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
-     expect(getByTestId('sidebar-content')).toBeTruthy()
-     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
-     const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
-     expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
-   })
- 
-+  it('togglePanel opens the panel at the contract default with mounted content', () => {
-+    const { frame, instance, getByTestId } = mountFrame()
-+    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
-+    act(() => { instance.actions.togglePanel() })
-+    expect(tracks(frame)).toEqual([320, 0, 400])
-+    expect(frame.hasAttribute('data-panel-collapsed')).toBe(false)
-+    expect(getByTestId('panel-content')).toBeTruthy()
-+    act(() => { instance.actions.togglePanel() })
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-+    // The subtree stays mounted at zero width (never unmount on close).
-+    expect(getByTestId('panel-content')).toBeTruthy()
-+    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
-+  })
-+
-+  it('panel fullscreen takes over the content area and restores exactly', () => {
-+    const { frame, instance } = mountFrame()
-+    act(() => { instance.actions.togglePanelExpanded() })
-+    // No-op while the panel is closed.
-+    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
-+    act(() => { instance.actions.togglePanel() })
-+    act(() => { instance.actions.togglePanelExpanded() })
-+    expect(frame.hasAttribute('data-panel-expanded')).toBe(true)
-+    // The open panel takes the whole content area; the sidebar track survives.
-+    expect(tracks(frame)).toEqual([320, 0, 1600])
-+    // Fullscreen suspends the panel drag handle (there is no free edge).
-+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-+    act(() => { instance.actions.togglePanelExpanded() })
-+    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
-+    expect(tracks(frame)).toEqual([320, 0, 400])
-+    // Closing the panel resets the flag in the store.
-+    act(() => { instance.actions.closePanel() })
-+    expect(instance.getSnapshot().panelExpanded).toBe(false)
-+  })
-+
-   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
-     const { frame, instance } = mountFrame()
-     act(() => { instance.actions.openDetails() })
--    frameWidth = 1250
-+    frameWidth = 1300
-     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
--    expect(tracks(frame)).toEqual([280, 330])
-+    expect(tracks(frame)).toEqual([320, 340, 0])
-     frameWidth = 1920
-     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
--    expect(tracks(frame)).toEqual([280, 360])
-+    expect(tracks(frame)).toEqual([320, 360, 0])
-   })
- 
-   it('drag handles disappear for collapsed columns', () => {
-@@ -279,6 +326,10 @@
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
-     act(() => { instance.actions.closeDetails() })
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-+    act(() => { instance.actions.togglePanel() })
-+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
-+    act(() => { instance.actions.closePanel() })
-+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-     act(() => { instance.actions.toggleSidebar() })
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-   })
-@@ -288,7 +339,7 @@
-   it('mounts collapsed below the breakpoint with no sidebar handle', () => {
-     frameWidth = 980
-     const { frame, slotCalls } = mountFrame()
--    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
-+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
-     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
-     expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -298,11 +349,11 @@
-     frameWidth = 980
-     const { frame, instance } = mountFrame()
-     act(() => { instance.actions.toggleSidebar() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-     act(() => { instance.actions.toggleSidebar() })
--    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
-+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
-   })
- 
-   it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -312,7 +363,7 @@
-     frameWidth = 980
-     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-     act(() => { instance.actions.toggleSidebar() })
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-     expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
-   })
- 
-@@ -321,10 +372,10 @@
-     act(() => { instance.actions.setSidebar(400) })
-     frameWidth = 980
-     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
--    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
-+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0, 0])
-     frameWidth = 1920
-     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
--    expect(tracks(frame)).toEqual([400, 0])
-+    expect(tracks(frame)).toEqual([400, 0, 0])
-   })
- })
- 
-@@ -345,28 +396,28 @@
-   it('two moves inside one frame coalesce through the pending rAF', () => {
-     const { frame, instance } = mountFrame()
-     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
--    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 280, bubbles: true })) })
-+    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 320, bubbles: true })) })
-     act(() => {
-       // Two moves before the frame flushes: the second must ride the pending
-       // rAF (frame.current ??= guard), and the flush sees the latest x.
--      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 320, bubbles: true }))
--      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 340, bubbles: true }))
-+      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 360, bubbles: true }))
-+      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 380, bubbles: true }))
-       vi.advanceTimersByTime(20)
-     })
--    act(() => { handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 340, bubbles: true })) })
--    expect(instance.getSnapshot().sidebar).toBe(340)
-+    act(() => { handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 380, bubbles: true })) })
-+    expect(instance.getSnapshot().sidebar).toBe(380)
-   })
- 
-   it('pointerup with a pending rAF cancels it and commits the final position', () => {
-     const { frame, instance } = mountFrame()
-     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
--    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 280, bubbles: true })) })
-+    act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 320, bubbles: true })) })
-     act(() => {
--      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 360, bubbles: true }))
-+      handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 400, bubbles: true }))
-       // No timer advance: the rAF is still pending when pointerup arrives.
--      handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 360, bubbles: true }))
-+      handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 400, bubbles: true }))
-     })
--    expect(instance.getSnapshot().sidebar).toBe(360)
-+    expect(instance.getSnapshot().sidebar).toBe(400)
-   })
- 
-   it('zero-width resize reports are ignored (display:none window)', () => {
-@@ -374,7 +425,7 @@
-     frameWidth = 0
-     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-     // Track template still reflects the last non-zero viewport.
--    expect(tracks(frame)).toEqual([280, 0])
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-   })
- })
- 
-@@ -391,8 +442,8 @@
-   it('double resize inside one frame rides the pending rAF (??= guard)', () => {
-     const { frame, instance } = mountFrame()
-     act(() => { instance.actions.openDetails() })
--    frameWidth = 1250
-+    frameWidth = 1300
-     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
--    expect(tracks(frame)).toEqual([280, 330])
-+    expect(tracks(frame)).toEqual([320, 340, 0])
    })
  })

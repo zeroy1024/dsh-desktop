@@ -9,23 +9,28 @@
  * The fork's frame-toolbar toggle seat is dropped by design: our desktop
  * shell keeps its own titleband overlay (desktop-frame), whose panel button
  * drives the same ctx.layout actions.
+ *
+ * 服务面在注册表之上挂载聚焦动作（openPage/inspect，PanelShellFocus）：
+ * inspect 是 0008 缝（ui-conversation 的 inspectCall 可选探测）的生产侧——
+ * chat 的 Inspect 按钮经它完成「开面板列 → 开轨迹页 → 下发一次性选中
+ * 目标」的跨缝手势，交接 store 由容器订阅后经 owner props 送进面板页。
  */
-import type { ClientContext } from './types.ts'
+import type { ClientContext, PanelShellFocus } from './types.ts'
 import { PanelShell } from './PanelShell.tsx'
 import { PanelShellController, reconcilePageHalves } from './registry.ts'
-import { createPanelLedger } from './panel-store.ts'
+import { createInspectHandoff, createPanelLedger } from './panel-store.ts'
 import { en, NS, zh } from './locales.ts'
 
 // Contract exports only: page plugins type their registration halves
 // against these (runtime access rides the ctx.panelShell service).
 export { PanelShellController, reconcilePageHalves } from './registry.ts'
 export type { PanelPageMeta } from './registry.ts'
-export type { PanelPageOwnerProps, PanelShellComponentProps } from './types.ts'
-export { createPanelLedger } from './panel-store.ts'
-export type { PanelLedger } from './panel-store.ts'
+export type { PanelPageOwnerProps, PanelShellComponentProps, PanelShellFocus } from './types.ts'
+export { createInspectHandoff, createPanelLedger } from './panel-store.ts'
+export type { InspectHandoff, InspectHandoffState, PanelLedger } from './panel-store.ts'
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'layout']
 
 /**
  * Client plugin body: provide `ctx.panelShell`, occupy the `panel` column
@@ -35,11 +40,26 @@ export const inject = ['slots', 'locale']
 export function apply(ctx: ClientContext): void {
   const registry = new PanelShellController()
   const ledger = createPanelLedger()
+  const handoff = createInspectHandoff()
+
+  // 聚焦动作面：同一实例上挂载（服务身份不变，registerPage 消费者无感）。
+  // inspect 的三步在同一同步手势里完成——openPanel/openPage/request 经 React
+  // 批处理后一次 commit，页面 seat 可见后 TrajectoryView 的滚动 effect 才跑
+  // （display:none 下 scrollIntoView 无效）。页面未注册时整体丢弃，避免写出
+  // 无人认领的悬挂目标；交接目标带 pageId 归属，下发时定向投递。
+  const service = registry as PanelShellController & PanelShellFocus
+  service.openPage = (id) => { ledger.openPage(id) }
+  service.inspect = (pageId, callId) => {
+    if (registry.page(pageId) === undefined) return
+    ctx.layout.openPanel()
+    ledger.openPage(pageId)
+    handoff.request(pageId, callId)
+  }
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'panel-shell: dictionaries')
 
   ctx.effect(() => {
-    const disposeService = ctx.reflect.provide('panelShell', registry)
+    const disposeService = ctx.reflect.provide('panelShell', service)
 
     // Reconciliation watcher: registry changes, slot-ledger changes, and the
     // initial state all re-run the pairing check. A mismatch seats a loud
@@ -75,7 +95,7 @@ export function apply(ctx: ClientContext): void {
     children: {
       'panel-shell.page': { kind: 'list', scope: 'session' },
     },
-    inject: () => ({ registry, ledger }),
+    inject: () => ({ registry, ledger, handoff }),
     locale: NS,
   }, PanelShell))
 }
