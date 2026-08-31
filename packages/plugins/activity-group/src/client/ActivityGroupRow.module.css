@@ -1,0 +1,112 @@
+.root {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  position: relative;
+  overflow: hidden;
+  /* 本行头的禁选由 desktop-frame 全局规则统一治理
+     （html[data-dsh-desktop] [data-disclosure-row][data-expandable]），
+     此处不重复声明。 */
+}
+
+/* 运行中的组行沿用思考行的底部扫掠：与单行 Think 的在途信号同语言。 */
+.root[data-state='running'] .row::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  background-size: 300px 100%;
+  background-repeat: no-repeat;
+  transform: translateX(-300px);
+  animation: dsh-activity-group-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* The overlay is full-width, so translateX(100%) spans the row: the sweep is
+   compositor-only and never touches layout or paint. */
+@keyframes dsh-activity-group-sweep {
+  0% { transform: translateX(-300px); }
+  90%, 100% { transform: translateX(100%); }
+}
+
+.leading {
+  flex-shrink: 0;
+}
+
+.chevron {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.separator {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-caption);
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.members {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+/* 层级感知：左缩进 + 1px 引导线表达「成员属于上面的组」。缩进量取组行
+   leading（16px 图标 + 6px 间距），成员图标对齐到组标题起点；引导线挂在
+   组图标中线附近，只包住成员区——组壳后的正文半段（.proseHalf）留在平铺
+   位置，不参与缩进。退化平铺路径（degenerate）不加 grouped：无组壳不成组。 */
+.members.grouped {
+  position: relative;
+  padding-left: 22px;
+}
+
+.members.grouped::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  border-radius: 1px;
+  background: var(--dsw-alias-border-l2);
+  pointer-events: none;
+}
+
+/* 正文半段（prose-tail step 的回答）紧跟组壳，与平铺流同位。 */
+.proseHalf {
+  padding: 2px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root[data-state='running'] .row::after {
+    animation: none;
+  }
+}

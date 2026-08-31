@@ -1,0 +1,3 @@
+- insert:
+    - id: activity-group
+      name: '@dsh-desktop/activity-group'

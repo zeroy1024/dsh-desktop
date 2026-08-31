@@ -1,0 +1,603 @@
+diff --git a/packages/client/ui-conversation/src/client/apply.ts b/packages/client/ui-conversation/src/client/apply.ts
+index 7920104d68..a6fe1752c7 100644
+--- a/packages/client/ui-conversation/src/client/apply.ts
++++ b/packages/client/ui-conversation/src/client/apply.ts
+@@ -385,6 +385,7 @@ export function apply(ctx: Context): void {
+     locale: NS,
+     children: {
+       'conversation.chat.node': { kind: 'keyed', scope: 'session', inject: CHAT_NODE_INJECT },
++      'conversation.chat.group': { kind: 'single', scope: 'session' },
+       'conversation.message.images': { kind: 'single', scope: 'session' },
+     },
+     store: chatStore,
+@@ -397,6 +398,9 @@ export function apply(ctx: Context): void {
+           layout.openDetails()
+         },
+         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
++        // Lazy like fileMentions: the grouping plugin may compose in or out
++        // around this registration, so the service resolves per read.
++        flowGrouping: () => ctx.get('chatFlowGrouping'),
+         openFile: (path) => {
+           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+           return workspaces.openPath(resolveWorkspacePath(cwd, path))
+diff --git a/packages/client/ui-conversation/src/client/chat/AssistantMarkdown.tsx b/packages/client/ui-conversation/src/client/chat/AssistantMarkdown.tsx
+index c758827317..50dcbfe14f 100644
+--- a/packages/client/ui-conversation/src/client/chat/AssistantMarkdown.tsx
++++ b/packages/client/ui-conversation/src/client/chat/AssistantMarkdown.tsx
+@@ -14,12 +14,20 @@ import type { ReactNode } from 'react'
+ import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
+ import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+-import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
++import type {
++  ChatNodeOwnerProps, ChatNodeRenderVariant, ChatViewSlotProps,
++} from '../contract/slots.ts'
+ import { ReasoningRow } from './ReasoningRow.tsx'
+ import css from './AssistantMarkdown.module.css'
+ 
+ export interface AssistantMarkdownProps {
+   blocks: readonly AssistantBlock[]
++  /**
++   * Block-range variant: 'prose-only' drops reasoning blocks (the folding
++   * group renders that half outside the step's seat), 'reasoning-only' keeps
++   * only them. Absent = the unfiltered step.
++   */
++  variant?: ChatNodeRenderVariant | undefined
+   streaming: boolean
+   /** Frozen partial of an aborted turn: rendered with a stopped marker. */
+   interrupted?: boolean | undefined
+@@ -33,22 +41,43 @@ export interface AssistantMarkdownProps {
+ 
+ /** Reasoning block as the Think variant summary row (figma 39:28304). */
+ export const AssistantMarkdown = memo(function AssistantMarkdown({
+-  blocks, streaming, interrupted, renderMessageImages, mentions, t,
++  blocks, variant, streaming, interrupted, renderMessageImages, mentions, t,
+ }: AssistantMarkdownProps) {
+   // Stable per locale revision (t identity changes on switch): a fresh object
+   // per render would rebuild MarkdownText's component table every chunk.
+   const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
++  // The variant filters by the ORIGINAL block index (kept as the React key and
++  // for the streaming-tail test), so a filtered view still keys identically to
++  // the unfiltered one. Absent variant keeps every block.
++  const visibleBlocks = blocks
++    .map((block, index) => ({ block, index }))
++    .filter(({ block }) => variant === 'prose-only'
++      ? block.kind !== 'reasoning'
++      : variant === 'reasoning-only'
++        ? block.kind === 'reasoning'
++        : true)
+   const last = blocks.length - 1
++  const streamTailIndex = variant === 'reasoning-only' ? undefined : last
+   // Tool-call heads render as tool rows in the chat view's grouping pass, so
+   // a node that is only those heads (or empty) would paint an empty root
+   // between tool groups — skip the shell unless something visible remains.
+-  const hasVisible = streaming
+-    || interrupted === true
+-    || blocks.some(block => block.kind !== 'tool-call')
++  // A variant view keeps its shell whenever anything survives the filter.
++  const hasVisible = variant === undefined
++    ? (streaming
++      || interrupted === true
++      || blocks.some(block => block.kind !== 'tool-call'))
++    : (visibleBlocks.length > 0 || streaming || interrupted === true)
+   if (!hasVisible) return null
+   const rendered: ReactNode[] = []
+-  for (let i = 0; i < blocks.length; i++) {
+-    const block = blocks[i]
++  // Cursor over the visible entries (original indices kept for keys); the
++  // image case consumes its consecutive run right here, so a filtered view
++  // tiles one gallery per run exactly like the unfiltered loop did.
++  let cursor = 0
++  while (cursor < visibleBlocks.length) {
++    const entry = visibleBlocks[cursor]
++    cursor += 1
++    const block = entry?.block
++    const i = entry?.index ?? 0
+     if (block === undefined) continue
+     switch (block.kind) {
+       case 'text':
+@@ -63,7 +92,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
+         )
+         break
+       case 'reasoning':
+-        rendered.push(<ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />)
++        rendered.push(<ReasoningRow key={i} text={block.text} running={streaming && i === streamTailIndex} t={t} />)
+         break
+       case 'image': {
+         // Consecutive image blocks share one gallery so several images tile
+@@ -73,11 +102,11 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
+         // the gallery under a shifted key.
+         const start = i
+         const group = [block]
+-        while (i + 1 < blocks.length) {
+-          const next = blocks[i + 1]
+-          if (next === undefined || next.kind !== 'image') break
+-          group.push(next)
+-          i += 1
++        while (cursor < visibleBlocks.length) {
++          const next = visibleBlocks[cursor]
++          if (next?.block === undefined || next.block.kind !== 'image') break
++          group.push(next.block)
++          cursor += 1
+         }
+         rendered.push(
+           <Fragment key={start}>
+diff --git a/packages/client/ui-conversation/src/client/chat/AssistantNodeView.tsx b/packages/client/ui-conversation/src/client/chat/AssistantNodeView.tsx
+index 850036f0cd..d6dc9328aa 100644
+--- a/packages/client/ui-conversation/src/client/chat/AssistantNodeView.tsx
++++ b/packages/client/ui-conversation/src/client/chat/AssistantNodeView.tsx
+@@ -4,7 +4,7 @@ import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+ 
+ /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
+ export const AssistantNodeView = memo(function AssistantNodeView({
+-  node, useTurnData, openFile, renderMessageImages, fileMentions, t,
++  node, renderVariant, useTurnData, openFile, renderMessageImages, fileMentions, t,
+ }: ChatNodeViewProps<'assistant-step'>) {
+   const data = node.data
+   const turn = node.location.kind === 'turn' || node.location.kind === 'step'
+@@ -23,6 +23,7 @@ export const AssistantNodeView = memo(function AssistantNodeView({
+   return (
+     <AssistantMarkdown
+       blocks={data.blocks}
++      variant={renderVariant}
+       streaming={data.status === 'running'}
+       interrupted={data.status === 'interrupted'}
+       renderMessageImages={renderMessageImages}
+diff --git a/packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx b/packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx
+index bc9c96fd41..e8b89c4dc9 100644
+--- a/packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx
++++ b/packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx
+@@ -1,11 +1,15 @@
+ import { memo, useMemo } from 'react'
+ import { JsonBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+-import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
++import type {
++  ChatNodeOwnerProps, ChatNodeRenderVariant, ChatViewSlotProps,
++} from '../contract/slots.ts'
+ import type { ChatNode } from '../contract/chat-nodes.ts'
+ import css from './ChatView.module.css'
+ 
+ interface ChatNodeSeatProps extends ChatNodeOwnerProps {
+   readonly nodeKey: string
++  /** Optional block-range variant threaded into the owner share. */
++  readonly renderVariant?: ChatNodeRenderVariant | undefined
+   readonly useSession: ChatViewSlotProps['useSession']
+   readonly renderSlot: ChatViewSlotProps['renderSlot']
+   readonly t: ChatViewSlotProps['t']
+@@ -17,7 +21,7 @@ type RoutedChatNodeOwner = {
+ 
+ /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
+ export const ChatNodeSeat = memo(function ChatNodeSeat({
+-  nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt,
++  nodeKey, renderVariant, selectedCallId, cwd, openFile, inspectCall, forkAt,
+   renderMessageImages, fileMentions, useSession, renderSlot, t,
+ }: ChatNodeSeatProps) {
+   const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
+@@ -32,8 +36,9 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
+       forkAt,
+       renderMessageImages,
+       fileMentions,
++      ...renderVariant === undefined ? {} : { renderVariant },
+     }, [
+-    node, selectedCallId, cwd, openFile, inspectCall, forkAt, renderMessageImages, fileMentions,
++    node, selectedCallId, cwd, openFile, inspectCall, forkAt, renderMessageImages, fileMentions, renderVariant,
+   ])
+   if (routedNode === undefined || owner === null) return null
+   // Runtime dispatch owns the correlation: every Node's discriminant is the
+diff --git a/packages/client/ui-conversation/src/client/chat/ChatView.tsx b/packages/client/ui-conversation/src/client/chat/ChatView.tsx
+index 80f9bc2d73..3985eae9d9 100644
+--- a/packages/client/ui-conversation/src/client/chat/ChatView.tsx
++++ b/packages/client/ui-conversation/src/client/chat/ChatView.tsx
+@@ -16,7 +16,10 @@
+ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+ import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+ import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+-import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots.ts'
++import type { ChatNode } from '../contract/chat-nodes.ts'
++import type {
++  ChatFlowItem, ChatNodeRenderVariant, ChatViewSlotProps, RenderMessageImages,
++} from '../contract/slots.ts'
+ import { PendingSteeringBubble } from './MessageItem.tsx'
+ import { ChatNodeSeat } from './ChatNodeSeat.tsx'
+ import { formatRunDuration } from './message-chrome.ts'
+@@ -157,7 +160,7 @@ function TurnStatus({ startTime, t }: {
+  */
+ export function ChatView({
+   useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
+-  fileMentions, t,
++  fileMentions, flowGrouping, t,
+ }: ChatViewSlotProps) {
+   const order = useSession(s => s.chat.order)
+   const nodeStore = useSession(s => s.chat.nodes)
+@@ -216,6 +219,50 @@ export function ChatView({
+   )
+   const runningTurnStart = useMemo(() => runningTurnStartTime(timeline), [timeline])
+ 
++  // One stable seat renderer per node key, shared by the flat and grouped
++  // flows: the grouped flow's renderMember hands members back through this
++  // exact path, so an expanded group is the flattened transcript. The
++  // optional variant splits an Assistant step's blocks for folding groups
++  // (reasoning half inside the group, prose half outside).
++  const renderSeat = useCallback((nodeKey: string, variant?: ChatNodeRenderVariant) => (
++    <ChatNodeSeat
++      key={nodeKey}
++      nodeKey={nodeKey}
++      renderVariant={variant}
++      useSession={useSession}
++      selectedCallId={selectedCallId}
++      cwd={cwd}
++      openFile={requestOpenFile}
++      inspectCall={inspectCall}
++      forkAt={forkAt}
++      renderMessageImages={renderMessageImages}
++      fileMentions={fileMentions}
++      renderSlot={renderSlot}
++      t={t}
++    />
++  ), [
++    useSession, selectedCallId, cwd, requestOpenFile, inspectCall, forkAt,
++    renderMessageImages, fileMentions, renderSlot, t,
++  ])
++
++  // Flow assembly: the ordered visible nodes, optionally reassembled by the
++  // optional grouping service into node/group alternation. Service resolution
++  // stays lazy (like fileMentions) so composing the provider in or out takes
++  // effect live; node references come from the same keyed store the seats
++  // subscribe to, so item identity follows projection reference stability.
++  const flowItems = useMemo<readonly ChatFlowItem[]>(() => {
++    const nodes: ChatNode[] = []
++    for (const key of order) {
++      const node = nodeStore.get(key)
++      if (node !== undefined) nodes.push(node as ChatNode)
++    }
++    const assembler = flowGrouping()
++    if (assembler === undefined) {
++      return nodes.map(node => ({ kind: 'node' as const, key: node.key, node }))
++    }
++    return assembler.group(nodes)
++  }, [order, nodeStore, flowGrouping])
++
+   const listRef = useRef<HTMLDivElement | null>(null)
+   const columnRef = useRef<HTMLDivElement | null>(null)
+   const atBottomRef = useRef(true)
+@@ -429,22 +476,29 @@ export function ChatView({
+               </button>
+             </div>
+           )}
+-          {order.map(nodeKey => (
+-            <ChatNodeSeat
+-              key={nodeKey}
+-              nodeKey={nodeKey}
+-              useSession={useSession}
+-              selectedCallId={selectedCallId}
+-              cwd={cwd}
+-              openFile={requestOpenFile}
+-              inspectCall={inspectCall}
+-              forkAt={forkAt}
+-              renderMessageImages={renderMessageImages}
+-              fileMentions={fileMentions}
+-              renderSlot={renderSlot}
+-              t={t}
+-            />
+-          ))}
++          {flowItems.map(item => item.kind === 'group'
++            ? (
++              /* The group seat carries the first member's anchor key: while
++                 folded, that key addresses the summary row for scroll
++                 anchoring; members expand through renderMember back into
++                 normal seats. A grouping service without a registered group
++                 renderer falls back to the flattened members. */
++              <div
++                key={item.key}
++                className={css.flowItem}
++                data-chat-anchor-key={item.key}
++                data-chat-flow-key={item.key}
++                data-chat-flow-kind="activity-group"
++              >
++                {renderSlot('conversation.chat.group', {
++                  nodes: item.nodes,
++                  renderMember: (memberKey, variant) => renderSeat(memberKey, variant),
++                }, {
++                  fallback: item.nodes.map(member => renderSeat(member.key)),
++                })}
++              </div>
++            )
++            : renderSeat(item.key))}
+           {/* No pending placeholders: questions (ui-user-questions) and approvals
+               (ApprovalPanel) both take over the composer, so a flow card would
+               double-render the same wait. */}
+diff --git a/packages/client/ui-conversation/src/client/contract/slots.ts b/packages/client/ui-conversation/src/client/contract/slots.ts
+index 307ac38482..e8c89e84d4 100644
+--- a/packages/client/ui-conversation/src/client/contract/slots.ts
++++ b/packages/client/ui-conversation/src/client/contract/slots.ts
+@@ -120,6 +120,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+       hookContext: string
+       inject: ChatNodeTurnDataInjected
+     }
++    /**
++     * The summary row of one folded activity group produced by the optional
++     * {@link ChatFlowGrouping} assembly service. Declared by the chat view
++     * entry; the owner passes the folded member nodes (ascending anchorSeq)
++     * and a `renderMember` that renders one member with the exact flattened
++     * seat (anchor key, spacing), so an expanded group is visually and
++     * behaviorally the flattened flow. Unoccupied, the view expands every
++     * group through that same fallback — a grouping service without a
++     * renderer degrades to the flattened transcript, never to lost rows.
++     */
++    'conversation.chat.group': { kind: 'single'; scope: 'session'; owner: ChatFlowGroupOwnerProps }
+     /** Optional renderer for one consecutive group of durable message images. */
+     'conversation.message.images': { kind: 'single'; scope: 'session'; owner: MessageImagesOwnerProps }
+     /**
+@@ -370,9 +381,67 @@ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     /** Prose file-mention provider (ui-deliverables); reach via ctx.get — optional. */
+     chatFileMentions: ChatFileMentions
++    /** Chat flow grouping assembler (ui-activity-group); reach via ctx.get — optional. */
++    chatFlowGrouping: ChatFlowGrouping
+   }
+ }
+ 
++/**
++ * One item of the chat view's assembled flow: either a business node rendered
++ * as its own seat, or a synthetic group folding consecutive process-only
++ * nodes (reasoning-only Assistant steps, tool calls) behind one summary row.
++ * A group's `key` is its first member's node key, so scroll anchoring and
++ * flow identity stay expressible without new identity machinery.
++ */
++export type ChatFlowItem =
++  | { readonly kind: 'node'; readonly key: string; readonly node: ChatNode }
++  | { readonly kind: 'group'; readonly key: string; readonly nodes: readonly ChatNode[] }
++
++/**
++ * Block-range rendering variant of one Assistant step's seat. Folding groups
++ * split a prose-tailed step (reasoning followed by the answer's text): the
++ * reasoning half renders inside the group, the prose half outside it, and
++ * the unfiltered seat stays the default. Absent variant = every block.
++ */
++export type ChatNodeRenderVariant = 'prose-only' | 'reasoning-only'
++
++/**
++ * Optional chat flow assembler, consumed via `ctx.get('chatFlowGrouping')`
++ * (same optional-service convention as {@link ChatFileMentions}): the chat
++ * view hands it the visible business nodes in ascending anchorSeq order and
++ * renders the returned sequence instead of the flat one. Absent service —
++ * the providing plugin composed out — is the off state: the view renders the
++ * plain flattened transcript. The service owns only assembly; the group
++ * summary row itself renders through the `conversation.chat.group` slot, and
++ * the two registrations belong to the same plugin so they compose together.
++ */
++export interface ChatFlowGrouping {
++  /**
++   * Reassemble the ordered node sequence into nodes and folded groups.
++   * Implementations must be pure projections: they may reorder, skip, or
++   * fold nodes into groups, but every member stays addressable through its
++   * group so no row can be lost from the transcript.
++   * @param nodes - Visible business nodes in ascending anchorSeq order.
++   * @returns The assembled flow items in render order.
++   */
++  group(nodes: readonly ChatNode[]): readonly ChatFlowItem[]
++}
++
++/** Owner currency of one folded group's summary row. */
++export interface ChatFlowGroupOwnerProps {
++  /** Folded member nodes in ascending anchorSeq order. */
++  nodes: readonly ChatNode[]
++  /**
++   * Render one member with the exact flattened seat — anchor key, flow
++   * wrapper, and keyed dispatch identical to the unfolded view — so an
++   * expanded group is indistinguishable from the flat transcript. The
++   * optional variant splits a member's blocks (see
++   * {@link ChatNodeRenderVariant}): a folding group renders a prose-tailed
++   * step's reasoning half inside itself and its prose half outside.
++   */
++  renderMember: (nodeKey: string, variant?: ChatNodeRenderVariant) => ReactNode
++}
++
+ /**
+  * Owner currency of the chat view's turn-tail hole: the engine-owned Turn and
+  * the closing assistant's anchor. Registrants read their own typed Turn data
+@@ -424,6 +493,12 @@ export interface ChatNodeOwnerProps {
+   /** Render a historical image group through the attachment slot. */
+   renderMessageImages: RenderMessageImages
+   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
++  /**
++   * Block-range variant of this seat's Assistant rendering (see
++   * {@link ChatNodeRenderVariant}); absent = the unfiltered step. Only the
++   * chat flow's folding groups pass it, through `renderMember`.
++   */
++  renderVariant?: ChatNodeRenderVariant | undefined
+ }
+ 
+ /** Full props of one registered keyed Chat business renderer. */
+@@ -782,12 +857,19 @@ export interface ChatViewInjected {
+    * absent or the turn produced nothing worth linking.
+    */
+   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
++  /**
++   * Lazy read of the optional {@link ChatFlowGrouping} assembler (resolved
++   * per call like {@link ChatViewInjected.fileMentions}, so composing the
++   * provider in or out takes effect live). Undefined = the view renders the
++   * plain flattened transcript.
++   */
++  flowGrouping: () => ChatFlowGrouping | undefined
+ }
+ 
+ /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */
+ export type ChatViewSlotProps =
+   PropsRuntime<'conversation.view'>
+-  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images'>
++  & PropsRenderSlots<'conversation.chat.node' | 'conversation.chat.group' | 'conversation.message.images'>
+   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
+ 
+ /** Full props of the attachment plugin's composer entry. */
+diff --git a/packages/client/ui-conversation/src/client/index.ts b/packages/client/ui-conversation/src/client/index.ts
+index 78732229b0..36301382e7 100644
+--- a/packages/client/ui-conversation/src/client/index.ts
++++ b/packages/client/ui-conversation/src/client/index.ts
+@@ -28,7 +28,8 @@ export type {
+   RetryChatData, ToolChatData, TurnTailChatData,
+ } from './contract/chat-nodes.ts'
+ export type {
+-  ChatFileMentions, ChatNodeOwnerProps, ChatNodeViewProps,
++  ChatFileMentions, ChatFlowGroupOwnerProps, ChatFlowGrouping, ChatFlowItem, ChatNodeOwnerProps, ChatNodeRenderVariant,
++  ChatNodeViewProps,
+   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
+   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps, ComposerChainProps, ConversationInjected,
+   ConversationHeaderLineageOwnerProps, ConversationSessionHeaderInjected, ConversationSessionInjected,
+diff --git a/packages/client/ui-conversation/src/client/locales.ts b/packages/client/ui-conversation/src/client/locales.ts
+index f4e7a7c59a..481e792bcb 100644
+--- a/packages/client/ui-conversation/src/client/locales.ts
++++ b/packages/client/ui-conversation/src/client/locales.ts
+@@ -92,6 +92,10 @@ export const zh = {
+   'chat.loadError': '历史加载失败：{message}（{code}）',
+   'chat.loadOlder': '加载更早',
+   'chat.toBottom': '回到底部',
++  'group.thinking': '思考中…',
++  'group.working': '执行中…',
++  'group.toolCalls': '{count} 个工具调用',
++  'group.thinkingSteps': '{count} 次思考',
+   'fileOpen.title': '无法打开文件',
+   'fileOpen.unknown': '无法打开此文件',
+   'fileOpen.folderTitle': '无法打开文件夹',
+@@ -269,6 +273,10 @@ export const en = {
+   'chat.loadError': 'Failed to load history: {message} ({code})',
+   'chat.loadOlder': 'Load earlier',
+   'chat.toBottom': 'Back to bottom',
++  'group.thinking': 'Thinking…',
++  'group.working': 'Working…',
++  'group.toolCalls': '{count} tool calls',
++  'group.thinkingSteps': '{count} thinking steps',
+   'fileOpen.title': 'Couldn’t open file',
+   'fileOpen.unknown': 'Couldn’t open this file',
+   'fileOpen.folderTitle': 'Couldn’t open folder',
+diff --git a/packages/client/ui-conversation/tests/chat-view.client.spec.tsx b/packages/client/ui-conversation/tests/chat-view.client.spec.tsx
+index b81dff8e6e..3e5848321e 100644
+--- a/packages/client/ui-conversation/tests/chat-view.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/chat-view.client.spec.tsx
+@@ -17,7 +17,8 @@ import {
+ } from '@deepseek-ai/dsh-client-runtime/client'
+ import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+ import type {
+-  ChatNode, ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, SelectionTarget, UseChatNodeTurnData,
++  ChatFlowGrouping, ChatFlowItem, ChatNode, ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps,
++  SelectionTarget, UseChatNodeTurnData,
+ } from '@deepseek-ai/dsh-client-ui-conversation/client'
+ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+@@ -184,6 +185,14 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
+     fallback?: React.ReactNode
+     hookContext?: unknown
+   }) => {
++    if (key === 'conversation.chat.group') {
++      const groupOwner = owner as { nodes: readonly { readonly key: string }[] }
++      return (
++        <div data-testid="group-row" data-group-head={groupOwner.nodes[0]?.key}>
++          {groupOwner.nodes.map(node => <span key={node.key}>{node.key}</span>)}
++        </div>
++      )
++    }
+     if (key !== 'conversation.chat.node') return opts?.fallback ?? null
+     const nodeOwner = owner as RoutedChatNodeOwner
+     const nodeKey = opts?.hookContext as string | undefined
+@@ -289,6 +298,9 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
+     forkAt,
+     // Absent-service default; mention tests override with a real resolver.
+     fileMentions: () => undefined,
++    // Absent-service default: the flat transcript. Grouping cases override
++    // with a scripted assembler.
++    flowGrouping: () => undefined,
+     // Mirrors the real lookup chain (conversation namespace, then common).
+     t,
+   }
+@@ -1458,3 +1470,91 @@ describe('ChatView', () => {
+     expect(failedView.container.querySelector('[data-state="error"]')).not.toBeNull()
+   })
+ })
++
++describe('chat flow grouping seam', () => {
++  // Scripted assembler mirroring the shipped folding rule (consecutive
++  // process-only nodes fold behind one group): the real provider lives in
++  // ui-activity-group, which this package must not depend on.
++  const foldProcessRuns = (): ChatFlowGrouping => ({
++    group: (nodes) => {
++      const items: ChatFlowItem[] = []
++      let run: ChatNode[] = []
++      const flush = (): void => {
++        const head = run[0]
++        if (run.length >= 2 && head !== undefined) {
++          items.push({ kind: 'group', key: head.key, nodes: run })
++        }
++        else {
++          for (const node of run) items.push({ kind: 'node', key: node.key, node })
++        }
++        run = []
++      }
++      for (const node of nodes) {
++        const foldable = node.kind === 'tool-call'
++          || (node.kind === 'assistant-step'
++            && !node.data.blocks.some(block => block.kind === 'text'))
++        if (foldable) {
++          run.push(node)
++          continue
++        }
++        flush()
++        items.push({ kind: 'node', key: node.key, node })
++      }
++      flush()
++      return items
++    },
++  })
++  const thinkStep = (seq: number): AssistantMessageNode => ({
++    kind: 'assistant', seq, time: seq * 1_000, turn: 1, step: seq,
++    blocks: [{ kind: 'reasoning', text: `thinking ${seq}` }],
++  })
++
++  it('folds consecutive process nodes through the group slot with the first member as the anchor key', () => {
++    const h = makeHarness({
++      nodes: [
++        user(1, '任务'),
++        thinkStep(2),
++        toolResult(3, 'c1'),
++        toolResult(4, 'c2'),
++        assistant(5, '正文结论'),
++      ],
++    })
++    const view = render(<h.ChatView {...h.props} flowGrouping={foldProcessRuns} />)
++    // One group row replaces the three process rows; the wrapper carries the
++    // first member's key so scroll anchoring keeps addressing the group.
++    const groupRow = view.getByTestId('group-row')
++    expect(groupRow.getAttribute('data-group-head')).toBe('fixture:assistant:2')
++    const groupSeat = view.container.querySelector('[data-chat-flow-kind="activity-group"]')
++    expect(groupSeat?.getAttribute('data-chat-anchor-key')).toBe('fixture:assistant:2')
++    // Members are folded: no individual tool seats render, and the user
++    // bubble plus the prose answer stay on the flat flow.
++    expect(view.queryByTestId('tool-seat-c1')).toBeNull()
++    expect(view.queryByTestId('tool-seat-c2')).toBeNull()
++    expect(view.getByText('任务')).toBeTruthy()
++    expect(view.getByText('正文结论')).toBeTruthy()
++  })
++
++  it('renders the flattened transcript when no grouping service is present', () => {
++    const h = makeHarness({
++      nodes: [user(1, '任务'), thinkStep(2), toolResult(3, 'c1'), toolResult(4, 'c2')],
++    })
++    const view = render(<h.ChatView {...h.props} />)
++    expect(view.queryByTestId('group-row')).toBeNull()
++    expect(view.getByTestId('tool-seat-c1')).toBeTruthy()
++    expect(view.getByTestId('tool-seat-c2')).toBeTruthy()
++  })
++
++  it('regroups live as the flow structure changes', () => {
++    const h = makeHarness({ nodes: [user(1, '任务'), thinkStep(2)] })
++    const view = render(<h.ChatView {...h.props} flowGrouping={foldProcessRuns} />)
++    // A single process node stays flat: below the fold minimum.
++    expect(view.queryByTestId('group-row')).toBeNull()
++    expect(view.getByText('任务')).toBeTruthy()
++
++    act(() => {
++      h.set({ nodes: [user(1, '任务'), thinkStep(2), toolResult(3, 'c1'), toolResult(4, 'c2')] })
++    })
++    expect(view.getByTestId('group-row')).toBeTruthy()
++    expect(view.queryByTestId('tool-seat-c1')).toBeNull()
++  })
++})
