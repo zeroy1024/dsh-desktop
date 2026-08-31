@@ -1,6 +1,6 @@
 # 方案：原生标题栏与侧栏融为一体
 
-- 状态：v1 已实施；折叠 0 宽由 `patches/0002-sidebar-collapsed-track-overlay.patch` + desktop-frame 覆盖 `--dsh-sidebar-collapsed-track`；会话 view tab 已由 desktop-frame 藏掉（轨迹 view 仍可编程到达）；会话 header 上下 padding 清零、titleRow 撑 44px，标题垂直居中且与侧栏顶带同线（水平布局维持官方左对齐）；中栏 header 整行并入窗口拖动带（交互元素 no-drag 挖洞，details 列头部待 patch 0003 加锚点后跟进）；blank 态 header 隐藏时 titleband 检测后自动铺满整窗，拖动带常驻（标记缺失时保守回落侧栏宽）；折叠态中栏 header 让位 `padding-left: 168px`（与 padding 同曲线动画；1px 分隔线按视觉锚点光学居中于 + 图标右缘 144 与标题字形左缘 176 之间（159.5），仅折叠态淡入，参照项目 data-titleband-divider 同款；待 patch 0003 变量缝收编）；官方 Session log 下载胶囊已迁至会话行右键菜单（patch 0001 菜单项 + 同源 anchor 下载，插件 CSS 按 `data-slot` 锚藏起 header.utilities 槽）；侧栏默认宽 320 由 patch 0004 承担（layout 服务面不暴露宽度写入，插件不可达）
+- 状态：v1 已实施；折叠 0 宽由 `patches/0006-ui-layout-panel-seam.patch`（原 0002 变量缝已并入）+ desktop-frame 覆盖 `--dsh-sidebar-collapsed-track`；会话 view tab 已由 desktop-frame 藏掉（0007 后 conversation.view 只剩 chat 一项，上游 tablist 本就不再渲染，CSS 规则转为兜底；轨迹 view 经 0007/0008 迁入右侧面板页，chat 的 Inspect 按钮走 panelShell 交接）；会话 header 上下 padding 清零、titleRow 撑 44px，标题垂直居中且与侧栏顶带同线（水平布局维持官方左对齐）；中栏 header 整行并入窗口拖动带（交互元素 no-drag 挖洞，details 列头部待 patch 0003 加锚点后跟进）；blank 态 header 隐藏时 titleband 检测后自动铺满整窗，拖动带常驻（标记缺失时保守回落侧栏宽）；折叠态中栏 header 让位 `padding-left: 168px`（与 padding 同曲线动画；1px 分隔线按视觉锚点光学居中于 + 图标右缘 144 与标题字形左缘 176 之间（159.5），仅折叠态淡入，参照项目 data-titleband-divider 同款；待 patch 0003 变量缝收编）；官方 Session log 下载胶囊已迁至会话行右键菜单（patch 0001 菜单项 + 同源 anchor 下载，插件 CSS 按 `data-slot` 锚藏起 header.utilities 槽）；侧栏默认宽 320 由 patch 0004 承担（layout 服务面不暴露宽度写入，插件不可达）
 - 日期：2026-08-30
 - 参照：`/Users/zeroy/Projects/dsh-desktop`（Tauri 桌面壳）运行时预览
 
@@ -64,14 +64,14 @@
 做不到、也不该在 v1 用插件硬做的：
 
 - 折叠到 **0 宽**：`columns.ts` 仍是 56px rail；桌面通过 `--dsh-sidebar-collapsed-track: 0px` 覆盖主布局 track。overlay 折叠钮在灯右侧。
-- 会话 view tab：已由插件 CSS 藏掉（`center-col` 内 `header [role='tablist']`）；trajectory 的 view 条目仍注册，`setView('trajectory')` 仍可渲染，只藏导航不砍功能。
-- 会话顶栏并进 44px titleband：header 几何在 `ui-conversation`，上游无稳定 DOM 属性与变量缝，纯插件只能结构选择器硬覆盖（不可靠）。走 `0002` 同款「变量缝」patch（变量化 header 几何 + 稳定 data 属性，默认值=官方现值），插件消费变量。未实施。
+- 会话 view tab：已由插件 CSS 藏掉（`center-col` 内 `header [role='tablist']`）。0007 把 trajectory 迁为右侧面板页后 conversation.view 只剩 chat，上游 `tabs.length > 1` 才渲染 tablist，该规则转为防未来 view 的兜底；Inspect 手势经 0008 缝走 panelShell 交接打开轨迹页。
+- 会话顶栏并进 44px titleband：header 几何在 `ui-conversation`，上游无稳定 DOM 属性与变量缝，纯插件只能结构选择器硬覆盖（不可靠）。走 0006 同款「变量缝」patch（变量化 header 几何 + 稳定 data 属性，默认值=官方现值），插件消费变量。未实施。
 
 代价：CSS 选择器绑官方 class / DOM（`logoRow`、`newSession`）。上游改 class 要跟。比维护一份 layout fork 轻得多，也符合「UI 走客户端插件」。
 
 ### C. `patches/` 提供插件无法获得的最小布局缝
 
-当前仅 `0002-sidebar-collapsed-track-overlay.patch` 修改 `AppFrame`：折叠默认仍回落官方 56px rail，桌面插件可用 CSS 变量把实际 track 设为 0。补丁不修改 store、`SIDEBAR_COLLAPSED` 或 SidebarRoot，也不引入完整 layout fork。
+当前修改 `AppFrame` 的是 `0006-ui-layout-panel-seam.patch`（原 0002 的折叠轨变量缝已并入其中）：折叠默认仍回落官方 56px rail，桌面插件可用 CSS 变量把实际 track 设为 0。不修改 store、`SIDEBAR_COLLAPSED` 或 SidebarRoot，也不引入完整 layout fork。
 
 `sync-upstream.ts` 会自动 pack 并 override 所有登记补丁触及的 workspace package，确保运行时 CLI 使用本地补丁包，而不是重新从 registry 安装官方版本。
 

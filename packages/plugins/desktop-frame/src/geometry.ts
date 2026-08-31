@@ -30,7 +30,13 @@ export function shouldStretchTitleband(centerColMarked: boolean, headerHeight: n
  * drag 层盖住则真实点击会被窗口拖动手势吞掉。panelWidth 是观察到的面板列
  * 渲染宽，让位收缩/全屏接管/拖拽后的终值天然正确；面板关（宽 0）时退回
  * 纯 100%（现状）。极端窄视口下让位链会自动关闭面板（panelWidth 归零），
- * 拖动带随之恢复全宽，无需额外下限保护。
+ * 拖动带随之恢复全宽。
+ *
+ * fullBleed 分支刻意不加 FOLDED_CLUSTER_PX 下限：面板全屏接管时让位结果
+ * 可窄到侧栏轨道宽（折叠态 + 放大 = 约 56px），若再兜 172px 下限，多出的
+ * 宽度是一条盖在面板 tab 条上的 drag 带，会吞掉 tab 点击——比"拖动带短
+ * 一截"更糟。宽度内缩时折叠/新会话两钮只是溢出父盒（overflow 默认可见、
+ * 各自 pointer-events:auto），绘制与点击都不受影响，属优雅降级。
  */
 export function titlebandWidthPx(
   sidebarWidth: number,

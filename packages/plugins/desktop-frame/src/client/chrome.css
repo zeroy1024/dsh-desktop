@@ -86,12 +86,13 @@ html[data-dsh-desktop] [data-dsh-frame='new-session']:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(16, 18, 26, 0.06)) !important;
 }
 
-/* 会话页只留一行标题栏：藏掉 header 内的 view tab 条（chat + trajectory
-   恒为 2 项所以 tablist 常驻渲染）。上游还有两处带 aria-label 的 tablist
-   （轨迹详情、插件设置），必须用中栏列锚点 + header 语义元素双限定防误伤；
-   trajectory 的 view 条目仍在注册表里，setView('trajectory') 依旧可渲染，
-   这里只藏导航不砍功能。markDesktopFrame 没跑成时规则整体不生效，官方 UI
-   原样降级。 */
+/* 会话页只留一行标题栏：藏掉 header 内的 view tab 条。0007 把 trajectory 迁
+   入右侧面板页后，conversation.view 只剩 chat 一项，上游 ConversationSession
+   仅在 tabs.length > 1 时渲染 tablist——本规则当前是兜底：任何未来新增的
+   view 条目（上游或第三方插件）都不会让 tab 条重新顶破单行标题栏。上游还有
+   两处带 aria-label 的 tablist（轨迹详情、插件设置），必须用中栏列锚点 +
+   header 语义元素双限定防误伤。markDesktopFrame 没跑成时规则整体不生效，
+   官方 UI 原样降级。 */
 html[data-dsh-desktop] [data-dsh-frame='center-col'] header [role='tablist'] {
   display: none !important;
 }

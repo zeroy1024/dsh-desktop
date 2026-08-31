@@ -231,8 +231,10 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Page seats: stacked, one per open tab. Inactive seats keep mounted but
-   invisible (visibility, not display, so embedded surfaces never reflow). */
+/* Page seats: one per open tab, flex siblings in the column. Hiding MUST be
+   display:none — visibility keeps the flex:1 share, so inactive seats would
+   squash the active one's height. Seats never unmount: page state survives
+   tab switches. */
 .seat {
   position: relative;
   flex: 1;
