@@ -41,14 +41,17 @@
   overflow: hidden;
 }
 
+/* Tab 固定宽（Codex 风格）：图标+标题左对齐、× 钉右缘，宽度不随内容收缩。
+   140px 在面板最小列宽 320px 下仍能完整并排两枚 tab + "+" 按钮；标题超长
+   由 .tabLabel 的 ellipsis 兜底。 */
 .tab {
   flex: none;
   display: inline-flex;
   align-items: center;
+  width: 140px;
   min-width: 0;
-  max-width: 100%;
   height: 28px;
-  padding: 0 2px 0 0;
+  padding: 0 4px;
   border-radius: 8px;
   /* Idle tabs carry no pill: the background belongs to hover and the active
      tab only. */
@@ -63,11 +66,12 @@
 }
 
 .tabButton {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 0 2px 0 8px;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--dsw-alias-label-primary);
