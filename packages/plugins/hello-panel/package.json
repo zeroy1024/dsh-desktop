@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/hello-panel",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "P2 示例内置插件：在 shell.overlay 挂一块可见徽章，用来验收 desktop profile 通道。",

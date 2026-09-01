@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/bridge",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "当前一代 agent 的 loopback HTTP origin 判定（页面直连 127.0.0.1，不含自定义协议）。",

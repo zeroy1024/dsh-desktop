@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/activity-group",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "对话流活动分组：连续过程行（纯思考 step、工具调用）折叠为一条摘要行，展开还原为与平铺一致的原始转录。",

@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/panel-page-stub",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "面板页协议的活文档与诊断页：演练 owner 契约全部字段（active 翻转、sessionId、badge 回调），并渲染已注册页面清单。",

@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/vision",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "为不支持图片输入的 dsh 文本模型补充透明的视觉理解能力。",

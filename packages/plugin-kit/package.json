@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/plugin-kit",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "内置插件构建工具：client 半打成 dsh ModuleLoader 工厂包（契约镜像上游 tsdown.client.ts）。",

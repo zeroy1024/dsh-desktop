@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/model-selection-direct",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "模型与推理等级直接选择器：以客户端插件覆盖官方 model seat，复用官方会话目录。",

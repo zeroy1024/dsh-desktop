@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/web-search",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "可配置的 DSH 联网搜索能力补全：通过辅助模型的原生 web search 为主模型提供结构化来源。",

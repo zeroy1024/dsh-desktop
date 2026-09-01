@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/desktop-frame",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "桌面窗框适配：44px 顶带、藏 logo、新会话整行、侧栏 wash、折叠 0 轨、藏会话 tab。",

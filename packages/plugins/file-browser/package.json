@@ -1,6 +1,6 @@
 {
   "name": "@dsh-desktop/file-browser",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "侧栏文件浏览器：会话工作区只读文件树 + markdown/源码预览（复刻 Codex 侧栏「文件」页）。node 半挂 /dsh-file-browser 只读路由，client 半占 panel-shell 页。",
