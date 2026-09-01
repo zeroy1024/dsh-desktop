@@ -32,10 +32,16 @@ let quitRequested = false
 let startupTask: Promise<void> | null = null
 let restartTask: Promise<void> | null = null
 let startupGeneration = 0
+const ciSmoke = process.env.DSH_DESKTOP_CI_SMOKE === '1'
 
 // dev 态 macOS 菜单栏应用名取的是 Electron 二进制的 CFBundleName，productName
 // 管不到它，必须显式 setName（值与 productName 一致，userData 路径不变）
 app.setName('DeepSeek Harness')
+// CI 必须完全隔离开发机/runner 的 Electron profile；真实 dsh 数据仍由同一个
+// 临时 DSH_HOME 隔离。生产启动不读取这条测试专用分支。
+if (ciSmoke && process.env.DSH_HOME !== undefined) {
+  app.setPath('userData', join(process.env.DSH_HOME, 'electron-user-data'))
+}
 
 /** 应用图标（resources/icons/icon.png，dist 的上一级）。 */
 function appIconPath(): string {
@@ -43,6 +49,35 @@ function appIconPath(): string {
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 等待 desktop-frame 客户端插件完成标记，证明 preload、插件与平台桥都已装配。 */
+async function waitForCiSmokeState(view: WebContentsView): Promise<void> {
+  const deadline = Date.now() + 10_000
+  let last: unknown = null
+  while (Date.now() < deadline) {
+    const slice = Math.min(500, Math.max(1, deadline - Date.now()))
+    try {
+      last = await Promise.race([
+        view.webContents.executeJavaScript(`({
+          desktop: document.documentElement.hasAttribute('data-dsh-desktop'),
+          platform: document.documentElement.dataset.dshPlatform,
+          bridgePlatform: window.dshDesktop?.platform,
+        })`),
+        delay(slice).then(() => 'renderer-poll-timeout' as const),
+      ])
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error)
+    }
+    if (typeof last === 'object' && last !== null) {
+      const state = last as { desktop?: unknown; platform?: unknown; bridgePlatform?: unknown }
+      if (state.desktop === true
+        && state.platform === process.platform
+        && state.bridgePlatform === process.platform) return
+    }
+    await delay(100)
+  }
+  throw new Error(`CI smoke: desktop plugin/preload marker 未就绪：${JSON.stringify(last)}`)
+}
 
 function webuiUrl(): string {
   if (allowedPort === null) throw new Error('agent not ready')
@@ -139,7 +174,11 @@ function wireSupervisor(candidate: AgentSupervisor): void {
     if (supervisor !== candidate || quitRequested) return
     clearAgentTransport()
     sendAgentStatus('stopped')
-    dialog.showErrorBox('dsh agent 已停止', 'agent 多次重启失败，应用将退出。日志见 userData/logs/dsh-agent.log')
+    if (ciSmoke) {
+      console.error('[ci-smoke] dsh agent 多次重启失败')
+    } else {
+      dialog.showErrorBox('dsh agent 已停止', 'agent 多次重启失败，应用将退出。日志见 userData/logs/dsh-agent.log')
+    }
     app.quit()
   })
 }
@@ -178,13 +217,21 @@ async function runStartup(generation: number): Promise<void> {
   await view.webContents.loadURL(agentPageUrl(ready.port))
   const mounted = await controller.waitForMount(view, MOUNT_TIMEOUT_MS)
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) return
-  if (!mounted) console.warn('[splash] 应用挂载检测超时，强制揭幕')
+  if (!mounted) {
+    if (ciSmoke) throw new Error('CI smoke: WebUI 挂载检测超时')
+    console.warn('[splash] 应用挂载检测超时，强制揭幕')
+  }
 
   controller.sendProgress(100)
   controller.sendPhase('sealed')
   await delay(SEAL_TOTAL_MS)
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) return
   await controller.reveal()
+  if (ciSmoke) {
+    await waitForCiSmokeState(view)
+    console.log(`[ci-smoke] DSH_DESKTOP_READY platform=${process.platform}`)
+    setImmediate(() => app.quit())
+  }
 }
 
 function startStartup(): Promise<void> {
@@ -203,7 +250,8 @@ function startStartup(): Promise<void> {
 function reportStartupFailure(err: unknown): void {
   const message = err instanceof Error ? err.message : String(err)
   splash?.sendPhase('error', message)
-  dialog.showErrorBox('dsh agent 启动失败', message)
+  if (ciSmoke) console.error(`[ci-smoke] startup failed: ${message}`)
+  else dialog.showErrorBox('dsh agent 启动失败', message)
   app.quit()
 }
 
@@ -261,7 +309,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(bootstrap).catch((err: unknown) => {
-    dialog.showErrorBox('启动失败', err instanceof Error ? err.message : String(err))
+    const message = err instanceof Error ? err.message : String(err)
+    if (ciSmoke) console.error(`[ci-smoke] bootstrap failed: ${message}`)
+    else dialog.showErrorBox('启动失败', message)
     app.quit()
   })
 

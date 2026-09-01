@@ -1,0 +1,22 @@
+# CI applies patches and consumes lock/config files on Windows as well as POSIX hosts.
+# Keep all textual build inputs on LF so checkout settings cannot change their bytes.
+*.cjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf
+*.patch text eol=lf
+*.svg text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+*.gif binary
+*.icns binary
+*.ico binary
+*.jpg binary
+*.png binary
+*.tgz binary

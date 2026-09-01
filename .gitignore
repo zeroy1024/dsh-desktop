@@ -17,5 +17,12 @@ vendor/dsh-cli/*
 # Electron 打包产物
 apps/desktop/release/
 
+# CI 失败诊断（日志、截图、探针输出）
+.ci-artifacts/
+
+# 本地视觉调试帧与 Codex/dsh 集成运行态
+.tmp-video/
+.zcode/
+
 # 本地开发数据（DSH_HOME 隔离目录的本地覆盖）
 .dsh-home-dev/

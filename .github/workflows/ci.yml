@@ -2,40 +2,285 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
+  merge_group:
+  workflow_dispatch:
 
+# Keep the token least-privileged. No job in this workflow writes to GitHub.
+permissions:
+  contents: read
+
+# Only supersede an obsolete pull-request run. Pushes and merge-queue runs are
+# allowed to finish so that their required status is not lost mid-flight.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI_ARTIFACT_DIR: .ci-artifacts
+  DSH_TELEMETRY_DISABLED: '1'
+  # Stable across "re-run failed jobs": a successful upstream job from the
+  # previous attempt must remain downloadable by retried platform jobs.
+  VENDOR_ARTIFACT_NAME: dsh-vendor-${{ github.run_id }}
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+          fetch-depth: 1
+          persist-credentials: false
 
-  upstream-sync:
-    # 演练 sync-upstream 全链路：证明 patches/ 仍能干净套用到锁定的上游版本
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Set up Go for Actionlint
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          submodules: true
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+          go-version: 1.25.x
+          cache: false
+
+      - name: Validate GitHub Actions workflows
+        # Go's checksum database makes this pinned module version immutable.
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+  # This is the one job allowed to build the patched upstream tree. The packed
+  # JS contract is platform-neutral (not byte-reproducible because of generated
+  # source maps); native dependencies are installed on each platform below.
+  upstream-contract:
+    name: Upstream contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+      - name: Set up Node.js
+        id: node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm sync:upstream
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'upstream/pnpm-lock.yaml', 'vendor/dsh-cli/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-
+
+      # The root workspace has links into vendor/, which does not exist on a
+      # clean checkout. Install only the root tooling needed to run sync first;
+      # platform jobs do a complete workspace install after restoring vendor.
+      - name: Install root tooling for synchronization
+        run: pnpm install --filter . --frozen-lockfile --ignore-scripts
+
+      - name: Apply patches, build upstream, and pack vendor artifacts
+        run: pnpm sync:upstream
+
+      - name: Run targeted upstream patch tests
+        # Contract: the repository exposes this command without changing the
+        # upstream submodule's package.json.
+        run: pnpm test:upstream-patches
+
+      - name: Reject generated lockfile drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C upstream diff --exit-code -- pnpm-lock.yaml pnpm-workspace.yaml
+          pnpm ci:verify-vendor-lock
+
+      - name: Verify vendor contract files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find vendor -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          for file in package.json pnpm-workspace.yaml pnpm-lock.yaml; do
+            test -f "vendor/dsh-cli/$file"
+          done
+
+      - name: Upload patched vendor contract
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.VENDOR_ARTIFACT_NAME }}
+          # The common vendor/ ancestor is intentional: download into vendor/
+          # in each platform job to recreate the expected relative paths.
+          path: |
+            vendor/*.tgz
+            vendor/dsh-cli/package.json
+            vendor/dsh-cli/pnpm-workspace.yaml
+            vendor/dsh-cli/pnpm-lock.yaml
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+
+      - name: Collect failure diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          mkdir -p .ci-artifacts/upstream
+          node --version > .ci-artifacts/upstream/node-version.txt 2>&1 || true
+          pnpm --version > .ci-artifacts/upstream/pnpm-version.txt 2>&1 || true
+          git status --short > .ci-artifacts/upstream/git-status.txt 2>&1 || true
+          git -C upstream status --short > .ci-artifacts/upstream/upstream-status.txt 2>&1 || true
+
+      - name: Upload failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-logs-upstream-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+  platform-check:
+    name: Platform / ${{ matrix.platform }}
+    needs: upstream-contract
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+      - name: Set up Node.js
+        id: node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download patched vendor contract
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ env.VENDOR_ARTIFACT_NAME }}
+          path: vendor
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'upstream/pnpm-lock.yaml', 'vendor/dsh-cli/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-
+
+      - name: Install platform dsh CLI dependencies
+        working-directory: vendor/dsh-cli
+        run: pnpm install --prod --frozen-lockfile
+
+      - name: Install root workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        run: pnpm lint
+
+      - name: Typecheck (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Probe native runtime modules
+        run: pnpm ci:probe-native
+
+      - name: Run dsh Web runtime smoke
+        run: pnpm ci:smoke:dsh
+
+      - name: Install Electron binary
+        run: pnpm --filter @dsh-desktop/desktop exec install-electron
+
+      - name: Run Electron startup smoke (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' pnpm ci:smoke:electron
+
+      - name: Run Electron startup smoke (macOS and Windows)
+        if: ${{ matrix.platform != 'linux' }}
+        run: pnpm ci:smoke:electron
+
+      - name: Collect failure diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          mkdir -p .ci-artifacts/platform-${{ matrix.platform }}
+          node --version > .ci-artifacts/platform-${{ matrix.platform }}/node-version.txt 2>&1 || true
+          pnpm --version > .ci-artifacts/platform-${{ matrix.platform }}/pnpm-version.txt 2>&1 || true
+          git status --short > .ci-artifacts/platform-${{ matrix.platform }}/git-status.txt 2>&1 || true
+          git -C upstream status --short > .ci-artifacts/platform-${{ matrix.platform }}/upstream-status.txt 2>&1 || true
+
+      - name: Upload failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-logs-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Keep one stable required-check name for branch protection even when the
+  # platform matrix grows or runner labels are rotated.
+  ci-gate:
+    name: CI Gate
+    if: ${{ always() }}
+    needs:
+      - workflow-lint
+      - upstream-contract
+      - platform-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require all CI checks to pass
+        shell: bash
+        env:
+          UPSTREAM_RESULT: ${{ needs.upstream-contract.result }}
+          PLATFORM_RESULT: ${{ needs.platform-check.result }}
+          WORKFLOW_RESULT: ${{ needs.workflow-lint.result }}
+        run: |
+          set -euo pipefail
+          echo "workflow-lint: ${WORKFLOW_RESULT}"
+          echo "upstream-contract: ${UPSTREAM_RESULT}"
+          echo "platform-check: ${PLATFORM_RESULT}"
+          test "${WORKFLOW_RESULT}" = success
+          test "${UPSTREAM_RESULT}" = success
+          test "${PLATFORM_RESULT}" = success

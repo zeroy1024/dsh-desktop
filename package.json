@@ -10,9 +10,16 @@
   "scripts": {
     "sync:upstream": "tsx scripts/sync-upstream.ts",
     "stage:plugins": "tsx scripts/stage-plugins.ts",
+    "test:upstream-patches": "tsx scripts/test-upstream-patches.ts",
+    "test:scripts": "vitest run scripts/tests",
+    "ci:verify-vendor-lock": "tsx scripts/verify-vendor-lock.ts",
+    "ci:probe-native": "tsx scripts/ci-native-probe.ts",
+    "ci:smoke:dsh": "tsx scripts/smoke-dsh.ts",
+    "ci:smoke:electron": "tsx scripts/smoke-electron.ts",
+    "ci:smoke": "pnpm ci:probe-native && pnpm ci:smoke:dsh && pnpm ci:smoke:electron",
     "dev": "tsx scripts/dev.ts",
     "build": "pnpm -r --if-present build && pnpm stage:plugins",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm test:scripts && pnpm -r --if-present test",
     "typecheck": "tsc --noEmit && pnpm -r --if-present typecheck",
     "lint": "oxlint apps packages scripts"
   },
