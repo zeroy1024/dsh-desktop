@@ -228,6 +228,13 @@ jobs:
           }
           EOF
 
+      # AppImageKit serves its payload through a FUSE squashfs mount; fusermount
+      # and a non-root unsquashfs both drop setuid bits from any host copy, so
+      # the mode after --appimage-extract can never observe 4755 even when the
+      # packaged metadata is correct. An AppImage runtime therefore relies on
+      # Chromium's user-namespace sandbox fallback, and what must hold is that
+      # the distributable metadata itself still records chrome-sandbox as
+      # setuid 4755 and that nothing in the package disables the sandbox.
       - name: Verify Linux sandbox in distributable archives
         if: ${{ matrix.platform == 'linux' }}
         shell: bash
@@ -238,16 +245,28 @@ jobs:
           test -n "${appimage}"
           test -n "${archive}"
 
+          command -v unsquashfs >/dev/null 2>&1 || sudo apt-get install -y --no-install-recommends squashfs-tools
+
           appimage_extract="$(mktemp -d)"
-          archive_extract="$(mktemp -d)"
-          trap 'rm -rf "${appimage_extract}" "${archive_extract}"' EXIT
+          listing="$(mktemp)"
+          trap 'rm -rf "${appimage_extract}" "${listing}"' EXIT
+
+          # Read the squashfs metadata directly, skipping the ELF runtime via
+          # the offset of its first squashfs magic ("hsqs").
+          offset="$(LC_ALL=C grep -abo -- 'hsqs' "${appimage}" | head -n1 | cut -d: -f1)"
+          test -n "${offset}"
+          echo "AppImage squashfs offset: ${offset} bytes"
           chmod +x "${appimage}"
+          unsquashfs -ll -n -o "${offset}" "${appimage}" > "${listing}"
+          echo '--- AppImage squashfs entries (chrome-sandbox / desktop entry) ---'
+          grep -E 'chrome-sandbox|\.desktop$' "${listing}" || true
+          grep -E '^-rwsr-xr-x .*chrome-sandbox' "${listing}"
+
+          # The desktop entry must keep the Chromium sandbox enabled.
           (
             cd "${appimage_extract}"
             "${GITHUB_WORKSPACE}/${appimage}" --appimage-extract >/dev/null
           )
-          appimage_sandbox="$(find "${appimage_extract}/squashfs-root" -type f -name chrome-sandbox -print -quit)"
-          test "$(stat -c '%a' "${appimage_sandbox}")" = 4755
           desktop_entry="$(find "${appimage_extract}/squashfs-root" -maxdepth 1 -type f -name '*.desktop' -print -quit)"
           test -n "${desktop_entry}"
           if grep -F -- '--no-sandbox' "${desktop_entry}"; then
@@ -255,9 +274,10 @@ jobs:
             exit 1
           fi
 
-          tar -xzf "${archive}" -C "${archive_extract}"
-          archive_sandbox="$(find "${archive_extract}" -type f -name chrome-sandbox -print -quit)"
-          test "$(stat -c '%a' "${archive_sandbox}")" = 4755
+          # tar.gz: assert on the archive metadata itself, not the host copy.
+          echo '--- tar.gz chrome-sandbox metadata ---'
+          tar -tzvf "${archive}" | grep chrome-sandbox || true
+          tar -tzvf "${archive}" | grep -E '^-rwsr-xr-x ' | grep chrome-sandbox
 
       - name: Configure Chromium sandbox (Linux)
         if: ${{ matrix.platform == 'linux' }}
@@ -361,6 +381,12 @@ jobs:
           This release contains unsigned installers and portable archives for
           macOS arm64, Windows x64, and Linux x64. Verify downloaded files with
           SHA256SUMS before installing.
+
+          Linux note: the AppImage payload is FUSE-mounted, which strips the
+          setuid bit, so the Chromium sandbox falls back to kernel user
+          namespaces there; the portable tar.gz keeps the setuid chrome-sandbox
+          helper (mode 4755) for environments where the traditional setuid
+          sandbox works.
           EOF
 
       - name: Create or update prerelease with gh
