@@ -50,12 +50,12 @@ describe('locatePackagedExecutable', () => {
   })
 
   it('resolves each platform resource directory from its executable', () => {
-    expect(packagedResourcesDir('/tmp/App.app/Contents/MacOS/App', 'darwin'))
-      .toBe('/tmp/App.app/Contents/Resources')
-    expect(packagedResourcesDir('/tmp/win-unpacked/App.exe', 'win32'))
-      .toBe('/tmp/win-unpacked/resources')
-    expect(packagedResourcesDir('/tmp/linux-unpacked/app', 'linux'))
-      .toBe('/tmp/linux-unpacked/resources')
+    expect(packagedResourcesDir(join('tmp', 'App.app', 'Contents', 'MacOS', 'App'), 'darwin'))
+      .toBe(join('tmp', 'App.app', 'Contents', 'Resources'))
+    expect(packagedResourcesDir(join('tmp', 'win-unpacked', 'App.exe'), 'win32'))
+      .toBe(join('tmp', 'win-unpacked', 'resources'))
+    expect(packagedResourcesDir(join('tmp', 'linux-unpacked', 'app'), 'linux'))
+      .toBe(join('tmp', 'linux-unpacked', 'resources'))
   })
 })
 

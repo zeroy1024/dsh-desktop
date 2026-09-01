@@ -95,6 +95,9 @@ function isRegularFile(path: string): boolean {
 function isLaunchableFile(path: string, platform: PackagedPlatform): boolean {
   if (!isRegularFile(path)) return false
   if (platform === 'win32') return extname(path).toLowerCase() === '.exe'
+  // Windows does not expose POSIX executable mode bits. This branch also
+  // keeps fixture-based inspection of macOS/Linux layouts portable.
+  if (process.platform === 'win32') return true
   try {
     // electron-builder preserves the executable bit on POSIX unpacked output.
     return (statSync(path).mode & 0o111) !== 0
