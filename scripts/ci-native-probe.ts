@@ -382,8 +382,15 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 
 const invokedPath = process.argv[1] === undefined ? null : resolve(process.argv[1])
 if (invokedPath !== null && invokedPath === resolve(fileURLToPath(import.meta.url))) {
-  main().catch((error: unknown) => {
-    console.error(`[native] ${displayError(error)}`)
-    process.exitCode = 1
-  })
+  // Windows native addons (notably node-pty/ConPTY) may retain internal
+  // libuv handles after their functional smoke has completed. This executable
+  // is deliberately a one-shot probe, so terminate explicitly after every
+  // awaited assertion and synchronous log write rather than hanging the job.
+  main().then(
+    () => process.exit(0),
+    (error: unknown) => {
+      console.error(`[native] ${displayError(error)}`)
+      process.exit(1)
+    },
+  )
 }
