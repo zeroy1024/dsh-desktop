@@ -1029,7 +1029,7 @@
       "dark": {
         "path": "src/client/assets/jetbrains/expui/fileTypes/microsoftWindows_dark.svg",
         "source": "platform/icons/src/expui/fileTypes/microsoftWindows_dark.svg",
-        "sha256": "8dad4b5d6b59559c2183248cb320cd0fa104443fec579e3a0e029b2c47283cd3",
+        "sha256": "0432b2fca3f690049fac646b81a52d547ee1bf1e0b63fe09ffb8b315067ea08f",
         "width": 16,
         "height": 16,
         "license": "Apache-2.0",
