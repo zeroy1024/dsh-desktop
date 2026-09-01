@@ -251,13 +251,25 @@ jobs:
           listing="$(mktemp)"
           trap 'rm -rf "${appimage_extract}" "${listing}"' EXIT
 
-          # Read the squashfs metadata directly, skipping the ELF runtime via
-          # the offset of its first squashfs magic ("hsqs").
-          offset="$(LC_ALL=C grep -abo -- 'hsqs' "${appimage}" | head -n1 | cut -d: -f1)"
-          test -n "${offset}"
-          echo "AppImage squashfs offset: ${offset} bytes"
+          # Read the squashfs metadata directly. The runtime ELF embeds the
+          # "hsqs" magic as a byte constant, so probe every occurrence with
+          # unsquashfs and keep the first offset that parses as a superblock.
+          squashfs_offset=''
+          last_error=''
+          while IFS= read -r candidate; do
+            if err="$(unsquashfs -ll -n -o "${candidate}" "${appimage}" 2>&1 > "${listing}")"; then
+              squashfs_offset="${candidate}"
+              break
+            fi
+            last_error="${err}"
+          done < <(LC_ALL=C grep -abo -- 'hsqs' "${appimage}" | cut -d: -f1)
+          if [ -z "${squashfs_offset}" ]; then
+            echo 'No valid squashfs superblock found in AppImage; last error:' >&2
+            echo "${last_error}" >&2
+            exit 1
+          fi
+          echo "AppImage squashfs offset: ${squashfs_offset} bytes"
           chmod +x "${appimage}"
-          unsquashfs -ll -n -o "${offset}" "${appimage}" > "${listing}"
           echo '--- AppImage squashfs entries (chrome-sandbox / desktop entry) ---'
           grep -E 'chrome-sandbox|\.desktop$' "${listing}" || true
           grep -E '^-rwsr-xr-x .*chrome-sandbox' "${listing}"
