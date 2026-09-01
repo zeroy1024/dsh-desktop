@@ -6,7 +6,7 @@
 appId: ai.deepseek.harness.desktop
 productName: DeepSeek Harness
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
-afterPack: ../../scripts/electron-builder-after-pack.mjs
+afterPack: ./electron-builder-after-pack.mjs
 directories:
   output: release
 files:
@@ -35,6 +35,8 @@ win:
 linux:
   icon: resources/icons
   category: Development
+  executableName: deepseek-harness
+  syncDesktopName: true
   target:
     - target: AppImage
       arch:

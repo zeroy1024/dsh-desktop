@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "productName": "DeepSeek Harness",
+  "desktopName": "deepseek-harness.desktop",
   "type": "module",
   "author": "ZeroY <zeroy1024@outlook.com>",
   "repository": {
