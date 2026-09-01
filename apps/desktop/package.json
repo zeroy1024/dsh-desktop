@@ -4,10 +4,19 @@
   "private": true,
   "productName": "DeepSeek Harness",
   "type": "module",
+  "author": "ZeroY <zeroy1024@outlook.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zeroy1024/dsh-desktop.git"
+  },
   "description": "Electron 壳：主进程负责窗口、安全策略与 dsh agent 子进程生命周期。",
   "main": "./dist/main.mjs",
   "scripts": {
     "build": "tsx ./build.ts",
+    "package": "pnpm --dir ../.. build && electron-builder --config electron-builder.yml --publish never",
+    "package:linux": "pnpm --dir ../.. build && electron-builder --config electron-builder.yml --linux --publish never",
+    "package:mac": "pnpm --dir ../.. build && electron-builder --config electron-builder.yml --mac --publish never",
+    "package:win": "pnpm --dir ../.. build && electron-builder --config electron-builder.yml --win --publish never",
     "start": "electron .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -19,6 +28,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

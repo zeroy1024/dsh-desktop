@@ -16,6 +16,7 @@
     "ci:probe-native": "tsx scripts/ci-native-probe.ts",
     "ci:smoke:dsh": "tsx scripts/smoke-dsh.ts",
     "ci:smoke:electron": "tsx scripts/smoke-electron.ts",
+    "ci:smoke:packaged": "tsx scripts/smoke-packaged.ts",
     "ci:smoke": "pnpm ci:probe-native && pnpm ci:smoke:dsh && pnpm ci:smoke:electron",
     "dev": "tsx scripts/dev.ts",
     "build": "pnpm -r --if-present build && pnpm stage:plugins",

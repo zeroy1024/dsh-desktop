@@ -1,25 +1,63 @@
-# electron-builder 配置（P4 打包分发阶段启用）
+# electron-builder 配置（v0.0.1 未签名 developer preview）
 # 关键点：
-#   - extraResources 携带 dsh CLI 构建产物与平台 Node 24 运行时（scripts/bundle-node.ts 产出）
+#   - extraResources 携带平台原生安装的 dsh CLI 闭包；当前由 Electron 以 Node 模式运行
+#   - 独立 Node 24 runtime、签名/公证与自动更新仍属于后续完整 P4
 #   - 渲染层是 upstream apps/web 的静态 dist，无 webpack/vite 打包步骤
 appId: ai.deepseek.harness.desktop
 productName: DeepSeek Harness
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+afterPack: ../../scripts/electron-builder-after-pack.mjs
 directories:
   output: release
 files:
   - dist/**
+  - package.json
+  - resources/icons/icon.png
 mac:
   icon: resources/icons/icon.icns
-  # category: public.app-category.developer-tools
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
 win:
   icon: resources/icons/icon.ico
-  # target: nsis
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
 linux:
   icon: resources/icons
-  # target: AppImage
+  category: Development
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64
+appImage:
+  # Keep Chromium's sandbox enabled; the afterPack hook installs its helper.
+  executableArgs: []
 extraResources:
   - from: ../../vendor/dsh-cli
     to: dsh-cli
+    filter:
+      - package.json
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+  # electron-builder always excludes a source tree's root `node_modules`.
+  # Make it the FileSet root so the complete pnpm runtime closure is copied.
+  - from: ../../vendor/dsh-cli/node_modules
+    to: dsh-cli/node_modules
+    filter:
+      - '**/*'
 #   - from: ../../vendor/node-runtime
 #     to: node-runtime
 # 内置插件由 `pnpm stage:plugins` 放进上面的 dsh-cli/node_modules/@dsh-desktop，

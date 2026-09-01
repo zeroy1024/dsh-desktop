@@ -1,0 +1,398 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to validate against package.json
+        required: true
+        type: string
+        default: v0.0.1
+      publish:
+        description: Create the tag and GitHub prerelease after all packages pass
+        required: true
+        type: boolean
+        default: false
+
+# Release jobs do not need repository write access until the final publish job.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  VENDOR_ARTIFACT_NAME: dsh-vendor-${{ github.run_id }}
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  # github.sha is immutable for the run; every job packages and tags the same commit.
+  RELEASE_SOURCE_REF: ${{ github.sha }}
+
+jobs:
+  prepare-vendor:
+    name: Prepare vendor contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SOURCE_REF }}
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Validate release tag
+        shell: bash
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+          if [[ "${desktop_version}" != "${version}" ]]; then
+            echo "Desktop version ${desktop_version} does not match root version ${version}" >&2
+            exit 1
+          fi
+          expected="v${version}"
+          if [[ "${TAG}" != "${expected}" ]]; then
+            echo "Release tag ${TAG} does not match package version ${expected}" >&2
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Set up Node.js
+        id: node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'upstream/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-
+
+      # sync:upstream is the only job that builds the patched upstream tree.
+      # Only its platform-neutral tarballs and install contract cross the job
+      # boundary; native node_modules are always installed on the target OS.
+      - name: Install root tooling for synchronization
+        run: pnpm install --filter . --frozen-lockfile --ignore-scripts
+
+      - name: Build patched upstream and prepare vendor
+        run: pnpm sync:upstream
+
+      - name: Run targeted upstream patch tests
+        run: pnpm test:upstream-patches
+
+      - name: Reject generated lockfile drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C upstream diff --exit-code -- pnpm-lock.yaml pnpm-workspace.yaml
+          pnpm ci:verify-vendor-lock
+
+      - name: Verify vendor contract files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find vendor -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          for file in package.json pnpm-workspace.yaml pnpm-lock.yaml; do
+            test -f "vendor/dsh-cli/${file}"
+          done
+
+      - name: Upload platform-neutral vendor contract
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.VENDOR_ARTIFACT_NAME }}
+          path: |
+            vendor/*.tgz
+            vendor/dsh-cli/package.json
+            vendor/dsh-cli/pnpm-workspace.yaml
+            vendor/dsh-cli/pnpm-lock.yaml
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+
+  package:
+    name: Package / ${{ matrix.platform }} (${{ matrix.arch }})
+    needs: prepare-vendor
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+            arch: arm64
+            builder-platform: mac
+          - platform: windows
+            runner: windows-2025
+            arch: x64
+            builder-platform: win
+          - platform: linux
+            runner: ubuntu-24.04
+            arch: x64
+            builder-platform: linux
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SOURCE_REF }}
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Set up Node.js
+        id: node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          architecture: ${{ matrix.arch }}
+
+      - name: Download platform-neutral vendor contract
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.VENDOR_ARTIFACT_NAME }}
+          path: vendor
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'upstream/pnpm-lock.yaml', 'vendor/dsh-cli/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-
+
+      # These installs intentionally happen on each target runner so optional
+      # dependencies (node-pty, koffi, sharp, and Electron) match the OS/ABI.
+      - name: Install platform-native vendor dependencies
+        working-directory: vendor/dsh-cli
+        run: pnpm install --prod --frozen-lockfile
+
+      - name: Install root workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Probe platform-native runtime
+        run: pnpm ci:probe-native
+
+      - name: Install Electron binary
+        run: pnpm --filter @dsh-desktop/desktop exec install-electron
+
+      - name: Build desktop installer and archives
+        working-directory: apps/desktop
+        run: pnpm run package:${{ matrix.builder-platform }}
+
+      - name: Verify platform release assets
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { readdirSync } from 'node:fs'
+          const expected = {
+            macos: ['.dmg', '.zip'],
+            windows: ['.exe', '.zip'],
+            linux: ['.AppImage', '.tar.gz'],
+          }[process.env.PLATFORM]
+          if (expected === undefined) throw new Error(`Unknown platform: ${process.env.PLATFORM}`)
+          const files = readdirSync('apps/desktop/release')
+          for (const suffix of expected) {
+            const matches = files.filter((file) => file.endsWith(suffix))
+            if (matches.length !== 1) {
+              throw new Error(`Expected exactly one ${suffix} asset; found: ${matches.join(', ') || '(none)'}`)
+            }
+          }
+          EOF
+
+      - name: Verify Linux sandbox in distributable archives
+        if: ${{ matrix.platform == 'linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimage="$(find apps/desktop/release -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          archive="$(find apps/desktop/release -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          test -n "${appimage}"
+          test -n "${archive}"
+
+          appimage_extract="$(mktemp -d)"
+          archive_extract="$(mktemp -d)"
+          trap 'rm -rf "${appimage_extract}" "${archive_extract}"' EXIT
+          chmod +x "${appimage}"
+          (
+            cd "${appimage_extract}"
+            "${GITHUB_WORKSPACE}/${appimage}" --appimage-extract >/dev/null
+          )
+          appimage_sandbox="$(find "${appimage_extract}/squashfs-root" -type f -name chrome-sandbox -print -quit)"
+          test "$(stat -c '%a' "${appimage_sandbox}")" = 4755
+          desktop_entry="$(find "${appimage_extract}/squashfs-root" -maxdepth 1 -type f -name '*.desktop' -print -quit)"
+          test -n "${desktop_entry}"
+          if grep -F -- '--no-sandbox' "${desktop_entry}"; then
+            echo 'AppImage desktop entry must not disable the Chromium sandbox' >&2
+            exit 1
+          fi
+
+          tar -xzf "${archive}" -C "${archive_extract}"
+          archive_sandbox="$(find "${archive_extract}" -type f -name chrome-sandbox -print -quit)"
+          test "$(stat -c '%a' "${archive_sandbox}")" = 4755
+
+      - name: Configure Chromium sandbox (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sandbox="$(find apps/desktop/release -maxdepth 2 -type f -name chrome-sandbox -print -quit)"
+          test -n "${sandbox}"
+          sudo chown root:root "${sandbox}"
+          sudo chmod 4755 "${sandbox}"
+
+      - name: Run packaged smoke (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' pnpm ci:smoke:packaged -- --release-dir apps/desktop/release
+
+      - name: Run packaged smoke (macOS and Windows)
+        if: ${{ matrix.platform != 'linux' }}
+        run: pnpm ci:smoke:packaged -- --release-dir apps/desktop/release
+
+      - name: Upload installers and archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dsh-release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.tar.gz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+
+      - name: Upload packaged smoke diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-logs-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    name: Publish prerelease
+    needs: package
+    if: ${{ github.event_name == 'push' || inputs.publish }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SOURCE_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download installers and archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dsh-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate assets and generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' assets < <(
+            find release-assets -maxdepth 1 -type f -print0 | sort -z
+          )
+          test "${#assets[@]}" -eq 6
+          for asset in "${assets[@]}"; do
+            case "${asset}" in
+              *.dmg|*.zip|*.exe|*.AppImage|*.tar.gz) ;;
+              *) echo "Unexpected release asset: ${asset}" >&2; exit 1 ;;
+            esac
+          done
+          (
+            cd release-assets
+            checksum_tmp="$(mktemp)"
+            trap 'rm -f "${checksum_tmp}"' EXIT
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' \
+              | sort -z \
+              | xargs -0 sha256sum > "${checksum_tmp}"
+            mv "${checksum_tmp}" SHA256SUMS
+            trap - EXIT
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Write release notes
+        shell: bash
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          cat > release-notes.md <<EOF
+          DeepSeek Harness ${TAG} developer preview.
+
+          This release contains unsigned installers and portable archives for
+          macOS arm64, Windows x64, and Linux x64. Verify downloaded files with
+          SHA256SUMS before installing.
+          EOF
+
+      - name: Create or update prerelease with gh
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "DeepSeek Harness ${TAG}" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --draft=false \
+              --latest=false
+            gh release upload "${TAG}" release-assets/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            create_tag_args=()
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+              create_tag_args+=(--verify-tag)
+            else
+              create_tag_args+=(--target "$(git rev-parse HEAD)")
+            fi
+            gh release create "${TAG}" release-assets/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "DeepSeek Harness ${TAG}" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --latest=false \
+              "${create_tag_args[@]}"
+          fi

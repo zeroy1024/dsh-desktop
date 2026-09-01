@@ -9,6 +9,7 @@
  * 而不是桌面。BaseWindow 没有默认页面，合成栈里只有我们放的两个视图。
  */
 import { app, BaseWindow, dialog, ipcMain, nativeImage, type WebContentsView } from 'electron'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentPageUrl } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
@@ -33,6 +34,7 @@ let startupTask: Promise<void> | null = null
 let restartTask: Promise<void> | null = null
 let startupGeneration = 0
 const ciSmoke = process.env.DSH_DESKTOP_CI_SMOKE === '1'
+const ciSmokeReadyMarker = '.dsh-desktop-ci-ready.json'
 
 // dev 态 macOS 菜单栏应用名取的是 Electron 二进制的 CFBundleName，productName
 // 管不到它，必须显式 setName（值与 productName 一致，userData 路径不变）
@@ -77,6 +79,16 @@ async function waitForCiSmokeState(view: WebContentsView): Promise<void> {
     await delay(100)
   }
   throw new Error(`CI smoke: desktop plugin/preload marker 未就绪：${JSON.stringify(last)}`)
+}
+
+/** Windows GUI processes may not expose stdout to the workflow runner. */
+function writeCiSmokeReadyMarker(): void {
+  if (!ciSmoke || process.env.DSH_HOME === undefined) return
+  writeFileSync(
+    join(process.env.DSH_HOME, ciSmokeReadyMarker),
+    `${JSON.stringify({ ready: true, platform: process.platform, pid: process.pid })}\n`,
+    { encoding: 'utf8', flag: 'wx' },
+  )
 }
 
 function webuiUrl(): string {
@@ -229,6 +241,7 @@ async function runStartup(generation: number): Promise<void> {
   await controller.reveal()
   if (ciSmoke) {
     await waitForCiSmokeState(view)
+    writeCiSmokeReadyMarker()
     console.log(`[ci-smoke] DSH_DESKTOP_READY platform=${process.platform}`)
     setImmediate(() => app.quit())
   }
