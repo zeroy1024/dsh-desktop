@@ -42,8 +42,9 @@ Each runner downloads the upstream contract and then:
    loopback ready line, fetches the HTML shell, and stops it.
 6. Installs the Electron binary and launches the real unpackaged app. The
    smoke succeeds only after dsh is ready, the WebUI mounts, and the desktop
-   preload/plugin platform markers agree with the host. Linux runs this step
-   under Xvfb.
+   preload/plugin platform markers agree with the host. Linux configures the
+   packaged Chromium SUID helper as `root:root` mode `4755` and runs under
+   Xvfb; it does not weaken production behavior with `--no-sandbox`.
 
 Lint and TypeScript checking run once on Linux because their results are not
 OS-dependent. The matrix uses `fail-fast: false` so every platform reports its
@@ -92,7 +93,8 @@ for a limited period.
 - Checkout credentials are not persisted.
 - Pull requests use `pull_request`, never `pull_request_target`, and receive no
   signing or service secrets.
-- Every Action is pinned to a full commit SHA; Dependabot proposes updates.
+- Every Action is pinned to a full commit SHA; Dependabot groups all Action
+  updates into one scheduled weekly pull request.
 - pnpm stores are cached per OS, architecture, Node version, and all relevant
   lockfiles. `node_modules` and the platform-native vendor closure are not
   cached as cross-job artifacts.

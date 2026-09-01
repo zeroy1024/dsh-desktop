@@ -72,6 +72,15 @@ describe('resolveWithinRoot', () => {
     expect(resolveWithinRoot('repo', 'x')).toBeUndefined()
   })
 
+  it('支持 Windows 盘符 root，同时拒绝盘符绝对/相对路径', () => {
+    expect(resolveWithinRoot('C:\\repo', '')).toBe('C:/repo')
+    expect(resolveWithinRoot('C:\\repo\\', 'apps/desktop')).toBe('C:/repo/apps/desktop')
+    expect(resolveWithinRoot('D:/', '')).toBe('D:/')
+    expect(resolveWithinRoot('C:/repo', 'C:/Windows')).toBeUndefined()
+    expect(resolveWithinRoot('C:/repo', 'C:Windows')).toBeUndefined()
+    expect(resolveWithinRoot('C:', 'apps')).toBeUndefined()
+  })
+
   it('保留 root 前缀相似但不越界的判断（/repo vs /repo2）', () => {
     // root 本身已给出绝对路径，rel 不可能跳出；此处验证前缀拼接的边界形状。
     expect(resolveWithinRoot('/repo', 'x')).toBe('/repo/x')

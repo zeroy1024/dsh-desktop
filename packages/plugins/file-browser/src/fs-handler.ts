@@ -106,9 +106,41 @@ function fsErrorCode(err: unknown): FsErrorCode {
   return 'unreadable'
 }
 
+/**
+ * realpath 的比较形式。Node 在 Windows 上通常返回反斜杠路径，而
+ * resolveWithinRoot 为了协议稳定会返回 `/` 分隔路径；比较前统一分隔符，
+ * 并对 Windows 盘符/UNC 路径做大小写折叠（Windows 文件系统大小写不敏感）。
+ */
+function canonicalRealPath(path: string): { value: string; windows: boolean } | undefined {
+  const drive = /^([A-Za-z]):[\\/]/u.exec(path)
+  if (drive !== null) {
+    const segments = path.slice(2).replaceAll('\\', '/').split('/').filter(Boolean)
+    return {
+      value: `${drive[1]}:/${segments.join('/')}`.toLowerCase(),
+      windows: true,
+    }
+  }
+  // Keep UNC support symmetrical with drive paths. A POSIX realpath normally
+  // collapses a leading `//`, so this branch only applies to an actual UNC root.
+  if (path.startsWith('\\\\') || path.startsWith('//')) {
+    const segments = path.replaceAll('\\', '/').split('/').filter(Boolean)
+    return { value: `//${segments.join('/')}`.toLowerCase(), windows: true }
+  }
+  if (!path.startsWith('/')) return undefined
+  const segments = path.split('/').filter(Boolean)
+  return {
+    value: segments.length === 0 ? '/' : `/${segments.join('/')}`,
+    windows: false,
+  }
+}
+
 /** 目标是否仍在 root 的 realpath 内（symlink 逃逸校验；调用方已拿 rootReal）。 */
 function withinReal(rootReal: string, real: string): boolean {
-  return real === rootReal || real.startsWith(`${rootReal}/`)
+  const root = canonicalRealPath(rootReal)
+  const target = canonicalRealPath(real)
+  if (root === undefined || target === undefined || root.windows !== target.windows) return false
+  const boundary = root.value.endsWith('/') ? root.value : `${root.value}/`
+  return target.value === root.value || target.value.startsWith(boundary)
 }
 
 /** dirent → 条目：dir/file 分类，symlink 跟随 stat 判真实类型（断链归 file）。 */
