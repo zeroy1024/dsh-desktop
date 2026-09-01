@@ -83,6 +83,8 @@ export function redactSecrets(value: string): string {
 export class AgentSupervisor extends EventEmitter {
   private child: ChildProcess | null = null
   private logStream: WriteStream | null = null
+  private readonly logCloseTasks = new WeakMap<ChildProcess, Promise<void>>()
+  private latestLogCloseTask: Promise<void> = Promise.resolve()
   private restartTimer: NodeJS.Timeout | null = null
   private stableTimer: NodeJS.Timeout | null = null
   private currentState: AgentState = 'stopped'
@@ -129,6 +131,7 @@ export class AgentSupervisor extends EventEmitter {
     this.clearStableTimer()
     const child = this.child
     if (!child) {
+      await this.latestLogCloseTask
       this.currentState = 'stopped'
       this.currentReady = null
       return
@@ -165,6 +168,18 @@ export class AgentSupervisor extends EventEmitter {
         },
       )
       this.child = child
+      const logClosed = new Promise<void>((resolveLogClose) => {
+        let settled = false
+        const done = (): void => {
+          if (settled) return
+          settled = true
+          resolveLogClose()
+        }
+        logStream.once('close', done)
+        logStream.once('error', done)
+      })
+      this.logCloseTasks.set(child, logClosed)
+      this.latestLogCloseTask = logClosed
 
       let promiseSettled = false
       let reachedReady = false
@@ -317,19 +332,44 @@ export class AgentSupervisor extends EventEmitter {
 
   /** 整组 SIGTERM，超时后 SIGKILL；stdio 已关闭并完成清场后 resolve。 */
   private async terminate(child: ChildProcess): Promise<void> {
-    const closed = new Promise<void>((resolvePromise) => {
-      child.once('close', () => resolvePromise())
-    })
+    const closed = child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise<void>((resolvePromise) => {
+          child.once('close', () => resolvePromise())
+        })
     this.signal(child, 'SIGTERM')
     const grace = this.options.stopGraceMs ?? 5_000
-    const timedOut = await Promise.race([
-      closed.then(() => false),
-      new Promise<true>((resolvePromise) => setTimeout(() => resolvePromise(true), grace)),
-    ])
+    let graceTimer: NodeJS.Timeout | undefined
+    const graceElapsed = new Promise<true>((resolvePromise) => {
+      graceTimer = setTimeout(() => resolvePromise(true), grace)
+    })
+    const timedOut = await (async () => {
+      try {
+        return await Promise.race([closed.then(() => false), graceElapsed])
+      } finally {
+        if (graceTimer !== undefined) clearTimeout(graceTimer)
+      }
+    })()
     if (timedOut) {
       this.signal(child, 'SIGKILL')
-      await closed
+      let forceTimer: NodeJS.Timeout | undefined
+      const forcedClosed = await (async () => {
+        try {
+          return await Promise.race([
+            closed.then(() => true),
+            new Promise<false>((resolvePromise) => {
+              forceTimer = setTimeout(() => resolvePromise(false), 5_000)
+            }),
+          ])
+        } finally {
+          if (forceTimer !== undefined) clearTimeout(forceTimer)
+        }
+      })()
+      if (!forcedClosed) {
+        throw new Error(`agent SIGKILL 后 5000ms 内未关闭（pid=${String(child.pid)}）`)
+      }
     }
+    await this.logCloseTasks.get(child)
   }
 
   private signal(child: ChildProcess, sig: NodeJS.Signals): void {

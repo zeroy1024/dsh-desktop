@@ -150,8 +150,9 @@ describe('AgentSupervisor', () => {
   it('start 进行中调用 stop 会让 start 拒绝而非悬挂', async () => {
     const supervisor = track(new AgentSupervisor(makeOptions('fake-dsh-silent.mjs')))
     const started = supervisor.start()
+    const rejected = expect(started).rejects.toThrow(/ready 前被停止/)
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100))
     await supervisor.stop()
-    await expect(started).rejects.toThrow(/ready 前被停止/)
+    await rejected
   })
 })
