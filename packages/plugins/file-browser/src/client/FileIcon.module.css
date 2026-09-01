@@ -1,0 +1,27 @@
+/* All ExpUI assets keep their native 16px canvas (including its transparent edge). */
+.icon {
+  flex: none;
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.iconLight {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.iconDark {
+  display: none;
+  width: 16px;
+  height: 16px;
+}
+
+:global(body[data-ds-dark-theme]) .iconLight {
+  display: none;
+}
+
+:global(body[data-ds-dark-theme]) .iconDark {
+  display: block;
+}

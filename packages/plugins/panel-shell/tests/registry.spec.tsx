@@ -7,7 +7,9 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import { PanelShellController, reconcilePageHalves } from '../src/client/registry.ts'
+import {
+  PanelShellController, isPageVisible, reconcilePageHalves, resolveVisibleActiveId,
+} from '../src/client/registry.ts'
 
 const icon: ReactNode = null
 
@@ -112,5 +114,27 @@ describe('reconcilePageHalves', () => {
     const error = reconcilePageHalves([{ id: 'meta-only', title: () => 'M' }], new Set(['slot-only']))
     expect(error).toContain('meta-only')
     expect(error).toContain('slot-only')
+  })
+})
+
+describe('isPageVisible', () => {
+  it('默认 either：两相可见', () => {
+    const meta = { id: 'a', title: () => 'A' }
+    expect(isPageVisible(meta, true)).toBe(true)
+    expect(isPageVisible(meta, false)).toBe(true)
+  })
+
+  it('required 页无会话时不可见，有会话复现', () => {
+    const meta = { id: 'a', title: () => 'A', sessionMode: 'required' as const }
+    expect(isPageVisible(meta, false)).toBe(false)
+    expect(isPageVisible(meta, true)).toBe(true)
+  })
+})
+
+describe('resolveVisibleActiveId', () => {
+  it('keeps a visible active page and otherwise uses a presentation-only fallback', () => {
+    expect(resolveVisibleActiveId(['files', 'trajectory'], 'trajectory')).toBe('trajectory')
+    expect(resolveVisibleActiveId(['trajectory'], 'files')).toBe('trajectory')
+    expect(resolveVisibleActiveId([], 'files')).toBeNull()
   })
 })

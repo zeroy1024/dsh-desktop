@@ -1,0 +1,22 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@dsh-desktop/panel-shell/client": ["../panel-shell/src/client/index.ts"]
+    }
+  },
+  "include": [
+    "src",
+    "scripts",
+    "tests",
+    "build.ts",
+    "vitest.config.ts",
+    "../panel-shell/src/client/ui-primitives.d.ts",
+    "../panel-shell/src/client/runtime.d.ts",
+    "../panel-shell/src/client/css.d.ts"
+  ]
+}

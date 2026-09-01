@@ -79,7 +79,7 @@ export function FpsBadge() {
         right: 16,
         zIndex: 30,
         padding: '4px 8px',
-        borderRadius: 8,
+        borderRadius: 'var(--dsh-radius-control, 8px)',
         background: 'rgba(16, 18, 26, 0.78)',
         color: jank ? '#f87171' : '#4ade80',
         font: '12px/16px ui-monospace, SFMono-Regular, Menlo, monospace',

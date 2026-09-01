@@ -1,0 +1,198 @@
+diff --git a/packages/host/apiproxy/src/api-proxy.ts b/packages/host/apiproxy/src/api-proxy.ts
+--- a/packages/host/apiproxy/src/api-proxy.ts
++++ b/packages/host/apiproxy/src/api-proxy.ts
+@@ -124,7 +124,56 @@
+ 
+ /** Conversation message event types (the pagination counting unit). */
+ const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
++
++type ImageInputCapability = 'native' | 'text-only' | 'unknown'
++type ImageInputAdmissionResolution = 'resolved' | 'failed'
++type ImageInputAdmission = 'bridge' | 'abstain'
++
++interface ImageInputAdmissionService {
++  admit(request: {
++    provider: string
++    model: string
++    capability: ImageInputCapability
++    resolution: ImageInputAdmissionResolution
++  }): ImageInputAdmission | Promise<ImageInputAdmission>
++}
++
++/**
++ * Keep native model facts separate from plugin-provided image conversion.
++ * Unknown metadata retains DSH's adapter-owned pass-through semantics unless
++ * an optional admission service explicitly owns the conversion.
++ */
++async function imagePromptAdmission(
++  ctx: Context,
++  provider: string,
++  model: string,
++): Promise<boolean> {
++  const service = ctx.get('imageInputAdmission') as ImageInputAdmissionService | undefined
++  const admit = async (
++    capability: ImageInputCapability,
++    resolution: ImageInputAdmissionResolution,
++  ): Promise<ImageInputAdmission> => {
++    if (typeof service?.admit !== 'function') return 'abstain'
++    return await service.admit({ provider, model, capability, resolution }) === 'bridge'
++      ? 'bridge'
++      : 'abstain'
++  }
+ 
++  let capability: ImageInputCapability
++  try {
++    const inputModalities = (await ctx.llm.resolveModelInfo(provider, model)).inputModalities
++    capability = inputModalities === undefined
++      ? 'unknown'
++      : inputModalities.includes('image') ? 'native' : 'text-only'
++  } catch (error: unknown) {
++    if (await admit('unknown', 'failed') === 'bridge') return true
++    throw error
++  }
++  if (capability === 'native') return true
++  if (await admit(capability, 'resolved') === 'bridge') return true
++  return capability === 'unknown'
++}
++
+ /** Validate one prompt as a batch before publishing any durable image object. */
+ async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
+   if (content.every(part => part.type === 'text')) {
+@@ -2384,8 +2433,7 @@
+           try {
+             if (hasImage) {
+               const current = selectionFor(agent).current
+-              const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
+-              if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
++              if (!await imagePromptAdmission(ctx, current.provider, current.model)) {
+                 return err(request, {
+                   code: 'attachment-error',
+                   message: `Model "${current.model}" does not support image input.`,
+diff --git a/packages/host/apiproxy/tests/api-proxy-models.spec.ts b/packages/host/apiproxy/tests/api-proxy-models.spec.ts
+--- a/packages/host/apiproxy/tests/api-proxy-models.spec.ts
++++ b/packages/host/apiproxy/tests/api-proxy-models.spec.ts
+@@ -129,6 +129,31 @@
+   }('Text Only', []))
+ }
+ 
++function provideImageAttachments(ctx: Context): ReturnType<typeof vi.fn> {
++  const saveImage = vi.fn((input: { data: Uint8Array; mediaType: 'image/png'; name?: string }) => Promise.resolve({
++    attachmentId: `att-${String(input.data[0])}`,
++    mediaType: input.mediaType,
++    bytes: input.data.byteLength,
++    width: 1,
++    height: 1,
++    ...input.name === undefined ? {} : { name: input.name },
++  }))
++  const attachments = {
++    imageLimits: {
++      maxImageBytes: 4,
++      maxImagesPerMessage: 2,
++      maxMessageImageBytes: 4,
++      maxImagePixels: 4,
++      maxImageDimension: 2000,
++      mediaTypes: ['image/png'],
++    },
++    validateImage: vi.fn(() => Promise.resolve()),
++    saveImage,
++  }
++  ctx.provide('attachments', Object.setPrototypeOf(attachments, AttachmentStore.prototype) as never)
++  return saveImage
++}
++
+ describe('Web session model selection', () => {
+   it('validates an ordered image batch before persisting any member', async () => {
+     const { ctx, agent, sessionId } = await harness()
+@@ -196,9 +221,92 @@
+       error: { code: 'attachment-error', details: { reason: 'TOO_MANY_IMAGES' } },
+     })
+     expect(saveImage).toHaveBeenCalledTimes(2)
++    await ctx.fiber.dispose()
++  })
++
++  it('admits an explicit text-only route when an image bridge owns conversion', async () => {
++    const { ctx, agent, sessionId } = await harness()
++    registerTextOnly(ctx)
++    const saveImage = provideImageAttachments(ctx)
++    const admit = vi.fn(() => 'bridge' as const)
++    ctx.provide('imageInputAdmission', { admit })
++    const followup = vi.fn()
++    Object.assign(agent, { followup })
++    const api = createApiProxy(ctx, {
++      defaultModelSelection: () => ({ provider: 'text-only', model: 'plain' }),
++      cwd: '/tmp',
++    })
++
++    const result = await api.sessions.prompt(request({
++      sessionId,
++      mode: 'queue' as const,
++      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' }],
++    }))
++
++    expect(result.result.ok).toBe(true)
++    expect(admit).toHaveBeenCalledWith({
++      provider: 'text-only', model: 'plain', capability: 'text-only', resolution: 'resolved',
++    })
++    expect(saveImage).toHaveBeenCalledOnce()
++    expect(admit.mock.invocationCallOrder[0]).toBeLessThan(saveImage.mock.invocationCallOrder[0]!)
++    expect(followup).toHaveBeenCalledOnce()
++    await ctx.fiber.dispose()
++  })
++
++  it('preserves unknown-capability pass-through when the admission service abstains', async () => {
++    const { ctx, agent, sessionId } = await harness()
++    const saveImage = provideImageAttachments(ctx)
++    const admit = vi.fn(() => 'abstain' as const)
++    ctx.provide('imageInputAdmission', { admit })
++    const followup = vi.fn()
++    Object.assign(agent, { followup })
++    const api = createApiProxy(ctx, {
++      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'unlisted' }),
++      cwd: '/tmp',
++    })
++
++    const result = await api.sessions.prompt(request({
++      sessionId,
++      mode: 'queue' as const,
++      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' }],
++    }))
++
++    expect(result.result.ok).toBe(true)
++    expect(admit).toHaveBeenCalledWith({
++      provider: 'deepseek-official', model: 'unlisted', capability: 'unknown', resolution: 'resolved',
++    })
++    expect(saveImage).toHaveBeenCalledOnce()
++    expect(followup).toHaveBeenCalledOnce()
+     await ctx.fiber.dispose()
+   })
+ 
++  it('lets an explicit bridge policy recover a model-info lookup failure', async () => {
++    const { ctx, agent, sessionId } = await harness()
++    const saveImage = provideImageAttachments(ctx)
++    const admit = vi.fn(() => 'bridge' as const)
++    ctx.provide('imageInputAdmission', { admit })
++    const followup = vi.fn()
++    Object.assign(agent, { followup })
++    const api = createApiProxy(ctx, {
++      defaultModelSelection: () => ({ provider: 'metadata-broken', model: 'listed' }),
++      cwd: '/tmp',
++    })
++
++    const result = await api.sessions.prompt(request({
++      sessionId,
++      mode: 'queue' as const,
++      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' }],
++    }))
++
++    expect(result.result.ok).toBe(true)
++    expect(admit).toHaveBeenCalledWith({
++      provider: 'metadata-broken', model: 'listed', capability: 'unknown', resolution: 'failed',
++    })
++    expect(saveImage).toHaveBeenCalledOnce()
++    expect(followup).toHaveBeenCalledOnce()
++    await ctx.fiber.dispose()
++  })
++
+   it('allows a text-only selection while durable or pending images remain available for later models', async () => {
+     const { ctx, agent, sessionId } = await harness()
+     registerTextOnly(ctx)

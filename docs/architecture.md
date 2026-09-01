@@ -38,16 +38,17 @@ Electron 主进程 ──spawn──▶ dsh --profile desktop --no-open --port 0
 ```
 packages/plugins/*（双面包：node 半 + dsh.client 浏览器半，dsh.bundle.patch 自激活）
         │ 构建（镜像的 tsdown.client preset）→ lib/index.js + lib/client.js
+        │ stage → vendor/dsh-cli/node_modules/@dsh-desktop/*
         ▼
 app 启动时物化 ~/.dsh/profiles/desktop/：manifest（bundles = dsh-base + dsh-web-app + 我们的插件）
-        + 空 cordis.patch.yml + node_modules/ 每插件一个符号链接 → 插件构建产物
+        + 空 cordis.patch.yml + node_modules/ 每插件一个符号链接 → CLI 闭包内 staged 插件
         ▼
 spawn: --profile desktop --no-open --port 0
 ```
 
-- 解析链路：bundle 双锚点（安装目录 → profile 目录）+ 裸名 Node walk（profile 级 `node_modules` 第一优先），全部为上游既有机制，零上游改动。物化前校验插件名/manifest/路径，托管文件原子替换，版本戳记录插件名册以清理旧的托管链接。
+- 解析链路：bundle 双锚点（安装目录 → profile 目录）+ 裸名 Node walk（profile 级 `node_modules` 第一优先），全部为上游既有机制，零上游改动。`stage:plugins` 先把发布面放进 CLI 的 canonical `node_modules` 闭包，避免 profile 符号链接被 Node realpath 回 workspace 后加载第二份 Cordis／HarnessError；物化前校验插件名/manifest/路径，托管文件原子替换，版本戳记录插件名册以清理旧的托管链接。
 - 插件版本 = app 版本；P4 时构建产物经 extraResources 随包携带。
-- dev 循环：`tsdown --watch` 重写 `lib/client.js` 即触发 dsh client-hmr 热换（HTTP 模式天然可用）。
+- dev 启动：先构建全部插件，再把 manifest `files[]` staging 到 CLI 闭包，然后物化 profile。重建插件后需再次执行 `pnpm stage:plugins`，staged `lib/client.js` 的变更才会进入 dsh client-hmr。
 
 ## 目录结构与所有权
 

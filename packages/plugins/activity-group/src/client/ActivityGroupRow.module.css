@@ -58,7 +58,7 @@
   width: 2px;
   height: 2px;
   margin: 0 8px;
-  border-radius: 1px;
+  border-radius: var(--dsh-radius-hairline, 1px);
   background: var(--dsw-alias-label-caption);
 }
 
@@ -95,7 +95,7 @@
   top: 2px;
   bottom: 2px;
   width: 1px;
-  border-radius: 1px;
+  border-radius: var(--dsh-radius-hairline, 1px);
   background: var(--dsw-alias-border-l2);
   pointer-events: none;
 }

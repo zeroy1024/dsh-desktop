@@ -33,31 +33,38 @@
 
 /* Tab strip hugs its content so the "+" add-page button trails the last tab
    (the header has no other trailing occupant)。空间不足时 tab 区是 header 里
-   唯一可收缩段（flex 0 1 auto + min-width 0）：容器被压缩后，内部 tab 再按
-   各自的 shrink 因子等比收缩，overflow hidden 只做最后兜底裁切。 */
+   唯一可收缩段；tab 自身保留可读宽度，溢出后在这一区域横向滚动。滚动条
+   隐藏但原生滚动语义保留，触摸板的水平惯性由 Chromium 直接处理。 */
 .tabs {
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 2px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
 }
 
-/* Tab 首选宽 112px（Codex 风格：icon+标题左对齐、× 钉右缘），空间不足时
-   等比收缩到 56px 下限（图标位 + 数字符），标题超长由 .tabLabel 的
-   ellipsis 兜底。active 保宽优先级最高（flex-shrink: 0）。
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tab 固定为 112px 可读宽度（Codex 风格：icon+标题左对齐、× 钉右缘），
+   容器不足时不再把所有 tab 压窄，而是交由上方滚动区承载；标题超长由
+   .tabLabel 的 ellipsis 兜底。
    padding 左 8 / 右 6 是「视觉等距」：右侧 × 图标 12px 居中于 16px 盒，
    图标右缘到 tab 边缘 = 6 + (16-12)/2 = 8，与左侧 icon/文字的 8 一致。 */
 .tab {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   width: 112px;
   min-width: 56px;
   height: 28px;
   padding: 0 6px 0 8px;
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-control, 8px);
   /* Idle tabs carry no pill: the background belongs to hover and the active
      tab only. */
 }
@@ -67,7 +74,6 @@
 }
 
 .tab.tabActive {
-  flex-shrink: 0;
   background: var(--dsw-alias-interactive-bg-active);
 }
 
@@ -99,7 +105,7 @@
   min-width: 16px;
   padding: 0 5px;
   box-sizing: border-box;
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-pill, 999px);
   background: var(--dsw-alias-state-business-tertiary);
   color: var(--dsw-alias-label-primary-bluish);
   font-size: 11px;
@@ -119,7 +125,7 @@
   height: 16px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: var(--dsh-radius-circle, 50%);
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
@@ -145,7 +151,7 @@
   height: 24px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
@@ -166,7 +172,7 @@
   flex: none;
   margin: 8px 12px 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-control, 8px);
   background: var(--dsw-alias-state-error-primary);
   color: rgb(255 255 255 / 92%);
   font-size: 12px;
@@ -218,7 +224,7 @@
   gap: 6px;
   padding: 7px 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--dsh-radius-item, 10px);
   background: transparent;
   color: var(--dsw-alias-label-primary);
   font-family: inherit;

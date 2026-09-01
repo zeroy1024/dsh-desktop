@@ -17,10 +17,10 @@ win:
 linux:
   icon: resources/icons
   # target: AppImage
-# extraResources:
-#   - from: ../../vendor/dsh-cli
-#     to: dsh-cli
+extraResources:
+  - from: ../../vendor/dsh-cli
+    to: dsh-cli
 #   - from: ../../vendor/node-runtime
 #     to: node-runtime
-#   - from: ../../packages/plugins
-#     to: plugins
+# 内置插件由 `pnpm stage:plugins` 放进上面的 dsh-cli/node_modules/@dsh-desktop，
+# 不再单独复制；这样 Host 插件与 CLI 共用同一份 @deepseek-ai 运行时闭包。

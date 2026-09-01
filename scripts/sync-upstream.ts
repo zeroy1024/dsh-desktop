@@ -21,7 +21,6 @@
  *   pnpm sync:upstream -- --skip-build   跳过构建与打包（仅补丁+安装）
  *   pnpm sync:upstream -- --skip-pack    跳过打包与 CLI 安装
  */
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -37,6 +36,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
+import { spawnCommandSync, spawnPnpmSync } from './command'
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const upstreamDir = join(rootDir, 'upstream')
@@ -45,6 +45,24 @@ const vendorDir = join(rootDir, 'vendor')
 
 /** 无论补丁内容如何都要分发的基础包（相对 upstream/ 的目录）。 */
 const BASE_PACK_TARGETS = ['apps/cli', 'apps/web']
+
+/**
+ * 桌面内置 Host 插件的编译期 API 面。
+ *
+ * packages/plugins 不得 import upstream/src，也不能依赖开发机上 ~/.dsh 的
+ * profile symlink；这些 tarball 让全新 checkout 的 pnpm install 拿到与当前
+ * submodule pin 完全一致的公开包。运行时仍由 desktop profile 组合同一套
+ * dsh 安装闭包，避免出现两份 Cordis/service identity。
+ */
+const PLUGIN_API_PACK_TARGETS = [
+  'vendor/cordis',
+  'vendor/schemastery',
+  'packages/credentials/credentials',
+  'packages/llm/llm',
+  'packages/settings/settings',
+  'packages/util/launch-environment',
+  'packages/web/web',
+] as const
 
 interface PackedPackage {
   target: string
@@ -63,14 +81,17 @@ if (unknownArgs.length > 0) throw new Error(`未知参数：${unknownArgs.join('
 
 function run(cmd: string, cmdArgs: string[], cwd: string, env?: Record<string, string>): void {
   console.log(`\n$ (cd ${cwd} && ${cmd} ${cmdArgs.join(' ')})`)
-  const r = spawnSync(cmd, cmdArgs, { cwd, stdio: 'inherit', env: { ...process.env, ...env } })
+  const options = { cwd, stdio: 'inherit' as const, env: { ...process.env, ...env } }
+  const r = cmd === 'pnpm'
+    ? spawnPnpmSync(cmdArgs, options)
+    : spawnCommandSync(cmd, cmdArgs, options)
   if (r.status !== 0) {
     throw new Error(`命令失败（exit ${r.status}）：${cmd} ${cmdArgs.join(' ')}`)
   }
 }
 
 function tryRun(cmd: string, cmdArgs: string[], cwd: string): boolean {
-  const r = spawnSync(cmd, cmdArgs, { cwd, stdio: 'pipe', env: process.env })
+  const r = spawnCommandSync(cmd, cmdArgs, { cwd, stdio: 'pipe', env: process.env })
   return r.status === 0
 }
 
@@ -80,7 +101,7 @@ function capture(
   cwd: string,
   env?: Record<string, string>,
 ): string {
-  const r = spawnSync(cmd, cmdArgs, {
+  const r = spawnCommandSync(cmd, cmdArgs, {
     cwd,
     stdio: 'pipe',
     env: { ...process.env, ...env },
@@ -148,7 +169,7 @@ function packageTargetForFile(file: string): string | null {
 
 /** 基础分发包 + 所有登记补丁触及的 package，确保 patch 真正进入运行时闭包。 */
 function packTargetsFor(patches: readonly PatchEntry[]): string[] {
-  const targets = new Set(BASE_PACK_TARGETS)
+  const targets = new Set<string>([...BASE_PACK_TARGETS, ...PLUGIN_API_PACK_TARGETS])
   for (const entry of patches) {
     const numstat = capture('git', ['apply', '--numstat', registeredPatchPath(entry.file)], upstreamDir)
     for (const row of numstat.split('\n')) {
@@ -238,16 +259,74 @@ function checkEnvironment(): void {
   }
 }
 
+function upstreamUntrackedFiles(): string[] {
+  return capture(
+    'git',
+    ['status', '--porcelain', '--untracked-files=all'],
+    upstreamDir,
+  ).split('\n').filter(line => line.startsWith('?? '))
+}
+
+/** Build the exact tracked diff represented by the registered queue. */
+function registeredPatchDiff(patches: readonly PatchEntry[]): string {
+  const scratch = mkdtempSync(join(tmpdir(), 'dsh-patch-index-'))
+  const indexPath = join(scratch, 'index')
+  const indexEnv = { GIT_INDEX_FILE: indexPath }
+  try {
+    capture('git', ['read-tree', 'HEAD'], upstreamDir, indexEnv)
+    for (const entry of patches) {
+      capture('git', ['apply', '--cached', registeredPatchPath(entry.file)], upstreamDir, indexEnv)
+    }
+    return capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+function actualUpstreamDiff(): string {
+  return capture('git', ['diff', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir)
+}
+
+/** Return the exact registered prefix represented by the current worktree. */
+function appliedRegisteredPrefix(patches: readonly PatchEntry[]): number | null {
+  if (upstreamUntrackedFiles().length > 0) return null
+  const actual = actualUpstreamDiff()
+  for (let length = patches.length; length >= 0; length -= 1) {
+    if (actual === registeredPatchDiff(patches.slice(0, length))) return length
+  }
+  return null
+}
+
 function applyPatches(patches: readonly PatchEntry[]): void {
   if (patches.length === 0) {
     console.log('\n[patches] 无登记的补丁，跳过')
     return
   }
   for (const entry of patches) {
-    const patchPath = registeredPatchPath(entry.file)
-    if (!existsSync(patchPath)) {
+    if (!existsSync(registeredPatchPath(entry.file))) {
       throw new Error(`[patches] 登记的文件不存在：${entry.file}`)
     }
+  }
+  // Later patches may deliberately edit a hunk introduced by an earlier one,
+  // so reverse-checking that earlier patch alone cannot identify a valid
+  // aggregate state. Recognize an exact registered prefix instead: this keeps
+  // repeat syncs idempotent and lets a newly appended patch apply incrementally.
+  const appliedPrefix = appliedRegisteredPrefix(patches)
+  if (appliedPrefix !== null) {
+    if (appliedPrefix === patches.length) {
+      console.log('\n[patches] 已精确套用完整登记队列，跳过')
+      return
+    }
+    for (const entry of patches.slice(appliedPrefix)) {
+      const patchPath = registeredPatchPath(entry.file)
+      run('git', ['apply', '--check', patchPath], upstreamDir)
+      run('git', ['apply', patchPath], upstreamDir)
+      console.log(`[patches] 已套用：${entry.file}（${entry.reason}）`)
+    }
+    return
+  }
+  for (const entry of patches) {
+    const patchPath = registeredPatchPath(entry.file)
     const alreadyApplied = tryRun('git', ['apply', '--reverse', '--check', patchPath], upstreamDir)
     if (alreadyApplied) {
       console.log(`[patches] 已套用，跳过：${entry.file}`)
@@ -261,32 +340,14 @@ function applyPatches(patches: readonly PatchEntry[]): void {
 
 /** 用临时 Git index 构造“只套登记补丁”的标准 diff，拒绝 upstream 里的私改。 */
 function verifyOnlyRegisteredPatches(patches: readonly PatchEntry[]): void {
-  const untracked = capture(
-    'git',
-    ['status', '--porcelain', '--untracked-files=all'],
-    upstreamDir,
-  ).split('\n').filter((line) => line.startsWith('?? '))
+  const untracked = upstreamUntrackedFiles()
   if (untracked.length > 0) {
     throw new Error(`[patches] upstream 存在未登记文件：\n${untracked.join('\n')}`)
   }
-
-  const scratch = mkdtempSync(join(tmpdir(), 'dsh-patch-index-'))
-  const indexPath = join(scratch, 'index')
-  const indexEnv = { GIT_INDEX_FILE: indexPath }
-  try {
-    capture('git', ['read-tree', 'HEAD'], upstreamDir, indexEnv)
-    for (const entry of patches) {
-      capture('git', ['apply', '--cached', registeredPatchPath(entry.file)], upstreamDir, indexEnv)
-    }
-    const expected = capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
-    const actual = capture('git', ['diff', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir)
-    if (actual !== expected) {
-      throw new Error(
-        '[patches] upstream 工作树包含未登记修改，拒绝继续。请把变更制作成 patches/*.patch，或先恢复子模块。',
-      )
-    }
-  } finally {
-    rmSync(scratch, { recursive: true, force: true })
+  if (actualUpstreamDiff() !== registeredPatchDiff(patches)) {
+    throw new Error(
+      '[patches] upstream 工作树包含未登记修改，拒绝继续。请把变更制作成 patches/*.patch，或先恢复子模块。',
+    )
   }
 }
 

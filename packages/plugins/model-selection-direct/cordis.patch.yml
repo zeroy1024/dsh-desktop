@@ -1,0 +1,6 @@
+# model-selection-direct 自激活层：作为独立客户端插件覆盖官方 model seat。
+# 官方 ui-model-selection 仍保留，priority:-1 只让本插件成为显示胜者，
+# 官方注册仍是卸载/崩溃后的 fallback。
+- insert:
+    - id: model-selection-direct
+      name: '@dsh-desktop/model-selection-direct'

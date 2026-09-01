@@ -28,6 +28,7 @@ export type { PanelPageMeta } from './registry.ts'
 export type { PanelPageOwnerProps, PanelShellComponentProps, PanelShellFocus } from './types.ts'
 export { createInspectHandoff, createPanelLedger } from './panel-store.ts'
 export type { InspectHandoff, InspectHandoffState, PanelLedger } from './panel-store.ts'
+export { useHorizontalTabScroll } from './horizontal-tab-scroll.ts'
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
 export const inject = ['slots', 'locale', 'layout']

@@ -117,6 +117,11 @@ export interface PanelShellComponentProps {
   handoff: InspectHandoff
   renderSlot: RenderPanelPageSlot
   t: Translate
+  /**
+   * 当前激活会话（框架按 session-maybe 作用域注入；无会话时 undefined）。
+   * 容器据此过滤 sessionMode:'required' 的页面——无会话时其 tab 按钮整条不可见。
+   */
+  sessionId?: string
 }
 
 declare global {

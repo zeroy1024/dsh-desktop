@@ -8,10 +8,12 @@
  * `data-titleband-region` header marker is dropped: our desktop-frame
  * titleband is an overlay that never covers the right column.
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { IconCloseFill14, IconPlusOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PanelShellComponentProps } from './types.ts'
 import type { PanelPageMeta } from './registry.ts'
+import { isPageVisible, resolveVisibleActiveId } from './registry.ts'
+import { useHorizontalTabScroll } from './horizontal-tab-scroll.ts'
 import css from './PanelShell.module.css'
 
 /** Join optional hashed class names (the fork uses clsx; we stay dependency-free). */
@@ -24,7 +26,11 @@ function cx(...names: Array<string | false | undefined>): string {
  * @param props - composed slot props (see {@link PanelShellComponentProps}).
  * @returns the panel element tree.
  */
-export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelShellComponentProps) {
+// The frame owns the grid width and re-renders on every drag/transition tick.
+// All panel inputs are stable services or primitive session/locale values, and
+// the stores below subscribe independently, so memoizing this boundary keeps a
+// layout tick from rebuilding the tab list and every persistent page seat.
+export const PanelShell = memo(function PanelShell({ ledger, handoff, renderSlot, registry, t, sessionId }: PanelShellComponentProps) {
   // The ledger is container-owned (injected), not the framework store seat:
   // `panel` is session-maybe and the renderer withholds store instances while
   // no session is current, but the tab strip must work in both phases.
@@ -38,17 +44,31 @@ export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelSh
   // reconciliation results: one version counter covers all three.
   const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion)
 
+  // 会话相位过滤：sessionMode:'required' 的页在无会话时从 tab 条与「+」菜单
+  // 整条隐身；账本（openTabs/activeId）不动——会话回来按钮自动复现。若当前
+  // active 页被过滤，则只在呈现层临时回退到首个可见页，避免空白面板。
+  const hasSession = sessionId !== undefined && sessionId !== ''
+  const available = registry.pages.filter(meta =>
+    !openTabs.includes(meta.id) && isPageVisible(meta, hasSession))
+  const openMetas: Array<{ id: string; meta: PanelPageMeta }> = []
+  for (const id of openTabs) {
+    const meta = registry.page(id)
+    /* v8 ignore next -- a deregistered id is pruned by the reconciliation watcher. */
+    if (meta !== undefined && isPageVisible(meta, hasSession)) openMetas.push({ id, meta })
+  }
+  const visibleActiveId = resolveVisibleActiveId(openMetas.map(entry => entry.id), activeId)
+
   // Page visibility edges: fire onDeactivate on the previously active page
   // and onActivate on the newly active one. The ref seed (null) makes the
   // first render fire onActivate for a restored active tab after reload.
   const prevActive = useRef<string | null>(null)
   useEffect(() => {
     const prev = prevActive.current
-    if (prev === activeId) return
+    if (prev === visibleActiveId) return
     if (prev !== null) registry.page(prev)?.onDeactivate?.()
-    if (activeId !== null) registry.page(activeId)?.onActivate?.()
-    prevActive.current = activeId
-  }, [activeId, registry])
+    if (visibleActiveId !== null) registry.page(visibleActiveId)?.onActivate?.()
+    prevActive.current = visibleActiveId
+  }, [registry, visibleActiveId])
 
   const [menuOpen, setMenuOpen] = useState(false)
   // Registry shrinkage (a page plugin uninstalled) closes the orphaned tabs:
@@ -71,25 +91,17 @@ export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelSh
     ledger.openPage(id)
     setMenuOpen(false)
   }
-  // The "+" menu and the empty-state guide list the same set: registered
-  // pages whose tab is not open yet.
-  const available = registry.pages.filter(meta => !openTabs.includes(meta.id))
-  const openMetas: Array<{ id: string; meta: PanelPageMeta }> = []
-  for (const id of openTabs) {
-    const meta = registry.page(id)
-    /* v8 ignore next -- a deregistered id is pruned by the reconciliation watcher. */
-    if (meta !== undefined) openMetas.push({ id, meta })
-  }
   const error = registry.reconcileError
+  const tabsRef = useHorizontalTabScroll<HTMLDivElement>(visibleActiveId, openMetas.length)
 
   return (
     <div className={css.root}>
       <header className={css.header}>
         {openMetas.length > 0 && (
           <>
-            <div className={css.tabs} role="tablist" aria-label={t('tabs.aria')}>
+            <div ref={tabsRef} className={css.tabs} role="tablist" aria-label={t('tabs.aria')}>
               {openMetas.map(({ id, meta }) => {
-                const active = id === activeId
+                const active = id === visibleActiveId
                 const badge = meta.badge?.()
                 return (
                   <div key={id} className={cx(css.tab, active && css.tabActive)} role="tab" aria-selected={active}>
@@ -145,7 +157,7 @@ export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelSh
 
       {error !== null && <div className={css.error} role="alert">{error}</div>}
 
-      {openTabs.length === 0
+      {openMetas.length === 0
         ? (
             <div className={css.empty}>
               <p className={css.emptyTitle}>{t('empty.title')}</p>
@@ -170,9 +182,9 @@ export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelSh
         : openMetas.map(({ id }) => (
             // One persistent seat per open tab: switching tabs flips `active`
             // and hides the seat — page state survives until the tab closes.
-            <div key={id} className={cx(css.seat, id !== activeId && css.seatHidden)} data-panel-page-seat={id}>
+            <div key={id} className={cx(css.seat, id !== visibleActiveId && css.seatHidden)} data-panel-page-seat={id}>
               {renderSlot('panel-shell.page', {
-                active: id === activeId,
+                active: id === visibleActiveId,
                 inspect: inspection.pageId === id && inspection.callId !== null
                   ? { callId: inspection.callId }
                   : null,
@@ -182,4 +194,4 @@ export function PanelShell({ ledger, handoff, renderSlot, registry, t }: PanelSh
           ))}
     </div>
   )
-}
+})

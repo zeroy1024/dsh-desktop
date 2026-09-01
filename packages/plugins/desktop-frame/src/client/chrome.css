@@ -2,6 +2,17 @@
 
 html[data-dsh-desktop] {
   --dsh-sidebar-collapsed-track: 0px;
+  /* Desktop-owned radius contract. Feature plugins consume these semantic
+     aliases with numeric fallbacks so they still render safely if the frame
+     plugin is absent during isolated development. */
+  --dsh-radius-hairline: 1px;
+  --dsh-radius-micro: 4px;
+  --dsh-radius-compact: 6px;
+  --dsh-radius-control: 8px;
+  --dsh-radius-item: 10px;
+  --dsh-radius-surface: 12px;
+  --dsh-radius-pill: 999px;
+  --dsh-radius-circle: 50%;
   background: transparent;
 }
 
@@ -64,7 +75,7 @@ html[data-dsh-desktop] [data-dsh-frame='new-session'] {
   margin: 0 0 8px !important;
   padding: 0 8px !important;
   border: none !important;
-  border-radius: 8px !important;
+  border-radius: var(--dsh-radius-control, 8px) !important;
   background: transparent !important;
   font-weight: 400 !important;
 }
@@ -74,7 +85,7 @@ html[data-dsh-desktop] [data-dsh-frame='new-session'] {
 html[data-dsh-desktop] [data-slot='sidebar.workspaces'] div[role='treeitem'],
 html[data-dsh-desktop] [data-slot='sidebar.settings'] > button {
   height: 32px !important;
-  border-radius: 8px !important;
+  border-radius: var(--dsh-radius-control, 8px) !important;
 }
 
 html[data-dsh-desktop] [data-slot='sidebar.settings'] > button {
@@ -227,7 +238,7 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   height: 24px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   background: transparent;
   color: var(--dsw-alias-label-secondary, #5c5c5c);
   cursor: pointer;
@@ -273,7 +284,7 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   top: 10px;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   background: transparent;
 }
 

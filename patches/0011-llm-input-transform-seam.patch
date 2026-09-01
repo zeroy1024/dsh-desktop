@@ -1,0 +1,509 @@
+diff --git a/packages/llm/llm/README.md b/packages/llm/llm/README.md
+index 59c5303bda..8ae5dfd1a4 100644
+--- a/packages/llm/llm/README.md
++++ b/packages/llm/llm/README.md
+@@ -19,6 +19,7 @@ Each provider adapter supplies its resolved route policy. Omitting provider conf
+ - `ctx.llm.registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle` Declare provider routes an adapter plugin can activate through configuration — registered or dormant — each naming its owning settings namespace and the path to its profile inside that section. All-or-nothing (`INVALID_DIRECTORY`/`DUPLICATE_DIRECTORY`), disposed with the calling fiber. The handle also carries `replace(entries)`: the candidate set is validated in full before anything moves, so an entry another registration already declares leaves the current set intact, and an empty array is legal there. A plugin whose declared set follows its configuration must use `replace` rather than disposing and re-registering — the latter strands the directory empty whenever the new set is refused.
+ - `ctx.llm.listConfigurableProviders(): LlmConfigurableProvider[]` List the declared directory in declaration order; configuration surfaces merge it with `listProviders()` to mark each entry live or dormant. An entry may carry `declared` — whether the owning adapter knows that route only because configuration named it. Only the adapter can answer, so absence means "this adapter draws no such distinction", never "shipped".
+ - `ctx.llm.registerModelDiscovery(settingsNs: string, discover): () => void` Offer to interrogate provider endpoints for the settings namespace this plugin owns. One offer per namespace (`INVALID_DISCOVERY`/`DUPLICATE_DISCOVERY`), disposed with the calling fiber.
++- `ctx.llm.registerInputTransform(transform: LlmInputTransform): () => void` Register an ordered, fiber-owned projection for one adapter attempt. It runs only when the exact resolved model does not explicitly advertise image input and the request contains an image; native image routes and image-free requests skip it. The transform receives the exact provider/model, captured `inputModalities`, immutable request messages, and the caller signal, and may return detached messages or `undefined` to abstain. The result is request-local: it never appends session events or changes the loop's durable derivation. A missing registration leaves the built-in text-only image placeholder behavior unchanged.
+ - `ctx.llm.listModelDiscoveryNamespaces(): string[]` List the namespaces that can interrogate an endpoint, so a surface offers the action only where it works.
+ - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` Ask one endpoint which models it advertises.
+ - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` Return the provider-owned retry policy captured during registration, with normal defaults resolved.
+@@ -49,6 +50,7 @@ Exact-model metadata is a separate correctness query, not a catalog decoration o
+ ### Extension points
+ 
+ - Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerRetryPolicy()` to supply provider-owned recovery configuration, `providerInfo()` and asynchronous `listModels()` to expose selector metadata, then implement `resolveModel()` when exact identity, capacity, an output default, or selectable reasoning efforts are available; an asynchronous resolver must honor its optional cancellation signal. The defaults use bounded normal retry policy, use the route and model ids as names, advertise no models, and return no capacity, output default, or reasoning metadata.
++- Use `ctx.llm.registerInputTransform()` for an adapter-independent, attempt-local representation change such as converting an image attachment into bounded text evidence for a model that cannot accept images. The transform is downstream of exact adapter/model resolution and must preserve the original message objects as session facts; use its signal for all asynchronous work. It is not a replacement for `llm/stream` middleware: the latter wraps the stream, while this seam changes only the messages passed to the selected adapter.
+ - Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, logging, or routing. A wrapper that retries after emitting a chunk has no durable attempt boundary; shipped agent retry policy therefore uses `agent/request-error` instead.
+ 
+ ### Messages (`message.ts`) and content blocks (`types.ts`)
+diff --git a/packages/llm/llm/README.zh.md b/packages/llm/llm/README.zh.md
+index 313fc23590..4ca4dfd745 100644
+--- a/packages/llm/llm/README.zh.md
++++ b/packages/llm/llm/README.zh.md
+@@ -19,6 +19,7 @@
+ - `ctx.llm.registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle` 声明适配器插件可通过配置激活的提供方路由——无论已注册还是休眠——每个条目指明其所属 settings namespace，以及 profile 在该分节内的路径。要么全部成功，要么全部不生效（`INVALID_DIRECTORY`/`DUPLICATE_DIRECTORY`），并随调用 fiber dispose。该句柄还带 `replace(entries)`：候选集合会先被整体校验，因此其中若有条目已被另一个注册声明，当前集合原封不动；此处允许传空数组。声明集合随配置变化的插件必须使用 `replace`，而不是先 dispose 再重新注册——后者会在新集合被拒时让目录整个落空。
+ - `ctx.llm.listConfigurableProviders(): LlmConfigurableProvider[]` 按声明顺序列出可配置提供方目录；配置界面将其与 `listProviders()` 合并，为每个条目标注存活或休眠。条目可携带 `declared`，表示拥有该路由的适配器是否只因配置点名才知道它。只有适配器能回答这一点：该字段缺失时，只表示该适配器不区分这两种来源，不能据此判断路由是否随产品交付。
+ - `ctx.llm.registerModelDiscovery(settingsNs: string, discover): () => void` 为本插件拥有的 settings namespace 提供查询提供方端点的能力。每个 namespace 只能有一个（`INVALID_DISCOVERY`/`DUPLICATE_DISCOVERY`），并随调用 fiber dispose。
++- `ctx.llm.registerInputTransform(transform: LlmInputTransform): () => void` 注册按顺序执行、随所属 fiber 释放的单次适配器分发消息投影。只有当精确解析的模型没有明确声明支持图片输入，且请求包含图片时才会调用；原生图片路由和不含图片的请求都会跳过。transform 会收到精确的 provider/model、同一适配器世代捕获的 `inputModalities`、不可变的本次请求消息以及调用方 signal；可返回分离后的消息，或返回 `undefined` 表示放弃处理。结果只作用于本次请求：不会追加 session 事件，也不会改变 loop 的持久消息推导。没有注册时保持内置的纯文本图片占位行为。
+ - `ctx.llm.listModelDiscoveryNamespaces(): string[]` 列出可以询问端点的 namespace，让界面只在可用之处提供该动作。
+ - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` 询问某个端点它公布了哪些模型。
+ - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方自身的重试策略，并解析 normal 默认值。
+@@ -49,6 +50,7 @@
+ ### 扩展点
+ 
+ - 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方定义的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量、输出默认值或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量、输出默认值或推理元数据。
++- 使用 `ctx.llm.registerInputTransform()` 提供与适配器无关、仅限本次分发的表示转换，例如将不支持图片的模型所携带的图片附件转换为有界的文本证据。该转换发生在精确适配器／模型解析之后，必须保留原始消息作为 session 事实，并使用 signal 完成所有异步工作。它不是 `llm/stream` middleware 的替代品：后者包装流，而这里仅改变交给选定适配器的消息。
+ - 包装 `llm/stream` 时，通过 `ctx.on()` waterfall listener 实现缓存、日志或路由。包装层如果在已经发出分片后重试，就没有可持久记录的尝试边界；因此，随产品交付的 agent 重试策略改用 `agent/request-error`。
+ 
+ ### 消息（`message.ts`）与内容块（`types.ts`）
+diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
+index 82b64bf4ce..3cb8852ff5 100644
+--- a/packages/llm/llm/src/index.ts
++++ b/packages/llm/llm/src/index.ts
+@@ -182,6 +182,37 @@ export interface PreparedAdapterCall {
+   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+ }
+ 
++/**
++ * Exact model context supplied to one optional pre-dispatch input transform.
++ *
++ * The loop's durable messages remain the source of truth. A transform may
++ * return a detached message list for this adapter attempt, but it must not
++ * append to or otherwise mutate the session. The context is deliberately
++ * smaller than the full adapter request: provider/model and the capabilities
++ * captured by the same adapter generation are the facts an input policy may
++ * act on, while the live signal makes cancellation part of the contract.
++ */
++export interface LlmInputTransformRequest {
++  /** Exact provider route selected for this dispatch. */
++  readonly provider: string
++  /** Exact model id selected for this dispatch. */
++  readonly model: string
++  /** Exact model input modalities from the captured adapter generation. */
++  readonly inputModalities: readonly ModelModality[] | undefined
++  /** Messages for this attempt; the session's durable list is never supplied for mutation. */
++  readonly messages: readonly Message[]
++  /** Cancellation owned by the caller of this model attempt. */
++  readonly signal?: AbortSignal
++}
++
++/**
++ * A synchronous or asynchronous message projection used only for one adapter
++ * attempt. Returning `undefined` leaves the current messages unchanged.
++ */
++export type LlmInputTransform = (
++  request: LlmInputTransformRequest,
++) => readonly Message[] | undefined | Promise<readonly Message[] | undefined>
++
+ /**
+  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
+  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
+@@ -315,6 +346,7 @@ export class LlmRuntime extends Service {
+     string,
+     (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+   >()
++  private inputTransforms: InputTransformRegistration[] = []
+ 
+   constructor(ctx: Context) {
+     super(ctx, 'llm')
+@@ -547,6 +579,39 @@ export class LlmRuntime extends Service {
+     return () => void dispose()
+   }
+ 
++  /**
++   * Register a message projection that runs immediately before one adapter
++   * dispatch. Registrations are ordered, scoped to their calling fiber, and
++   * receive the exact provider/model capability snapshot already captured for
++   * the call. The projection is considered only for requests that contain an
++   * image and whose model does not explicitly advertise image input; native
++   * image routes never invoke it. Returning `undefined` leaves the current
++   * messages unchanged, allowing a policy to abstain and preserve the normal
++   * text-only projection below.
++   *
++   * The projection changes only the request passed to the adapter. It does not
++   * change session events or the loop's durable message derivation, and it is
++   * called at most once per adapter attempt. Implementations must honor
++   * `request.signal`; the runtime also stops awaiting a projection after the
++   * signal aborts.
++   * @param transform - one attempt-local message projection.
++   * @returns a disposer that removes this registration.
++   */
++  registerInputTransform(transform: LlmInputTransform): () => void {
++    const registration: InputTransformRegistration = { transform }
++    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
++      if (typeof transform !== 'function') {
++        throw new LlmError('an input transform must be a function', 'INVALID_INPUT_TRANSFORM')
++      }
++      this.inputTransforms.push(registration)
++      yield () => {
++        const index = this.inputTransforms.indexOf(registration)
++        if (index >= 0) this.inputTransforms.splice(index, 1)
++      }
++    }.bind(this), 'llm.registerInputTransform()')
++    return () => void dispose()
++  }
++
+   /**
+    * Interrogate one provider endpoint for the models it advertises. The
+    * request describes a draft, not a stored route, so nothing here reads or
+@@ -890,6 +955,52 @@ export class LlmRuntime extends Service {
+     return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
+   }
+ 
++  /**
++   * Give registered policies one attempt-local chance to project image
++   * messages after exact-model resolution and before the adapter receives the
++   * request. The built-in text-only placeholder remains the fallback when no
++   * policy claims the input.
++   */
++  private async transformInput(
++    options: GenerateOptions,
++    modelInfo: LlmResolvedModelInfo,
++  ): Promise<readonly Message[]> {
++    const hasImage = options.messages.some(message => contentHasImage(message.content))
++    if (!hasImage || modelInfo.inputModalities?.includes('image') === true) return options.messages
++    const registrations = this.inputTransforms.slice()
++    if (registrations.length === 0) return options.messages
++
++    let messages: readonly Message[] = options.messages
++    const inputModalities = modelInfo.inputModalities === undefined
++      ? undefined
++      : Object.freeze([...modelInfo.inputModalities])
++    for (const { transform } of registrations) {
++      options.signal?.throwIfAborted()
++      const request: LlmInputTransformRequest = Object.freeze({
++        provider: options.provider,
++        model: options.model,
++        inputModalities,
++        messages: Object.freeze([...messages]),
++        ...options.signal === undefined ? {} : { signal: options.signal },
++      })
++      const result = await waitForAbort(
++        Promise.resolve().then(() => transform(request)),
++        options.signal,
++      )
++      options.signal?.throwIfAborted()
++      if (result === undefined) continue
++      if (!Array.isArray(result)) {
++        throw new LlmError(
++          'an input transform must return an array of messages or undefined',
++          'INVALID_INPUT_TRANSFORM',
++        )
++      }
++      messages = result.map(message => freezeMessage(message))
++    }
++    options.signal?.throwIfAborted()
++    return messages
++  }
++
+   /**
+    * Final adapter boundary. Adapter selection, dispatch, iterator construction,
+    * and iteration failures become one terminal failure chunk. Middleware and
+@@ -900,12 +1011,15 @@ export class LlmRuntime extends Service {
+     prepared?: PreparedDispatch,
+   ): AsyncGenerator<StreamChunk> {
+     let iterator: AsyncIterator<StreamChunk>
++    let registration: AdapterRegistration
++    let adapter: LlmAdapter
++    let modelInfo: LlmResolvedModelInfo
++    let resolvedConfig: LlmCallConfig
++    let dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
++    let resolvedOptions: GenerateOptions
+     try {
+-      const registration = prepared?.registration ?? this.registration(options.provider)
+-      const adapter = registration.adapter
+-      let modelInfo: LlmResolvedModelInfo
+-      let resolvedConfig: LlmCallConfig
+-      let dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
++      registration = prepared?.registration ?? this.registration(options.provider)
++      adapter = registration.adapter
+       if (prepared === undefined) {
+         const adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal)
+         modelInfo = this.normalizeModelInfo(registration, options.model, adapterCall.model)
+@@ -922,18 +1036,33 @@ export class LlmRuntime extends Service {
+           'INVALID_PREPARED_CALL',
+         )
+       }
+-      const resolvedOptions = callConfigEquals(options, resolvedConfig)
++      resolvedOptions = callConfigEquals(options, resolvedConfig)
+         ? options
+         : Object.isFrozen(options)
+           ? deepFreeze({ ...options, ...resolvedConfig })
+           : { ...options, ...resolvedConfig }
+-      const projectedOptions = modelInfo.inputModalities !== undefined
+-        && !modelInfo.inputModalities.includes('image')
+-        && resolvedOptions.messages.some(message => contentHasImage(message.content))
+-        ? Object.isFrozen(resolvedOptions)
+-          ? deepFreeze({ ...resolvedOptions, messages: projectImagesForTextModel(resolvedOptions.messages) as Message[] })
+-          : { ...resolvedOptions, messages: projectImagesForTextModel(resolvedOptions.messages) as Message[] }
+-        : resolvedOptions
++    } catch (error: unknown) {
++      yield adapterFailureChunk(error, options.signal)
++      return
++    }
++
++    // Input transforms are plugin-owned policy, not adapter failures. Keep
++    // them outside the adapter failure envelope so a rejected conversion is
++    // not misclassified as a provider failure and retried by model policy.
++    const transformedMessages = await this.transformInput(resolvedOptions, modelInfo)
++    const transformedOptions = transformedMessages === resolvedOptions.messages
++      ? resolvedOptions
++      : Object.isFrozen(resolvedOptions)
++        ? deepFreeze({ ...resolvedOptions, messages: [...transformedMessages] as Message[] })
++        : { ...resolvedOptions, messages: [...transformedMessages] as Message[] }
++    const projectedOptions = modelInfo.inputModalities !== undefined
++      && !modelInfo.inputModalities.includes('image')
++      && transformedOptions.messages.some(message => contentHasImage(message.content))
++      ? Object.isFrozen(transformedOptions)
++        ? deepFreeze({ ...transformedOptions, messages: projectImagesForTextModel(transformedOptions.messages) as Message[] })
++        : { ...transformedOptions, messages: projectImagesForTextModel(transformedOptions.messages) as Message[] }
++      : transformedOptions
++    try {
+       const stream = dispatch(this.forAdapter(projectedOptions, adapter))
+       iterator = stream[Symbol.asyncIterator]()
+     } catch (error: unknown) {
+@@ -1023,4 +1152,22 @@ interface PreparedDispatch {
+   readonly dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
+ }
+ 
++interface InputTransformRegistration {
++  readonly transform: LlmInputTransform
++}
++
++/** Await a transform without holding dispatch open after caller cancellation. */
++function waitForAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
++  if (signal === undefined) return promise
++  if (signal.aborted) return Promise.reject(signal.reason)
++  return new Promise<T>((resolve, reject) => {
++    const onAbort = (): void => { reject(signal.reason) }
++    signal.addEventListener('abort', onAbort, { once: true })
++    promise.then(
++      value => { signal.removeEventListener('abort', onAbort); resolve(value) },
++      error => { signal.removeEventListener('abort', onAbort); reject(error) },
++    )
++  })
++}
++
+ export default LlmRuntime
+diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
+index 4c624fa862..6976818440 100644
+--- a/packages/llm/llm/tests/service.spec.ts
++++ b/packages/llm/llm/tests/service.spec.ts
+@@ -1,4 +1,4 @@
+-import { describe, expect, it } from 'vitest'
++import { describe, expect, it, vi } from 'vitest'
+ import { Context } from '@deepseek-ai/cordis'
+ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+ import LlmRuntime, {
+@@ -22,6 +22,7 @@ import type {
+   LlmModelReasoningInfo,
+   LlmProviderInfo,
+   LlmResolvedModelInfo,
++  Message,
+ } from '@deepseek-ai/dsh-llm'
+ 
+ class ScriptedAdapter extends LlmAdapter {
+@@ -43,6 +44,21 @@ class RecordingAdapter extends ScriptedAdapter {
+   }
+ }
+ 
++class ModalityAdapter extends RecordingAdapter {
++  constructor(private readonly modalities: readonly ('text' | 'image')[] | undefined) {
++    super(SCRIPT)
++  }
++
++  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
++    return Promise.resolve({
++      provider,
++      id: model,
++      name: model,
++      ...this.modalities === undefined ? {} : { inputModalities: [...this.modalities] },
++    })
++  }
++}
++
+ class ThrowingAdapter extends LlmAdapter {
+   constructor(private readonly failure: Error) {
+     super()
+@@ -1000,6 +1016,199 @@ describe('LlmRuntime', () => {
+     expect(Object.isFrozen(seen[1]?.messages)).toBe(true)
+   })
+ 
++  it('runs an attempt-local input transform with exact route facts and keeps durable messages unchanged', async () => {
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    const adapter = new ModalityAdapter(['text'])
++    ctx.llm.registerAdapter(['route'], adapter)
++    const attachment = {
++      attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
++      mediaType: 'image/png' as const,
++      bytes: 3,
++      width: 1,
++      height: 1,
++    }
++    const original = createUserMessage({
++      content: [{ type: 'image', attachment }],
++      source: { kind: 'plugin', plugin: 'test' },
++    })
++    const controller = new AbortController()
++    const seen: Array<{
++      provider: string
++      model: string
++      inputModalities: readonly string[] | undefined
++      signal: AbortSignal | undefined
++    }> = []
++    const dispose = ctx.llm.registerInputTransform((request) => {
++      seen.push({
++        provider: request.provider,
++        model: request.model,
++        inputModalities: request.inputModalities,
++        signal: request.signal,
++      })
++      return request.messages.map(message => ({
++        ...message,
++        content: [{ type: 'text', text: 'vision evidence' }],
++      }))
++    })
++
++    await collect(ctx.llm.stream({
++      provider: 'route',
++      model: 'exact-model',
++      messages: [original],
++      signal: controller.signal,
++    }))
++
++    expect(seen).toHaveLength(1)
++    expect(seen[0]).toMatchObject({
++      provider: 'route',
++      model: 'exact-model',
++      inputModalities: ['text'],
++      signal: controller.signal,
++    })
++    expect(Object.isFrozen(seen[0]?.inputModalities)).toBe(true)
++    expect(adapter.lastOptions?.messages[0]?.content).toEqual([{ type: 'text', text: 'vision evidence' }])
++    expect(adapter.lastOptions?.messages[0]).not.toBe(original)
++    expect(Object.isFrozen(adapter.lastOptions?.messages[0])).toBe(true)
++    expect(original.content).toEqual([{ type: 'image', attachment }])
++    expect(Object.isFrozen(adapter.lastOptions)).toBe(false)
++    dispose()
++  })
++
++  it('skips input transforms for native image routes and image-free requests', async () => {
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    const native = new ModalityAdapter(['text', 'image'])
++    ctx.llm.registerAdapter(['native'], native)
++    const transform = vi.fn(() => [{
++      ...createUserMessage({ content: [{ type: 'text', text: 'rewritten' }], source: { kind: 'user' } }),
++    }])
++    ctx.llm.registerInputTransform(transform)
++    const attachment = {
++      attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
++      mediaType: 'image/png' as const,
++      bytes: 3,
++      width: 1,
++      height: 1,
++    }
++    const image = createUserMessage({
++      content: [{ type: 'image', attachment }],
++      source: { kind: 'user' },
++    })
++    await collect(ctx.llm.stream({ provider: 'native', model: 'vision', messages: [image] }))
++    expect(transform).not.toHaveBeenCalled()
++    expect(native.lastOptions?.messages[0]).toBe(image)
++
++    const text = createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
++    await collect(ctx.llm.stream({ provider: 'native', model: 'vision', messages: [text] }))
++    expect(transform).not.toHaveBeenCalled()
++    expect(native.lastOptions?.messages[0]).toBe(text)
++  })
++
++  it('lets a transform claim an unknown-capability image route', async () => {
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    const adapter = new ModalityAdapter(undefined)
++    ctx.llm.registerAdapter(['route'], adapter)
++    const attachment = {
++      attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`),
++      mediaType: 'image/png' as const,
++      bytes: 3,
++      width: 1,
++      height: 1,
++    }
++    const image = createUserMessage({
++      content: [{ type: 'image', attachment }],
++      source: { kind: 'user' },
++    })
++    const transform = vi.fn((request) => request.messages.map((message: Message) => ({
++      ...message,
++      content: [{ type: 'text', text: 'unknown-route evidence' }],
++    })))
++    ctx.llm.registerInputTransform(transform)
++
++    await collect(ctx.llm.stream({ provider: 'route', model: 'unknown', messages: [image] }))
++    expect(transform).toHaveBeenCalledOnce()
++    expect(transform.mock.calls[0]?.[0]).toHaveProperty('inputModalities', undefined)
++    expect(adapter.lastOptions?.messages[0]?.content).toEqual([{ type: 'text', text: 'unknown-route evidence' }])
++  })
++
++  it('runs input transforms in registration order and removes a disposed transform', async () => {
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    const adapter = new ModalityAdapter(['text'])
++    ctx.llm.registerAdapter(['route'], adapter)
++    const attachment = {
++      attachmentId: AttachmentId(`sha256:${'e'.repeat(64)}`),
++      mediaType: 'image/png' as const,
++      bytes: 3,
++      width: 1,
++      height: 1,
++    }
++    const image = createUserMessage({
++      content: [{ type: 'image', attachment }],
++      source: { kind: 'user' },
++    })
++    const order: string[] = []
++    const first = ctx.llm.registerInputTransform((request) => {
++      order.push('first')
++      return request.messages.map(message => ({ ...message, content: [{ type: 'text', text: 'first' }] }))
++    })
++    ctx.llm.registerInputTransform((request) => {
++      order.push(`second:${request.messages[0]?.content[0]?.type}`)
++      return undefined
++    })
++    await collect(ctx.llm.stream({ provider: 'route', model: 'ordered', messages: [image] }))
++    expect(order).toEqual(['first', 'second:text'])
++
++    first()
++    order.length = 0
++    await collect(ctx.llm.stream({ provider: 'route', model: 'ordered', messages: [image] }))
++    expect(order).toEqual(['second:image'])
++  })
++
++  it('propagates transform cancellation and failures instead of normalizing them as adapter failures', async () => {
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    ctx.llm.registerAdapter(['route'], new ModalityAdapter(['text']))
++    const attachment = {
++      attachmentId: AttachmentId(`sha256:${'f'.repeat(64)}`),
++      mediaType: 'image/png' as const,
++      bytes: 3,
++      width: 1,
++      height: 1,
++    }
++    const image = createUserMessage({
++      content: [{ type: 'image', attachment }],
++      source: { kind: 'user' },
++    })
++    const started = Promise.withResolvers<void>()
++    const pending = Promise.withResolvers<readonly Message[] | undefined>()
++    ctx.llm.registerInputTransform(() => {
++      started.resolve()
++      return pending.promise
++    })
++    const controller = new AbortController()
++    const request = collect(ctx.llm.stream({
++      provider: 'route',
++      model: 'cancelled',
++      messages: [image],
++      signal: controller.signal,
++    }))
++    await started.promise
++    const reason = new Error('cancelled input transform')
++    controller.abort(reason)
++    await expect(request).rejects.toBe(reason)
++
++    const failure = new Error('input transform failed')
++    const failedCtx = new Context()
++    await failedCtx.plugin(LlmRuntime)
++    failedCtx.llm.registerAdapter(['route'], new ModalityAdapter(['text']))
++    failedCtx.llm.registerInputTransform(() => { throw failure })
++    await expect(collect(failedCtx.llm.stream({ provider: 'route', model: 'failed', messages: [image] })))
++      .rejects.toBe(failure)
++  })
++
+   it('passes cancellation through exact-model resolution', async () => {
+     const ctx = new Context()
+     await ctx.plugin(LlmRuntime)

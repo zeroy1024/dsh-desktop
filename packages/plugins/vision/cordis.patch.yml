@@ -1,0 +1,3 @@
+- insert:
+    - id: vision
+      name: '@dsh-desktop/vision'

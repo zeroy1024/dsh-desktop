@@ -1,0 +1,1578 @@
+{
+  "schemaVersion": 2,
+  "source": {
+    "repository": "https://github.com/JetBrains/intellij-community",
+    "commit": "30e98f9c41acfd51be2ecb018c052436555b70eb",
+    "commitUrl": "https://github.com/JetBrains/intellij-community/commit/30e98f9c41acfd51be2ecb018c052436555b70eb",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "repositoryTermsPath": "LICENSE.txt",
+    "repositoryTermsSha256": "3f382c8820a51e4d1e22b2f50408a52eb6fe6cfff36bcf8a8dfe104df00251a3",
+    "scopes": [
+      "platform/icons/src/expui/fileTypes",
+      "platform/icons/src/expui/nodes/folder",
+      "platform/icons/src/language/go",
+      "platform/icons/src/language/python",
+      "platform/icons/src/language/rust"
+    ]
+  },
+  "assets": [
+    {
+      "id": "actionScript",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/actionScript.svg",
+        "source": "platform/icons/src/expui/fileTypes/actionScript.svg",
+        "sha256": "2c8fea56edf9db30441f90283a4a4f3578c4639b52e1d8784ba8270556a22ed7",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/actionScript_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/actionScript_dark.svg",
+        "sha256": "83621412e94b7f9c1e9163857872fbb44447fe1b5bb9890ddb862801d9e45b6c",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "addAny",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/addAny.svg",
+        "source": "platform/icons/src/expui/fileTypes/addAny.svg",
+        "sha256": "fe5bbab569b28b4c31ff861b93fbae4c1ad43d0963cf10709043ab5593e4afe6",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/addAny_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/addAny_dark.svg",
+        "sha256": "04b0f1ed906401a2bedbe0b38b83f00e0491be0b2d8de660197622152478858c",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "anyType",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/anyType.svg",
+        "source": "platform/icons/src/expui/fileTypes/anyType.svg",
+        "sha256": "84f25ca0b95385a01398724de4961dea418ded296cb9b6057c8bc56c8395380e",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/anyType_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/anyType_dark.svg",
+        "sha256": "a19eb0ff01f168437059c603b5aa3a100e7ad484a6bd9eb83a8a1d038127d256",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "archive",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/archive.svg",
+        "source": "platform/icons/src/expui/fileTypes/archive.svg",
+        "sha256": "702005c0379a659c1f800d53531d81687064b80448615a05370a42190f13d768",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/archive_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/archive_dark.svg",
+        "sha256": "634dd0d18e9d12645c2d95c008bcec8252c9a2abdc3a7ccb8a53cd3a8060977b",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "aspectJ",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/aspectJ.svg",
+        "source": "platform/icons/src/expui/fileTypes/aspectJ.svg",
+        "sha256": "e93d04a5f6e8810861e988d700f97008bcd0de33c47adca1827cfd8a824b56ce",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/aspectJ_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/aspectJ_dark.svg",
+        "sha256": "c26049ca804363983db7f5993a565ab4fd54c96943124085590df9b2c0eec067",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "bazel",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/bazel.svg",
+        "source": "platform/icons/src/expui/fileTypes/bazel.svg",
+        "sha256": "888f51bf2c37faaa149e0afebca46bedd1bab358dedce7b549173eb32d1d9787",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/bazel_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/bazel_dark.svg",
+        "sha256": "888f51bf2c37faaa149e0afebca46bedd1bab358dedce7b549173eb32d1d9787",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "binaryData",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/binaryData.svg",
+        "source": "platform/icons/src/expui/fileTypes/binaryData.svg",
+        "sha256": "c9e0fe6f37b587d792110a526162acff90f7f33f7fe48c1e5f17bc209af77211",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/binaryData_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/binaryData_dark.svg",
+        "sha256": "a3775627cd46630059454a3e7b8972c85c8672b64147f35e68699c208044e5ba",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "c",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/c.svg",
+        "source": "platform/icons/src/expui/fileTypes/c.svg",
+        "sha256": "ba02bfb94e13c0d8f9688a53276a3c0df09bbf95848596f1ca93af5c2efa3672",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/c_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/c_dark.svg",
+        "sha256": "db11271fe28e554ac9f37a760392742de642bed827bd25413ec907f0ad023fb4",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "changedFile",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/changedFile.svg",
+        "source": "platform/icons/src/expui/fileTypes/changedFile.svg",
+        "sha256": "95798cf27002ef88eeda6d232a7e75e7d140798d9b5e59b8b6ab0f7a6d94ce57",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/changedFile_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/changedFile_dark.svg",
+        "sha256": "83df89480023da25889ad9128bfb7d967764f292683eea68b56c65033c9c3693",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "changedFiles",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/changedFiles.svg",
+        "source": "platform/icons/src/expui/fileTypes/changedFiles.svg",
+        "sha256": "56308ecfce01da838c1a995818b0127ec68567dc4c01b4302a86e7e2d88309c3",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/changedFiles_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/changedFiles_dark.svg",
+        "sha256": "ffdfe49c0f0182d2b673b5af1bfb389d8e133c4c1c64ba2fa014fe0ea48ca35a",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "config",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/config.svg",
+        "source": "platform/icons/src/expui/fileTypes/config.svg",
+        "sha256": "e7990632f5a4caa8258b1c97d8efe5e296fb162c209af712e725dfc876839395",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/config_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/config_dark.svg",
+        "sha256": "da243a31cedd55334263086e17c1ee4264a93771e64c0e27b91b6c6daaa1bd46",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "contexts",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/contexts.svg",
+        "source": "platform/icons/src/expui/fileTypes/contexts.svg",
+        "sha256": "ee20c23c19b02049bb9ab0e0d5f9b30078a893698d9724066929ff9d899a2de9",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/contexts_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/contexts_dark.svg",
+        "sha256": "8296c7d855221ab594ad848c12eaf225cf79ea5c2dce1f8540bbaa41d0bf380b",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "contextsModifier",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/contextsModifier.svg",
+        "source": "platform/icons/src/expui/fileTypes/contextsModifier.svg",
+        "sha256": "b1c7a94dbdca14394b58297d4c28a01d645e2cb7629d188745ec6d2a96ae75a6",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/contextsModifier_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/contextsModifier_dark.svg",
+        "sha256": "f000eb0f453675780440c5a995e08f090bcecdc05e6a6c984cf976bdd160f221",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "cpp",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/cpp.svg",
+        "source": "platform/icons/src/expui/fileTypes/cpp.svg",
+        "sha256": "2565dd56819559e5f4e052f0d9e05e400b2def25509834408fb087e77e42e7b7",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/cpp_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/cpp_dark.svg",
+        "sha256": "670c0c009b8990cbe1a835765d62d8549b8a1bb56948611e36338da4321b1370",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "Csharp",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/Csharp.svg",
+        "source": "platform/icons/src/expui/fileTypes/Csharp.svg",
+        "sha256": "457df8d67369dbdec038a625ba587907571ecac9c358cc015ff84faf0ac2a520",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/Csharp_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/Csharp_dark.svg",
+        "sha256": "9a31e1dd7a922f836de8e86dc4140ca9bcc60f1aa0d239f32d6792c52ddeaf5b",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "css",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/css.svg",
+        "source": "platform/icons/src/expui/fileTypes/css.svg",
+        "sha256": "422c5512c70808e0f61191a4279749301a7296c6082a3f001d397f0e2ec93590",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/css_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/css_dark.svg",
+        "sha256": "9faac1b6520d894b7473da2087300c18447e0268f7726e7d131976c76afe1a06",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "csv",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/csv.svg",
+        "source": "platform/icons/src/expui/fileTypes/csv.svg",
+        "sha256": "09f4c9e22a01f04a5783dfae8dc2d0bff1b661b4b159bca06572a01d006a1e43",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/csv_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/csv_dark.svg",
+        "sha256": "1cf9070785750032da988524e18fbe5001d86f279ca6a548804e982c1fa14eaf",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "diagram",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/diagram.svg",
+        "source": "platform/icons/src/expui/fileTypes/diagram.svg",
+        "sha256": "40840c84f72548dfee91cd5cd2ceb1f82e3ca35d003c0b5724a567bc48468e0d",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/diagram_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/diagram_dark.svg",
+        "sha256": "0706b73107636e3327755226c9b66f3b88bbc0f90264bb81ec94051006d3e997",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "docker",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/docker.svg",
+        "source": "platform/icons/src/expui/fileTypes/docker.svg",
+        "sha256": "76f8d25a1754ee4c59581656477e650edc241c86c6c841385eea03f52755f7bc",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/docker_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/docker_dark.svg",
+        "sha256": "a35a9f245da1960faa682394832cc21bafbb6aca420b30c4c7b96ea70dd2aac7",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "eclipse",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/eclipse.svg",
+        "source": "platform/icons/src/expui/fileTypes/eclipse.svg",
+        "sha256": "ccebbcb0317c1436a406b8ed26c6025e1f9b9e83eea2131d8be6c608621b4677",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": null
+    },
+    {
+      "id": "editorConfig",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/editorConfig.svg",
+        "source": "platform/icons/src/expui/fileTypes/editorConfig.svg",
+        "sha256": "2753f18580ef18634cf78650c88e5d957aecee1382041ff118c52e3f6dadbc81",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/editorConfig_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/editorConfig_dark.svg",
+        "sha256": "0b489a2fca2dfd51de0a85b300791c822fd08d077710b604cc65afce7fd8e2d6",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "folder",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/nodes/folder.svg",
+        "source": "platform/icons/src/expui/nodes/folder.svg",
+        "sha256": "e78b061f701e39613936bc68751ed51e6cb2b1451dba322cd98ffdfd1a105065",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/nodes/folder_dark.svg",
+        "source": "platform/icons/src/expui/nodes/folder_dark.svg",
+        "sha256": "4f08a99236e4b08632cafb159f31df27f238106d584ecf725be42b9702a0a02e",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "font",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/font.svg",
+        "source": "platform/icons/src/expui/fileTypes/font.svg",
+        "sha256": "049689bd55570a4bacda649b609b3fdf5019023673d344775b025097ea7cb268",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/font_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/font_dark.svg",
+        "sha256": "6dd826b0e8b48f3a83445f915e1f76f54cd62b0000fe3015cb415a37c090a19a",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "gitignore",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/gitignore.svg",
+        "source": "platform/icons/src/expui/fileTypes/gitignore.svg",
+        "sha256": "9ea81291422a8574d1e1da1d0284d672d98b0e004918be3f2292f1f4fae77659",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": null
+    },
+    {
+      "id": "go",
+      "light": {
+        "path": "src/client/assets/jetbrains/language/go.svg",
+        "source": "platform/icons/src/language/go.svg",
+        "sha256": "1dbb956d83babe1821c56de23a3951d97074761f7dcb32bea82cfb2a3bf0e482",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/language/go_dark.svg",
+        "source": "platform/icons/src/language/go_dark.svg",
+        "sha256": "526728e9934282dd278825c1cb0c704e40038be5d2c4d53fddc26b0e5d15a152",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "gradle",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/gradle.svg",
+        "source": "platform/icons/src/expui/fileTypes/gradle.svg",
+        "sha256": "9898cf8edd8ab790414c0fed9cba827d8940b487a597f55c61017e84912568c2",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/gradle_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/gradle_dark.svg",
+        "sha256": "243bd5bd360895eb33da558a7e229b1139906e79cd2bc52770dabd01d2a87647",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "graphql",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/graphql.svg",
+        "source": "platform/icons/src/expui/fileTypes/graphql.svg",
+        "sha256": "8098357ebd83a5f6fdf3ef32051d222ff21e3cf24937451fa0ea16d8bec68d7f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/graphql_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/graphql_dark.svg",
+        "sha256": "5d5cdccba9d0f899d1ff48743f0cd9c37c1f7fca3321755deeb3a62d0018127e",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "groovy",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/groovy.svg",
+        "source": "platform/icons/src/expui/fileTypes/groovy.svg",
+        "sha256": "846538b4edbcfcbbf2a5790d565c5512c860cadfb2dc8fd82656799b4396fe2a",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/groovy_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/groovy_dark.svg",
+        "sha256": "c8e3bd0afad30480b185bca802b57159fe63a03e9723fca0a2b7bce2afc3fa50",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "h",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/h.svg",
+        "source": "platform/icons/src/expui/fileTypes/h.svg",
+        "sha256": "76b5bc2dbef2fd2856206c0e3993a9d71816dd6627285f1c0e4d3264af9febe7",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/h_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/h_dark.svg",
+        "sha256": "39b157b282241446d65927085ca1608cc440a65d4668f75bc897e20dfe2cfd91",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "hprof",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/hprof.svg",
+        "source": "platform/icons/src/expui/fileTypes/hprof.svg",
+        "sha256": "028e19a4f16793a460675b0412cfa13b504c7f1439e88e0eff07b79191dba49f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/hprof_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/hprof_dark.svg",
+        "sha256": "a2bb35a454c8616e79d96cbb913fb5da69aee4cd300db1175a05e1d67f715707",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "html",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/html.svg",
+        "source": "platform/icons/src/expui/fileTypes/html.svg",
+        "sha256": "8cc1a59695de46025d34d8cb61a73419f50160c45b96a587e426f84d65c530f4",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/html_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/html_dark.svg",
+        "sha256": "bfa377d13629063e50627053662bfe7d6d61b3e1044c3e2485536ef5e2b9a3cc",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "http",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/http.svg",
+        "source": "platform/icons/src/expui/fileTypes/http.svg",
+        "sha256": "1e2f45e7ff7eb68961e1e31b0008a3148964512ea4b89b62876e570a69db6087",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": null
+    },
+    {
+      "id": "i18n",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/i18n.svg",
+        "source": "platform/icons/src/expui/fileTypes/i18n.svg",
+        "sha256": "1db852702542bd949b2fb2992bf3ea4cad418d1193037bd8e494cc93e0e107c3",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/i18n_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/i18n_dark.svg",
+        "sha256": "1965e36b64adc288c223a3521fc68432c8ebb1d87e991d3591c6e85cc57fc850",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "ideaModule",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/ideaModule.svg",
+        "source": "platform/icons/src/expui/fileTypes/ideaModule.svg",
+        "sha256": "7de07d3df9482bda38a00ea6a1c2be853e0b554b042b2a222d67ad431baecec7",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/ideaModule_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/ideaModule_dark.svg",
+        "sha256": "ff3fded07f7e4e055f60792726054341df75369dd6b0119569961ec3e718b0f5",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "idl",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/idl.svg",
+        "source": "platform/icons/src/expui/fileTypes/idl.svg",
+        "sha256": "6026c523e0d959e0a887c611d7752a826cefa0fbfb2f03c7fda0e85f26da193f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/idl_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/idl_dark.svg",
+        "sha256": "62077d910d59ebbf591327c301dfcc2c923c376a0408b72fcf23d39ced7bebc2",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "ignored",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/ignored.svg",
+        "source": "platform/icons/src/expui/fileTypes/ignored.svg",
+        "sha256": "be8479fac4fca95e79cec08872269379c70337419c9869c0198a1109079605ee",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/ignored_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/ignored_dark.svg",
+        "sha256": "8d5449d583b961790c2ec52c6f1e2b021eeabac856c48a53e1a1c3c6f776efac",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "image",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/image.svg",
+        "source": "platform/icons/src/expui/fileTypes/image.svg",
+        "sha256": "879b275fb4c2e263cac26ea6035cb5c99dd72858e8b5ec295d21c0b5636d9513",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/image_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/image_dark.svg",
+        "sha256": "b7c8a22b2b1022a23f1a2a6b923ca52f59d5f9abaa4dcf1718fa9d50f2f710ef",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "java",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/java.svg",
+        "source": "platform/icons/src/expui/fileTypes/java.svg",
+        "sha256": "2056fcd754bc6a6e0ba13d5cf054b022f363f2f6839828b86c83a47f6ec8defc",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/java_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/java_dark.svg",
+        "sha256": "3166f1d9895bc63034e8f105672bb4db124350eb6ed0803e300d24e0fb9a14bc",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "javaClass",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/javaClass.svg",
+        "source": "platform/icons/src/expui/fileTypes/javaClass.svg",
+        "sha256": "c9e0fe6f37b587d792110a526162acff90f7f33f7fe48c1e5f17bc209af77211",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/javaClass_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/javaClass_dark.svg",
+        "sha256": "a3775627cd46630059454a3e7b8972c85c8672b64147f35e68699c208044e5ba",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "javaScript",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/javaScript.svg",
+        "source": "platform/icons/src/expui/fileTypes/javaScript.svg",
+        "sha256": "e601f341c4c0b0c52f2abfbb6bb4132862d63c3d862f4c7eca86efdf90565dcc",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/javaScript_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/javaScript_dark.svg",
+        "sha256": "f5ff367bcfeaab33abdac467ce9f7122543f4da21bda76806e96017a1da55b7b",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "jenkins",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jenkins.svg",
+        "source": "platform/icons/src/expui/fileTypes/jenkins.svg",
+        "sha256": "826dce5332d8c30fc21b41c5f4ac944b3b87799f03d45f238aaab3e9fef27f86",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": null
+    },
+    {
+      "id": "jfr",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jfr.svg",
+        "source": "platform/icons/src/expui/fileTypes/jfr.svg",
+        "sha256": "ba0a446186caae2999e49a68964f5b88bc19c53b7aec8109f57ecc749cda7579",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jfr_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/jfr_dark.svg",
+        "sha256": "bf1bab20b7c4192b1b5791a5b8ef65793540c3a23f19eed559c95ed0460c8ced",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "json",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/json.svg",
+        "source": "platform/icons/src/expui/fileTypes/json.svg",
+        "sha256": "bbbc7e1e2b583e2b4cca3a0c4dd507ce41c914a66d7bad1e6599f3ea5395e61c",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/json_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/json_dark.svg",
+        "sha256": "c4992ee9127e8685d5ec96570f48668d0be7aabfa4f0099ff6dbc5e51796a5f2",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "jsonSchema",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jsonSchema.svg",
+        "source": "platform/icons/src/expui/fileTypes/jsonSchema.svg",
+        "sha256": "d2d97495d25e9fb96916aeab12eb39dd0f7bc8f2cc0bcddaf2b31060a49c5942",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jsonSchema_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/jsonSchema_dark.svg",
+        "sha256": "642079b1052ceee1d8381ee2f92be87186fe3128099e12a1a867ef21b84ded69",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "jsp",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jsp.svg",
+        "source": "platform/icons/src/expui/fileTypes/jsp.svg",
+        "sha256": "3e03e553f7b61725383f195ce86b0533068bba9cba84f3eb565e76dbd016f213",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jsp_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/jsp_dark.svg",
+        "sha256": "8ca276d8a133f05d7707cfb02106307c4cb45a7407e08f44ea53250a29cf0c98",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "jspx",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jspx.svg",
+        "source": "platform/icons/src/expui/fileTypes/jspx.svg",
+        "sha256": "7b2b0d8a4faba5ef6d5a616fa5134faf2fc1036892adfb9d876e7f25dc137c3a",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jspx_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/jspx_dark.svg",
+        "sha256": "4912852ef200cd9ede001516d60662c2351e59535313e2b26f65de6ce8dd037d",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "jupyter",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jupyter.svg",
+        "source": "platform/icons/src/expui/fileTypes/jupyter.svg",
+        "sha256": "7e2542353a01f184889c127313b119fbc2ed7ba49839329fe678e493c6bd5299",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/jupyter_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/jupyter_dark.svg",
+        "sha256": "f4ca0c6dc4d11087882390e19600e6770c69c03b16c133ecb3224fae89c05afd",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "manifest",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/manifest.svg",
+        "source": "platform/icons/src/expui/fileTypes/manifest.svg",
+        "sha256": "5162b0d873ed969b48ed6854b2d0cece8bccdcda394849516e759b2c9d0f9f83",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/manifest_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/manifest_dark.svg",
+        "sha256": "980b6a182b990a06f2a14e031b4b733e6adb24d1d2ce36f73faf90b2c1989241",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "markdown",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/markdown.svg",
+        "source": "platform/icons/src/expui/fileTypes/markdown.svg",
+        "sha256": "bfe84e2ff52f22bf668cc614468f4798ec75786dd4e5674a464d63054beca67d",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/markdown_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/markdown_dark.svg",
+        "sha256": "4a51e2e3aca13cf778539187ea22a60f0f9a83731e70d5b51ff79f34ba51a1e1",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "microsoftWindows",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/microsoftWindows.svg",
+        "source": "platform/icons/src/expui/fileTypes/microsoftWindows.svg",
+        "sha256": "2ec1cea4fb32e6ab10c42f135a72514b53cb2bffab0737e4e869dc8ecdd60b5f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/microsoftWindows_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/microsoftWindows_dark.svg",
+        "sha256": "8dad4b5d6b59559c2183248cb320cd0fa104443fec579e3a0e029b2c47283cd3",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "modified",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/modified.svg",
+        "source": "platform/icons/src/expui/fileTypes/modified.svg",
+        "sha256": "03c7fdbe28aeb422d7d64a42dbeabd2d38b9eb14e57670155675e9487c333ede",
+        "width": 13,
+        "height": 13,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/modified_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/modified_dark.svg",
+        "sha256": "1359e31a37753ff6d972ddbcbf9031dc8694f14293adb55e8a081928c49c93dc",
+        "width": 13,
+        "height": 13,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "patch",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/patch.svg",
+        "source": "platform/icons/src/expui/fileTypes/patch.svg",
+        "sha256": "5a13b4226356215881685426bbe5c93f407b06baf6c4a877808c3e4047e5d599",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/patch_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/patch_dark.svg",
+        "sha256": "beef0cad465c7c2ddb1b6126440384088ed7415e31d860ac0bbbc86d5d71f91a",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "perl",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/perl.svg",
+        "source": "platform/icons/src/expui/fileTypes/perl.svg",
+        "sha256": "ad36370a025fb176f8da49f8ae311df0623992227c8616f84b09c6a7a39acf0e",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/perl_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/perl_dark.svg",
+        "sha256": "b104ea087b1dbc4c2a37b75f3ebf983756e3d5d14f8a33cd209ce82f175505c5",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "properties",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/properties.svg",
+        "source": "platform/icons/src/expui/fileTypes/properties.svg",
+        "sha256": "2753f18580ef18634cf78650c88e5d957aecee1382041ff118c52e3f6dadbc81",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/properties_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/properties_dark.svg",
+        "sha256": "0b489a2fca2dfd51de0a85b300791c822fd08d077710b604cc65afce7fd8e2d6",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "python",
+      "light": {
+        "path": "src/client/assets/jetbrains/language/python.svg",
+        "source": "platform/icons/src/language/python.svg",
+        "sha256": "05b9605efcf84c68d43086041416d55a021269628f348917fa2119a6b3187ebe",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/language/python_dark.svg",
+        "source": "platform/icons/src/language/python_dark.svg",
+        "sha256": "47a2d86326165488ddd995720d07fc8b61b59ea23cc23337739a5f94aebaf67f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "regexp",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/regexp.svg",
+        "source": "platform/icons/src/expui/fileTypes/regexp.svg",
+        "sha256": "49d93c3eb676694d02e1d34ebd2d6bfefd986b8a94a9fdac982ab302f688743f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/regexp_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/regexp_dark.svg",
+        "sha256": "db3d37bfc057a122ce2422e29cd9ad476bc097507874c73a6a4dbce31328cc36",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "rst",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/rst.svg",
+        "source": "platform/icons/src/expui/fileTypes/rst.svg",
+        "sha256": "bf76db4be323491a1fd0892b43107e1330749d8bd7f2f3e021eb76eb57b100d4",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/rst_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/rst_dark.svg",
+        "sha256": "7fe657f37220d40bd1b5489918e5cd41f47ee4c65d6d338adf5631f2e718be5f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "rust",
+      "light": {
+        "path": "src/client/assets/jetbrains/language/rust.svg",
+        "source": "platform/icons/src/language/rust.svg",
+        "sha256": "c1aa4dd0d05598c3f19a7b7651c6b7a0c89298bd3c150723764df88f9e54bec0",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/language/rust_dark.svg",
+        "source": "platform/icons/src/language/rust_dark.svg",
+        "sha256": "9dd4575089ae53672bdf509de741238c518e7245095812281286d6414db29b9d",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "scratch",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/scratch.svg",
+        "source": "platform/icons/src/expui/fileTypes/scratch.svg",
+        "sha256": "7a021833a5ca3eef7ce41ede5a8591bada47e4a661c04ecf384ac97f4aa97720",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/scratch_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/scratch_dark.svg",
+        "sha256": "01b364b4a67c121c5ccd4ba6e8bc9370ac183cfd0c2fd1aa832e1dcab2976104",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "scratches",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/scratches.svg",
+        "source": "platform/icons/src/expui/fileTypes/scratches.svg",
+        "sha256": "2b0cfd473cc49e9f19bac938b1b767f64a60824ec331d42730c4bf4b373c21ff",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/scratches_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/scratches_dark.svg",
+        "sha256": "40eefffb6f27b88ef5890d654ae5f525719c2b54846ca32059e8407abb8eb1a3",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "shell",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/shell.svg",
+        "source": "platform/icons/src/expui/fileTypes/shell.svg",
+        "sha256": "4a8c336a8d0737df6ebee0b1006d03909f0ad5770a98d5ad28e746d3f95ae733",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/shell_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/shell_dark.svg",
+        "sha256": "09c58f2d69bedc5f3c518f9e42998f3bbb3ec5b7fd33b06cd24d1734c74d6cc7",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "sourceMap",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/sourceMap.svg",
+        "source": "platform/icons/src/expui/fileTypes/sourceMap.svg",
+        "sha256": "bbbc7e1e2b583e2b4cca3a0c4dd507ce41c914a66d7bad1e6599f3ea5395e61c",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/sourceMap_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/sourceMap_dark.svg",
+        "sha256": "c4992ee9127e8685d5ec96570f48668d0be7aabfa4f0099ff6dbc5e51796a5f2",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "sql",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/sql.svg",
+        "source": "platform/icons/src/expui/fileTypes/sql.svg",
+        "sha256": "56a74dc252d318ad5ab8e0859cffb0f2ff1ada2736dbff3abc18116ea900320f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/sql_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/sql_dark.svg",
+        "sha256": "be2a690df00ada9e6bc43f841769f378c03e523a845617b21a6ff7f4323096c6",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "swiftLang",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/swiftLang.svg",
+        "source": "platform/icons/src/expui/fileTypes/swiftLang.svg",
+        "sha256": "3232d3a0090f9a77bead9e0a4b64c43dec07ef5f9bf3b2abcd966f38d981e971",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/swiftLang_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/swiftLang_dark.svg",
+        "sha256": "3c1d700f37c43338df7f595d79476017f70a46923d6263b183b81a23193cb1dd",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      }
+    },
+    {
+      "id": "terraform",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/terraform.svg",
+        "source": "platform/icons/src/expui/fileTypes/terraform.svg",
+        "sha256": "65b88155129e3e45629e3011c5476b95085e95296f05485387626b0e2716a472",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/terraform_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/terraform_dark.svg",
+        "sha256": "45a40c95d5fd99f811ea8bd260cfe852800280bfb49e41d98128b3ac24fdeffd",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "text",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/text.svg",
+        "source": "platform/icons/src/expui/fileTypes/text.svg",
+        "sha256": "d71666166da544ad42b13bb5af976eb6f0afb60cbaa636676d238c98383ee296",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/text_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/text_dark.svg",
+        "sha256": "3391cc35837a4420fa9517f2297d8f6b07428db63f57f07dd5c2c29ef00cb489",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "toml",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/toml.svg",
+        "source": "platform/icons/src/expui/fileTypes/toml.svg",
+        "sha256": "d8dbdbada06151868dbcf791ea7a041c4ad438a499ba44bb672a76fc8abf6048",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/toml_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/toml_dark.svg",
+        "sha256": "4177347806efb6f5e31307e8427e8c9274bedfe8c8476b9ebb77c087b88027cc",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "typeScript",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/typeScript.svg",
+        "source": "platform/icons/src/expui/fileTypes/typeScript.svg",
+        "sha256": "6fc794f096ad1b506d42821049d200879bd0a0795b2110f99b726b91f14e8d5a",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/typeScript_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/typeScript_dark.svg",
+        "sha256": "18f56081e42916c7a3109062359ff41aeff6372d10bdb8942de6dce5e19f624e",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "uiForm",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/uiForm.svg",
+        "source": "platform/icons/src/expui/fileTypes/uiForm.svg",
+        "sha256": "20a72bc8c8c74c284651e93fa72c3c74661fa893641cf6492914170d1c8ec644",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/uiForm_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/uiForm_dark.svg",
+        "sha256": "16bb59ea248de5aec5398e839b17880a4c26f6f78266d9db33575ffd1b8c918b",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "unknown",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/unknown.svg",
+        "source": "platform/icons/src/expui/fileTypes/unknown.svg",
+        "sha256": "cd52e9c6e3bf865dac9297fbb494b7a92bd2eed84ff7d6aec6d77e22d80b5b22",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/unknown_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/unknown_dark.svg",
+        "sha256": "960fbd613eb362d1dc14d4fe6e9e7d96f6948971678c84ba321008765f4389b0",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "vue",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/vue.svg",
+        "source": "platform/icons/src/expui/fileTypes/vue.svg",
+        "sha256": "5f0d4bb91ccaa5252a6a021cd731974fc2e9a0926354b17a7417b0ede373ece3",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "repository-license"
+      },
+      "dark": null
+    },
+    {
+      "id": "wsdl",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/wsdl.svg",
+        "source": "platform/icons/src/expui/fileTypes/wsdl.svg",
+        "sha256": "800b29789851cc43f49495f9433584895d94db99576b9b5ea05350f2a1df8dad",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/wsdl_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/wsdl_dark.svg",
+        "sha256": "295733a1454b8b507d424c3979ce272e014b805b5ce5dddad21232305485cb25",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "xhtml",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/xhtml.svg",
+        "source": "platform/icons/src/expui/fileTypes/xhtml.svg",
+        "sha256": "5adea5476cf972b503de4106be547dc0787a3261d5099d9607a202ed64853c54",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/xhtml_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/xhtml_dark.svg",
+        "sha256": "464eb3ef5e5cde5e385c64b360b90ed5ad0bf15456ad5211d7b9cf3a47fe8e06",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "xml",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/xml.svg",
+        "source": "platform/icons/src/expui/fileTypes/xml.svg",
+        "sha256": "ed18f7315e4dea5eb9298a66732968805c0ff9cda8f3ef0ca339f864e536d9ea",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/xml_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/xml_dark.svg",
+        "sha256": "fb39e44dd70fdda7a94c6074e5d3d58d30faef92bc6f91c1244b0320aee2486b",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "xsd",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/xsd.svg",
+        "source": "platform/icons/src/expui/fileTypes/xsd.svg",
+        "sha256": "91ba35f928a133e7fbd20dc9f3666eb4b76a33e3b36651b7829289cd0947bb84",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/xsd_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/xsd_dark.svg",
+        "sha256": "dd71124671bd08f463cf6db54c071baf4e9174608fc2078938592f6e5d5d7f40",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    },
+    {
+      "id": "yaml",
+      "light": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/yaml.svg",
+        "source": "platform/icons/src/expui/fileTypes/yaml.svg",
+        "sha256": "f715bd90d921963fa9852ceff03d313e15cf1ef25a9a4ed609a6698a423f60ea",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      },
+      "dark": {
+        "path": "src/client/assets/jetbrains/expui/fileTypes/yaml_dark.svg",
+        "source": "platform/icons/src/expui/fileTypes/yaml_dark.svg",
+        "sha256": "09e0df7109e8decf4a1eaba4887da88f5469a0a095fae9143f12bafe6418473f",
+        "width": 16,
+        "height": 16,
+        "license": "Apache-2.0",
+        "licenseEvidence": "file-header"
+      }
+    }
+  ]
+}

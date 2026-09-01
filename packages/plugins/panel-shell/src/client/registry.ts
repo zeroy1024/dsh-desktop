@@ -26,6 +26,35 @@ export interface PanelPageMeta {
   onActivate?: () => void
   /** Page visibility callback: fired when the page stops being the active tab. */
   onDeactivate?: () => void
+  /**
+   * 会话相位要求：'required' 的页在无当前会话时整条不可见（tab 按钮与
+   * 「+」菜单都过滤；账本保留，会话回来自动复现）；缺省 'either' 两相
+   * 可见。文件浏览这类「根目录锚定会话工作区」的页取 required。
+   */
+  sessionMode?: 'required' | 'either'
+}
+
+/**
+ * 页面在给定会话相位下是否可见。纯函数：tab 条过滤与单测共用一条判据。
+ * @param meta - 页面元数据。
+ * @param hasSession - 当前是否存在激活会话。
+ */
+export function isPageVisible(meta: PanelPageMeta, hasSession: boolean): boolean {
+  return meta.sessionMode !== 'required' || hasSession
+}
+
+/**
+ * Resolve the presentation-active page without rewriting the persisted tab
+ * ledger. A session-required active page can disappear during the no-session
+ * phase; the first visible tab temporarily takes over and the original active
+ * id resumes automatically when the session returns.
+ */
+export function resolveVisibleActiveId(
+  visibleIds: readonly string[],
+  activeId: string | null,
+): string | null {
+  if (activeId !== null && visibleIds.includes(activeId)) return activeId
+  return visibleIds[0] ?? null
 }
 
 /** Sort weight for metas without an explicit order: after every ordered page. */

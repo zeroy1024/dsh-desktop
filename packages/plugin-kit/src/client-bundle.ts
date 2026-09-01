@@ -88,7 +88,9 @@ export async function buildClientBundle(options: BuildClientBundleOptions): Prom
     jsx: 'automatic',
     sourcemap: 'inline',
     logLevel: 'info',
-    loader: { '.css': 'css' },
+    // SVG is imported as text, then exposed by the plugin's static asset map as a
+    // data URL. No runtime URL/CDN fetch and no SVG HTML injection are involved.
+    loader: { '.css': 'css', '.svg': 'text' },
     plugins: [{
       name: 'dsh-css-modules',
       setup(buildContext) {

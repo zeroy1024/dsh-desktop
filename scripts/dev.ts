@@ -3,17 +3,20 @@
  *
  * 用法：pnpm dev
  */
-import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawnCommandSync, spawnPnpmSync } from './command'
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const desktopDir = join(rootDir, 'apps', 'desktop')
 
 function run(cmd: string, args: string[], cwd: string): void {
-  const r = spawnSync(cmd, args, { cwd, stdio: 'inherit', env: process.env })
+  const options = { cwd, stdio: 'inherit' as const, env: process.env }
+  const r = cmd === 'pnpm'
+    ? spawnPnpmSync(args, options)
+    : spawnCommandSync(cmd, args, options)
   if (r.status !== 0) process.exit(r.status ?? 1)
 }
 
@@ -59,9 +62,9 @@ if (process.platform === 'darwin') {
       CFBundleIdentifier: 'ai.deepseek.harness.desktop',
     }
     for (const [key, value] of Object.entries(brand)) {
-      const set = spawnSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, infoPlist])
+      const set = spawnCommandSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, infoPlist])
       if (set.status !== 0) {
-        spawnSync('/usr/libexec/PlistBuddy', ['-c', `Add :${key} string ${value}`, infoPlist])
+        spawnCommandSync('/usr/libexec/PlistBuddy', ['-c', `Add :${key} string ${value}`, infoPlist])
       }
     }
     // bundle 图标必须落在克隆里：Dock 在进程 spawn 瞬间按 bundle icns 渲染、
@@ -73,11 +76,11 @@ if (process.platform === 'darwin') {
       join(brandApp, 'Contents', 'Resources', 'electron.icns'),
     )
     // 改了 Resources 即签名失效；本地开发用 ad-hoc 重签保持可启动。
-    const sign = spawnSync('codesign', ['--force', '--deep', '--sign', '-', brandApp])
+    const sign = spawnCommandSync('codesign', ['--force', '--deep', '--sign', '-', brandApp])
     if (sign.status !== 0) {
       console.warn('[dev] 品牌 bundle ad-hoc 重签名失败（未隔离的本地 bundle 一般仍可启动）：', sign.stderr?.toString() ?? '')
     }
-    spawnSync(
+    spawnCommandSync(
       '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
       ['-f', brandApp],
     )
@@ -88,6 +91,7 @@ if (process.platform === 'darwin') {
 
 // 3. 构建内置插件 + desktop 壳，再启动
 run('pnpm', ['--filter', './packages/plugins/*', 'build'], rootDir)
+run('pnpm', ['stage:plugins'], rootDir)
 run('pnpm', ['--filter', '@dsh-desktop/desktop', 'build'], rootDir)
 if (devElectronBin !== null && existsSync(devElectronBin)) {
   run(devElectronBin, [desktopDir], rootDir)

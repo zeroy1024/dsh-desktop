@@ -1,6 +1,7 @@
 /**
- * 扫描 app 内置插件目录，供 desktop profile 物化做符号链接。
- * 开发态指向仓库 packages/plugins；打包态指向 extraResources/plugins（P4）。
+ * 扫描 staging 后的 app 内置插件目录，供 desktop profile 物化做符号链接。
+ * 插件位于 dsh CLI 的 node_modules 闭包内，确保 Host bare import 与 dsh
+ * 运行时共享同一份 Cordis/service-definition 包。
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -17,8 +18,8 @@ export function appVersion(): string {
 /** 内置插件根目录。 */
 export function bundledPluginsRoot(): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'plugins')
-    : join(import.meta.dirname, '..', '..', '..', 'packages', 'plugins')
+    ? join(process.resourcesPath, 'dsh-cli', 'node_modules', '@dsh-desktop')
+    : join(import.meta.dirname, '..', '..', '..', 'vendor', 'dsh-cli', 'node_modules', '@dsh-desktop')
 }
 
 /** 每个含 package.json 的子目录即一个内置插件；`dshDesktop.enabled: false` 表示保留在仓库但默认不装配。 */

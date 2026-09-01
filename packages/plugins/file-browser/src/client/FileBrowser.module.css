@@ -1,0 +1,499 @@
+/*
+ * 文件浏览器页面骨架：页面自身是 panel-shell 座位里的两栏（左树 / 右预览），
+ * 与视频一致。列高铺满座位（容器已管 tab 条与放大态）。颜色全部骑
+ * --dsw-alias-* token（panel-shell 同款），未知 token 有兜底值。
+ */
+
+.root {
+  --dsh-file-browser-header-height: 44px;
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+/* ---- 左列：树 ---- */
+
+.treeCol {
+  flex: 0 0 clamp(160px, var(--dsh-file-tree-width, 200px), calc(100% - 160px));
+  width: clamp(160px, var(--dsh-file-tree-width, 200px), calc(100% - 160px));
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.treeCol[hidden] {
+  display: none;
+}
+
+.treeHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--dsh-file-browser-header-height);
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, .2));
+}
+
+.filterWrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
+}
+
+.filterWrap input {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.searchButton {
+  margin-inline-end: auto;
+}
+
+.refreshButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--dsh-radius-compact, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.refreshButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .12));
+}
+
+.treeActionButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--dsh-radius-compact, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.treeActionButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .12));
+}
+
+/* A wide, transparent hit target keeps the one-pixel seam discoverable while
+   remaining keyboard and pointer accessible. Width is fixed so dragging the
+   tree never changes the handle's own geometry. */
+.splitHandle {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 8px;
+  width: 8px;
+  min-width: 8px;
+  margin-inline: -4px;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.splitHandle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--dsw-alias-border-l2, rgba(128, 128, 128, .2));
+}
+
+.splitHandle:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-alias-label-primary-bluish, #458af5);
+}
+
+.treeScroller {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.treeInner {
+  position: relative;
+  width: 100%;
+}
+
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding-inline-end: 6px;
+  border: 0;
+  border-radius: var(--dsh-radius-micro, 4px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .1));
+}
+
+/* 当前预览文件与显式选区使用同一背景；文件/目录不再分叉。 */
+.rowSelected,
+.rowPicked {
+  background: var(--dsw-alias-interactive-bg-active, rgba(64, 120, 255, .16));
+}
+
+.rowFocused {
+  outline: 1px solid var(--dsw-alias-label-primary-bluish, #458af5);
+  outline-offset: -1px;
+}
+
+.chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  transition: transform .12s ease;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.spinner {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-inline: 2px;
+  border: 1.5px solid var(--dsw-alias-label-tertiary, #888);
+  border-top-color: transparent;
+  border-radius: var(--dsh-radius-circle, 50%);
+  animation: dsh-fb-spin .7s linear infinite;
+}
+
+@keyframes dsh-fb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.rowIcon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.rowLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowError {
+  flex: none;
+  color: var(--dsw-alias-state-error-primary, #e5534b);
+  font-size: 11px;
+}
+
+.truncatedNote {
+  padding: 4px 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+/* ---- 右列：预览 ---- */
+
+.previewCol {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+}
+
+.fileHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--dsh-file-browser-header-height);
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, .2));
+  overflow: hidden;
+}
+
+.treeRestoreButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsh-radius-compact, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.treeRestoreButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .12));
+}
+
+.treeActionButton svg,
+.treeRestoreButton svg {
+  display: block;
+}
+
+/* 文件 tab 条：与 panel-shell 页级 tab 同一视觉语言，但更矮。 */
+.fileTabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.fileTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.fileTab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--dsh-radius-compact, 6px);
+  max-width: 160px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.fileTab:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .12));
+}
+
+.fileTabActive {
+  background: var(--dsw-alias-interactive-bg-active, rgba(64, 120, 255, .16));
+  color: var(--dsw-alias-label-primary);
+}
+
+.fileTabLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileTabClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: var(--dsh-radius-circle, 50%);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.fileTabClose:hover {
+  background: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, .2));
+}
+
+/* 面包屑 + 动作条 */
+.crumbBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Each path segment is its own shrinkable flex item. Keeping the final
+   segment in a separate class lets the preceding directory names yield first,
+   so the active file name stays visible beside the fixed action buttons. */
+.crumbSegment {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.crumbSegmentLast {
+  flex: 1 1 0;
+  min-width: 4ch;
+}
+
+.crumbText {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: var(--dsh-radius-micro, 4px);
+}
+
+.crumbLast {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  text-align: start;
+}
+
+.crumbSep {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 预览主体 */
+.previewBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+/* CodeBlock's banner is sticky inside this scroller. The ordinary body padding
+   plus CodeBlock's 16px top margin otherwise leaves a transparent strip above
+   the banner, allowing the pre text to show through while scrolling upward. */
+.codePreviewBody {
+  padding-top: 0;
+}
+
+.codeBlock {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.markdownWrap {
+  max-width: 860px;
+}
+
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.emptyGuide {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.statusNote {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12.5px;
+}
+
+.plainPreview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.plainPreviewHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.plainText {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, .2));
+  border-radius: var(--dsh-radius-compact, 6px);
+  padding: 8px 10px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  tab-size: 2;
+}

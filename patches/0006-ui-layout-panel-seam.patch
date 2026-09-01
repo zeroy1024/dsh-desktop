@@ -1,115 +1,24 @@
---- a/packages/client/ui-layout/src/client/columns.ts
-+++ b/packages/client/ui-layout/src/client/columns.ts
-@@ -1,20 +1,21 @@
- /**
-- * Pure concession-chain column solver for the three-column AppFrame.
-- * Chain order is fixed by contract: keep center >= CENTER_MIN by shrinking
-- * details, then auto-closing it (derived zero width — preferred width
-- * preferences are never rewritten, so widening the window restores them).
-- * The sidebar never concedes: its rendered width is always the drag
-- * preference (or the collapsed rail), and center absorbs any remaining
-- * deficit as the last resort. Inputs are the layout store's plain width
-- * preferences (0 = closed); a closed sidebar resolves to the fixed
-- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
-- * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
-+ * Pure concession-chain column solver for the three-column-plus-panel
-+ * AppFrame. Chain order is fixed by contract: keep center >= CENTER_MIN by
-+ * shrinking details, then the panel, then auto-closing them in the same
-+ * order (derived zero widths — preferred width preferences are never
-+ * rewritten, so widening the window restores them). The sidebar never
-+ * concedes: its rendered width is always the drag preference (or the
-+ * collapsed rail), and center absorbs any remaining deficit as the last
-+ * resort. Inputs are the layout store's plain width preferences (0 =
-+ * closed); a closed sidebar resolves to the fixed SIDEBAR_COLLAPSED control
-+ * rail while closed details and panel resolve to zero width. The
-+ * SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
-  * the effective sidebar preference before solving; the solver itself stays
-  * breakpoint-free.
-  */
- 
- /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
--export interface Columns { sidebar: number; center: number; details: number }
-+export interface Columns { sidebar: number; center: number; details: number; panel: number }
- 
- // Contract-frozen geometry: the three-column concession chain's fixed points.
- /** Center column floor; only the final fallback may go below it. */
-@@ -37,6 +38,12 @@
- export const DETAILS_MAX = 520
- /** Details width before any user drag. */
- export const DETAILS_DEFAULT = 360
-+/** Panel (side panel column) width floor. */
-+export const PANEL_MIN = 320
-+/** Panel width ceiling. */
-+export const PANEL_MAX = 520
-+/** Panel width when opened (the contract width is the only open width until a drag rewrites it). */
-+export const PANEL_DEFAULT = 400
- 
- /**
-  * Clamp a panel width into its contract range.
-@@ -50,28 +57,49 @@
- }
- 
- /**
-- * Solve the three column widths for one viewport frame. Pure: no hysteresis —
-+ * Solve the four column widths for one viewport frame. Pure: no hysteresis —
-  * the output is a function of (viewport, preferences) only, so recovery on
-  * re-widening is automatic. Preferences re-clamp here because they cross the
-  * store boundary and callers may still supply stale ranges.
-  * @param viewport - available frame width in px.
-  * @param sidebar - sidebar width preference in px (0 = closed).
-  * @param details - details width preference in px (0 = closed).
-- * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
-+ * @param panel - panel width preference in px (0 = closed).
-+ * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail and a closed panel stays mounted at zero width.
-  */
--export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
-+export function computeColumns(viewport: number, sidebar: number, details: number, panel: number): Columns {
-   // The sidebar is fixed at its preference (or the rail) — it never concedes.
-   const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
-   const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
-+  const p0 = panel === 0 ? 0 : clampWidth(panel, PANEL_MIN, PANEL_MAX)
- 
-   // Step 1: everything fits at preferred widths.
--  if (s + d0 + CENTER_MIN <= viewport) return { sidebar: s, center: viewport - s - d0, details: d0 }
-+  if (s + d0 + p0 + CENTER_MIN <= viewport) {
-+    return { sidebar: s, center: viewport - s - d0 - p0, details: d0, panel: p0 }
-+  }
- 
-   // Step 2: shrink details toward its minimum.
--  const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s - CENTER_MIN)
--  if (s + d1 + CENTER_MIN <= viewport) return { sidebar: s, center: CENTER_MIN, details: d1 }
-+  const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s - p0 - CENTER_MIN)
-+  if (s + d1 + p0 + CENTER_MIN <= viewport) {
-+    return { sidebar: s, center: CENTER_MIN, details: d1, panel: p0 }
-+  }
- 
--  // Step 3: auto-close details (derived — preferences untouched); center
--  // absorbs any remaining deficit (may drop below CENTER_MIN).
--  return { sidebar: s, center: Math.max(0, viewport - s), details: 0 }
-+  // Step 3: shrink the panel toward its minimum (details at its shrunk width).
-+  const p1 = p0 === 0 ? 0 : Math.max(PANEL_MIN, viewport - s - d1 - CENTER_MIN)
-+  if (s + d1 + p1 + CENTER_MIN <= viewport) {
-+    return { sidebar: s, center: CENTER_MIN, details: d1, panel: p1 }
-+  }
-+
-+  // Step 4: auto-close details (derived — preferences untouched), then shrink
-+  // the panel against the full remaining space. The shrink never exceeds the
-+  // panel's own preference: closing details frees width, it does not widen
-+  // the panel beyond what the user asked for.
-+  const p2 = p0 === 0 ? 0 : Math.min(p0, Math.max(PANEL_MIN, viewport - s - CENTER_MIN))
-+  if (s + p2 + CENTER_MIN <= viewport) {
-+    return { sidebar: s, center: viewport - s - p2, details: 0, panel: p2 }
-+  }
-+
-+  // Step 5: auto-close the panel too; center absorbs any remaining deficit
-+  // (may drop below CENTER_MIN).
-+  return { sidebar: s, center: Math.max(0, viewport - s), details: 0, panel: 0 }
- }
 diff --git a/packages/client/ui-layout/src/client/AppFrame.module.css b/packages/client/ui-layout/src/client/AppFrame.module.css
-index ae56780133..f313faef67 100644
+index ae56780133..e119aebc15 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
-@@ -48,6 +48,81 @@
+@@ -4,6 +4,15 @@
+   grid-template-rows: 100%;
+   height: 100%;
+   overflow: hidden;
++  /* Inline-size container for the fullscreen panel overlay: the overlay's
++     target width is expressed as `calc(100cqi - sidebarTrack)` so BOTH the
++     column and its interior pin resolve against the frame's own width —
++     never against each other's animated box. (Without it, the pin's `100%`
++     reads the panelCol it sits in and the sidebar gets subtracted twice.)
++     Side effect: fixed-position descendants would anchor here; every fixed
++     surface in the app is portaled to body or lives in a full-bleed frame
++     whose box equals the viewport, so the containment is visually inert. */
++  container-type: inline-size;
+   background: var(--dsw-alias-bg-base);
+   /* Collapse/expand animates the tracks on the deepsuite sider curve
+      (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
+@@ -48,6 +57,81 @@
    border-left: none;
  }
  
@@ -192,10 +101,10 @@ index ae56780133..f313faef67 100644
     centered on the column border via inline left, above column content. Details
     adds a visible 12x32 pill at vertical center; sidebar keeps only the hit strip. */
 diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
-index 2696dc91fa..beb0037fd4 100644
+index 2696dc91fa..2c07e096c6 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.tsx
 +++ b/packages/client/ui-layout/src/client/AppFrame.tsx
-@@ -1,12 +1,15 @@
+@@ -1,16 +1,19 @@
  /**
 - * Three-column shell frame, registered into the built-in 'root' slot (the web
 - * shell renders only 'root'). Owns the grid tracks (sidebar | center |
@@ -219,7 +128,12 @@ index 2696dc91fa..beb0037fd4 100644
   * through the three framework shares — zero cordis or framework imports,
   * zero self-made hooks.
   */
-@@ -20,7 +23,7 @@ import css from './AppFrame.module.css'
+-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
++import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+ import type { ReactNode } from 'react'
+ import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+ import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+@@ -20,9 +23,26 @@ import css from './AppFrame.module.css'
  /** Full composed props: runtime share + child-slot render share + store share. */
  export type AppFrameProps =
    & PropsRuntime<'root'>
@@ -227,8 +141,27 @@ index 2696dc91fa..beb0037fd4 100644
 +  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'panel' | 'shell.overlay'>
    & PropsStore<ReturnType<typeof createLayoutStore>>
  
++type StaticSlotKey = 'conversation' | 'details' | 'panel' | 'shell.overlay'
++
++/**
++ * Layout drag/transition ticks only change frame geometry. The slot dispatcher
++ * and every static occupant below it have stable identities, so keep them
++ * behind one memo boundary instead of rebuilding those subtrees per tick.
++ */
++const StaticSlot = memo(function StaticSlot({
++  renderSlot,
++  slotKey,
++}: {
++  renderSlot: AppFrameProps['renderSlot']
++  slotKey: StaticSlotKey
++}) {
++  return renderSlot(slotKey, {})
++})
++
  /** Center column grid item (session-body building block). */
-@@ -37,7 +40,7 @@ function DetailsColumn(props: { children?: ReactNode }) {
+ function CenterColumn(props: { children?: ReactNode }) {
+   return <div className={css.centerCol}>{props.children}</div>
+@@ -37,7 +57,7 @@ function DetailsColumn(props: { children?: ReactNode }) {
   * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
   * `side` keys the hover-reveal CSS to the owning column.
   */
@@ -237,7 +170,7 @@ index 2696dc91fa..beb0037fd4 100644
    const [dragging, setDragging] = useState(false)
    const origin = useRef(0)
    const latest = useRef(0)
-@@ -139,35 +142,92 @@ export function AppFrame({
+@@ -139,35 +159,103 @@ export function AppFrame({
    const sidebarPreference = sidebarCollapsed
      ? 0
      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -286,10 +219,21 @@ index 2696dc91fa..beb0037fd4 100644
 +  // unchanged instead of re-wrapping to nothing. Under the overlay the pin
 +  // rides the animated target, so the eased width only moves the clip box —
 +  // the interior never re-wraps mid-flight.
++  //
++  // The column and the pin resolve their percentages against DIFFERENT
++  // boxes: the column's containing block is the frame (so `100%` is the
++  // frame width), but the pin sits inside the column, so its `100%` would
++  // read the column's own animated width and subtract the sidebar a second
++  // time — a blank strip the width of the sidebar at the window's right
++  // edge, re-wrapping mid-flight. The pin therefore uses `100cqi`: the
++  // frame's container-query inline size, a constant during the ease, which
++  // keeps the clip-box design exact (the eased column width only moves the
++  // clip; the interior never follows it).
 +  const lastPanelWidth = useRef('0px')
 +  const boxTarget = panelExpanded ? `calc(100% - ${sidebarTrack})` : `${layout.panel}px`
-+  if (boxTarget !== '0px') lastPanelWidth.current = boxTarget
-+  const pinTarget = overlay ? boxTarget : `${layout.panel}px`
++  const pinBoxTarget = panelExpanded ? `calc(100cqi - ${sidebarTrack})` : `${layout.panel}px`
++  if (pinBoxTarget !== '0px') lastPanelWidth.current = pinBoxTarget
++  const pinTarget = overlay ? pinBoxTarget : `${layout.panel}px`
 +  const pinWidth = pinTarget !== '0px' ? pinTarget : lastPanelWidth.current
  
    // The drag base is the rendered width captured at drag start (grabbing a
@@ -335,7 +279,7 @@ index 2696dc91fa..beb0037fd4 100644
        data-dragging={dragging || undefined}
      >
        <div className={css.sidebarCol}>
-@@ -175,10 +235,11 @@ export function AppFrame({
+@@ -175,10 +263,11 @@ export function AppFrame({
              sidebar keeps the mounted slot at the compact-rail width, and the
              component sees its rendered state as owner params decided here
              (collapsed follows the resolved rail, so a derived auto-collapse
@@ -349,10 +293,14 @@ index 2696dc91fa..beb0037fd4 100644
          })}
        </div>
        <>
-@@ -189,13 +250,43 @@ export function AppFrame({
+@@ -187,15 +276,45 @@ export function AppFrame({
+             the shell's own pending rendering. The conversation
+             is session-maybe; the strict details entry naturally renders
              empty while no session is current. */}
-         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-         <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+-        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+-        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
++        <CenterColumn><StaticSlot renderSlot={renderSlot} slotKey="conversation" /></CenterColumn>
++        <DetailsColumn><StaticSlot renderSlot={renderSlot} slotKey="details" /></DetailsColumn>
 +        {/* Panel column grid item; width 0 keeps the subtree mounted (never
 +            unmount on close). The inner layer pins to the column's LEFT
 +            edge at the target width, so the eased track motion (open,
@@ -372,12 +320,13 @@ index 2696dc91fa..beb0037fd4 100644
 +          }}
 +        >
 +          <div className={css.panelColPin} style={{ width: pinWidth }}>
-+            {renderSlot('panel', {})}
++            <StaticSlot renderSlot={renderSlot} slotKey="panel" />
 +          </div>
 +        </div>
        </>
        <div className={css.overlayLayer} data-shell-overlay>
-         {renderSlot('shell.overlay', {})}
+-        {renderSlot('shell.overlay', {})}
++        <StaticSlot renderSlot={renderSlot} slotKey="shell.overlay" />
        </div>
 -      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
 -      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
@@ -395,6 +344,124 @@ index 2696dc91fa..beb0037fd4 100644
 +      {!overlay && layout.panel > 0 && <DragHandle side="panel" left={viewport - layout.panel} onStart={onPanelStart} onDrag={onPanelDrag} onEnd={onDragEnd} />}
      </div>
    )
+ }
+diff --git a/packages/client/ui-layout/src/client/columns.ts b/packages/client/ui-layout/src/client/columns.ts
+index a038f6726b..6a2fedf12c 100644
+--- a/packages/client/ui-layout/src/client/columns.ts
++++ b/packages/client/ui-layout/src/client/columns.ts
+@@ -1,24 +1,25 @@
+ /**
+- * Pure concession-chain column solver for the three-column AppFrame.
+- * Chain order is fixed by contract: keep center >= CENTER_MIN by shrinking
+- * details, then auto-closing it (derived zero width — preferred width
+- * preferences are never rewritten, so widening the window restores them).
+- * The sidebar never concedes: its rendered width is always the drag
+- * preference (or the collapsed rail), and center absorbs any remaining
+- * deficit as the last resort. Inputs are the layout store's plain width
+- * preferences (0 = closed); a closed sidebar resolves to the fixed
+- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
+- * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
++ * Pure concession-chain column solver for the three-column-plus-panel
++ * AppFrame. Chain order is fixed by contract: keep center >= CENTER_MIN by
++ * shrinking details, then the panel, then auto-closing them in the same
++ * order (derived zero widths — preferred width preferences are never
++ * rewritten, so widening the window restores them). The sidebar never
++ * concedes: its rendered width is always the drag preference (or the
++ * collapsed rail), and center absorbs any remaining deficit as the last
++ * resort. Inputs are the layout store's plain width preferences (0 =
++ * closed); a closed sidebar resolves to the fixed SIDEBAR_COLLAPSED control
++ * rail while closed details and panel resolve to zero width. The
++ * SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
+  * the effective sidebar preference before solving; the solver itself stays
+  * breakpoint-free.
+  */
+ 
+ /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
+-export interface Columns { sidebar: number; center: number; details: number }
++export interface Columns { sidebar: number; center: number; details: number; panel: number }
+ 
+ // Contract-frozen geometry: the three-column concession chain's fixed points.
+ /** Center column floor; only the final fallback may go below it. */
+-export const CENTER_MIN = 640
++export const CENTER_MIN = 360
+ /** Sidebar drag clamp floor. */
+ export const SIDEBAR_MIN = 264
+ /** Sidebar drag clamp ceiling. */
+@@ -37,6 +38,16 @@ export const DETAILS_MIN = 300
+ export const DETAILS_MAX = 520
+ /** Details width before any user drag. */
+ export const DETAILS_DEFAULT = 360
++/** Panel (side panel column) width floor. */
++export const PANEL_MIN = 320
++/** Panel width when opened (the contract width is the only open width until a drag rewrites it). */
++export const PANEL_DEFAULT = 480
++
++/** Normalize a finite panel preference; the viewport solver owns its dynamic ceiling. */
++export function normalizePanelWidth(px: number): number {
++  if (!Number.isFinite(px)) return PANEL_MIN
++  return Math.max(PANEL_MIN, Math.round(px))
++}
+ 
+ /**
+  * Clamp a panel width into its contract range.
+@@ -50,28 +61,49 @@ export function clampWidth(px: number, min: number, max: number): number {
+ }
+ 
+ /**
+- * Solve the three column widths for one viewport frame. Pure: no hysteresis —
++ * Solve the four column widths for one viewport frame. Pure: no hysteresis —
+  * the output is a function of (viewport, preferences) only, so recovery on
+  * re-widening is automatic. Preferences re-clamp here because they cross the
+  * store boundary and callers may still supply stale ranges.
+  * @param viewport - available frame width in px.
+  * @param sidebar - sidebar width preference in px (0 = closed).
+  * @param details - details width preference in px (0 = closed).
+- * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
++ * @param panel - panel width preference in px (0 = closed).
++ * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail and a closed panel stays mounted at zero width.
+  */
+-export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
++export function computeColumns(viewport: number, sidebar: number, details: number, panel: number): Columns {
+   // The sidebar is fixed at its preference (or the rail) — it never concedes.
+   const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+   const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
++  const p0 = panel === 0 ? 0 : normalizePanelWidth(panel)
+ 
+   // Step 1: everything fits at preferred widths.
+-  if (s + d0 + CENTER_MIN <= viewport) return { sidebar: s, center: viewport - s - d0, details: d0 }
++  if (s + d0 + p0 + CENTER_MIN <= viewport) {
++    return { sidebar: s, center: viewport - s - d0 - p0, details: d0, panel: p0 }
++  }
+ 
+   // Step 2: shrink details toward its minimum.
+-  const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s - CENTER_MIN)
+-  if (s + d1 + CENTER_MIN <= viewport) return { sidebar: s, center: CENTER_MIN, details: d1 }
++  const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s - p0 - CENTER_MIN)
++  if (s + d1 + p0 + CENTER_MIN <= viewport) {
++    return { sidebar: s, center: CENTER_MIN, details: d1, panel: p0 }
++  }
++
++  // Step 3: shrink the panel toward its minimum (details at its shrunk width).
++  const p1 = p0 === 0 ? 0 : Math.max(PANEL_MIN, viewport - s - d1 - CENTER_MIN)
++  if (s + d1 + p1 + CENTER_MIN <= viewport) {
++    return { sidebar: s, center: CENTER_MIN, details: d1, panel: p1 }
++  }
++
++  // Step 4: auto-close details (derived — preferences untouched), then shrink
++  // the panel against the full remaining space. The shrink never exceeds the
++  // panel's own preference: closing details frees width, it does not widen
++  // the panel beyond what the user asked for.
++  const p2 = p0 === 0 ? 0 : Math.min(p0, Math.max(PANEL_MIN, viewport - s - CENTER_MIN))
++  if (s + p2 + CENTER_MIN <= viewport) {
++    return { sidebar: s, center: viewport - s - p2, details: 0, panel: p2 }
++  }
+ 
+-  // Step 3: auto-close details (derived — preferences untouched); center
+-  // absorbs any remaining deficit (may drop below CENTER_MIN).
+-  return { sidebar: s, center: Math.max(0, viewport - s), details: 0 }
++  // Step 5: auto-close the panel too; center absorbs any remaining deficit
++  // (may drop below CENTER_MIN).
++  return { sidebar: s, center: Math.max(0, viewport - s), details: 0, panel: 0 }
  }
 diff --git a/packages/client/ui-layout/src/client/index.ts b/packages/client/ui-layout/src/client/index.ts
 index c56d83bfbb..bdc3cbd130 100644
@@ -515,14 +582,14 @@ index 2b2e50e5d5..310c0fe44e 100644
      // Callers are UI gestures, which cannot fire before the root entry
      // rendered (the inject hook runs in its first render) — reaching this
 diff --git a/packages/client/ui-layout/src/client/stores.ts b/packages/client/ui-layout/src/client/stores.ts
-index d2de668a9c..cf1099c6ca 100644
+index d2de668a9c..13ed15bdd8 100644
 --- a/packages/client/ui-layout/src/client/stores.ts
 +++ b/packages/client/ui-layout/src/client/stores.ts
 @@ -10,17 +10,27 @@
  import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
  import {
    clampWidth, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
-+  PANEL_DEFAULT, PANEL_MAX, PANEL_MIN,
++  normalizePanelWidth, PANEL_DEFAULT,
    SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
  } from './columns.ts'
  
@@ -576,7 +643,7 @@ index d2de668a9c..cf1099c6ca 100644
      actions: {
        setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
        setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
-+      setPanel: (d, px: number) => { d.panel = clampWidth(px, PANEL_MIN, PANEL_MAX) },
++      setPanel: (d, px: number) => { if (Number.isFinite(px)) d.panel = normalizePanelWidth(px) },
        // Narrow toggles flip only the override: the width preference survives
        // untouched, so re-widening restores the pre-squeeze layout.
        toggleSidebar: (d) => {
@@ -592,7 +659,7 @@ index d2de668a9c..cf1099c6ca 100644
 +        if (d.panel === 0) d.panel = PANEL_DEFAULT
 +        else { d.panel = 0; d.panelExpanded = false }
 +      },
-+      openPanel: (d) => { d.panel = clampWidth(d.panel === 0 ? PANEL_DEFAULT : d.panel, PANEL_MIN, PANEL_MAX) },
++      openPanel: (d) => { d.panel = normalizePanelWidth(d.panel === 0 ? PANEL_DEFAULT : d.panel) },
 +      closePanel: (d) => { d.panel = 0; d.panelExpanded = false },
 +      // Fullscreen flips only over an open panel; AppFrame additionally
 +      // treats the flag as false while the solved width is zero.
@@ -601,7 +668,7 @@ index d2de668a9c..cf1099c6ca 100644
    })
    return handle
 diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-index d865a5c186..f85d75e75a 100644
+index d865a5c186..cf69a7930e 100644
 --- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
 +++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
 @@ -5,8 +5,8 @@
@@ -661,7 +728,7 @@ index d865a5c186..f85d75e75a 100644
    })
  
    it('keeps the conversation slot mounted while no session is current', () => {
-@@ -174,59 +178,59 @@ describe('AppFrame', () => {
+@@ -174,59 +178,73 @@ describe('AppFrame', () => {
  
    it('ignores unselected states and closes only when the Session id changes', () => {
      const { frame, instance, rerenderFrame } = mountFrame()
@@ -718,6 +785,20 @@ index d865a5c186..f85d75e75a 100644
      const { slotCalls } = mountFrame()
 -    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
 +    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 320 })
++  })
++
++  it('does not redispatch static slot subtrees on layout-only store ticks', () => {
++    const { instance, slotCalls } = mountFrame()
++    const staticKeys = ['conversation', 'details', 'panel', 'shell.overlay']
++    const before = new Map(staticKeys.map(key => [key, slotCalls.filter(call => call.key === key).length]))
++
++    act(() => { instance.actions.openPanel() })
++    act(() => { instance.actions.setPanel(520) })
++
++    for (const key of staticKeys) {
++      expect(slotCalls.filter(call => call.key === key)).toHaveLength(before.get(key) ?? 0)
++    }
++    expect(slotCalls.filter(call => call.key === 'sidebar').length).toBeGreaterThan(1)
    })
  
    it('sidebar drag widens through rAF-batched pointer moves', () => {
@@ -734,7 +815,7 @@ index d865a5c186..f85d75e75a 100644
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
      const handles = frame.querySelectorAll('[class*="handle"]')
-@@ -234,19 +238,41 @@ describe('AppFrame', () => {
+@@ -234,19 +252,41 @@ describe('AppFrame', () => {
      expect(tracks(frame)[1]).toBe(420)
    })
  
@@ -743,8 +824,8 @@ index d865a5c186..f85d75e75a 100644
 +    act(() => { instance.actions.togglePanel() })
 +    const handles = frame.querySelectorAll('[class*="handle"]')
 +    expect(handles).toHaveLength(2)
-+    drag(handles[1]!, 1520, 1460)
-+    expect(tracks(frame)[2]).toBe(460)
++    drag(handles[1]!, 1440, 1380)
++    expect(tracks(frame)[2]).toBe(540)
 +  })
 +
 +  it('details handle yields to the open panel column', () => {
@@ -753,25 +834,25 @@ index d865a5c186..f85d75e75a 100644
 +    act(() => { instance.actions.togglePanel() })
 +    const handles = frame.querySelectorAll<HTMLElement>('[class*="handle"]')
 +    expect(handles).toHaveLength(3)
-+    // 1920 frame: sidebar 320 | center | details 360 | panel 400. The panel
++    // 1920 frame: sidebar 320 | center | details 360 | panel 480. The panel
 +    // opens to the RIGHT of details, so the center|details seam sits at
 +    // viewport - details - panel; the panel seam stays at viewport - panel.
-+    expect(handles[1]!.style.left).toBe('1160px')
-+    expect(handles[2]!.style.left).toBe('1520px')
++    expect(handles[1]!.style.left).toBe('1080px')
++    expect(handles[2]!.style.left).toBe('1440px')
 +  })
 +
    it('drag base is the rendered (concession-clamped) width, not the preference', () => {
 -    frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
-+    frameWidth = 1300 // step-2 squeeze: details renders 340 while preference is 360
++    frameWidth = 1030 // step-2 squeeze: details renders 350 while preference is 360
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
 -    expect(tracks(frame)).toEqual([280, 330])
-+    expect(tracks(frame)).toEqual([320, 340, 0])
++    expect(tracks(frame)).toEqual([320, 350, 0])
      const handles = frame.querySelectorAll('[class*="handle"]')
 -    drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
 -    expect(instance.getSnapshot().details).toBe(320)
-+    drag(handles[1]!, 960, 970) // shrink by 10 from the rendered width
-+    expect(instance.getSnapshot().details).toBe(330)
++    drag(handles[1]!, 680, 690) // shrink by 10 from the rendered width
++    expect(instance.getSnapshot().details).toBe(340)
    })
  
    it('details column stays mounted at zero width', () => {
@@ -781,7 +862,7 @@ index d865a5c186..f85d75e75a 100644
      expect(getByTestId('details-content')).toBeTruthy()
      expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
    })
-@@ -254,22 +280,73 @@ describe('AppFrame', () => {
+@@ -254,22 +294,85 @@ describe('AppFrame', () => {
    it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
      const { frame, instance, slotCalls, getByTestId } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -797,7 +878,7 @@ index d865a5c186..f85d75e75a 100644
 +    const { frame, instance, getByTestId } = mountFrame()
 +    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
 +    act(() => { instance.actions.togglePanel() })
-+    expect(tracks(frame)).toEqual([320, 0, 400])
++    expect(tracks(frame)).toEqual([320, 0, 480])
 +    expect(frame.hasAttribute('data-panel-collapsed')).toBe(false)
 +    expect(getByTestId('panel-content')).toBeTruthy()
 +    act(() => { instance.actions.togglePanel() })
@@ -818,7 +899,7 @@ index d865a5c186..f85d75e75a 100644
 +    // Overlay presentation: the grid tracks are untouched (the center gets
 +    // covered, never re-wrapped) and the column leaves the flow at the
 +    // content-area width.
-+    expect(tracks(frame)).toEqual([320, 0, 400])
++    expect(tracks(frame)).toEqual([320, 0, 480])
 +    // The presentation flag rides the frame root (same anchor family as the
 +    // collapsed/expanded markers); the column is found via its CSS-module
 +    // class — the established [class*=…] anchor for hashed names.
@@ -826,19 +907,31 @@ index d865a5c186..f85d75e75a 100644
 +    const col = frame.querySelector<HTMLElement>('[class*="panelCol"]')
 +    expect(col).toBeTruthy()
 +    expect(col!.style.width).toBe('calc(100% - 320px)')
++    // The interior pin resolves against the FRAME, not the column: its
++    // containing block is panelCol, so a `100%` here would subtract the
++    // sidebar twice (blank strip at the right edge) and re-wrap the content
++    // on every eased frame. `100cqi` keeps the clip-box design exact.
++    const pin = frame.querySelector<HTMLElement>('[class*="panelColPin"]')
++    expect(pin).toBeTruthy()
++    // (cssstyle reorders calc terms; assert the semantics, not the spelling.)
++    expect(pin!.style.width).toContain('100cqi')
++    expect(pin!.style.width).not.toContain('%')
 +    // The overlay covers the details handle and the panel handle; the
 +    // sidebar handle survives at the overlay's left edge.
 +    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
 +    act(() => { instance.actions.togglePanelExpanded() })
 +    // The presentation outlives the intent so the width can ease back down.
 +    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
-+    expect(col!.style.width).toBe('400px')
++    expect(col!.style.width).toBe('480px')
++    // Mid-restore the pin is already at the track width: the interior rides
++    // the column's left edge (translation), never its animated width.
++    expect(pin!.style.width).toBe('480px')
 +    const end = new Event('transitionend', { bubbles: true })
 +    Object.assign(end, { propertyName: 'width' })
 +    act(() => { col!.dispatchEvent(end) })
 +    // Released back into the flow at the track width — a seamless switch.
 +    expect(frame.hasAttribute('data-panel-overlay')).toBe(false)
-+    expect(tracks(frame)).toEqual([320, 0, 400])
++    expect(tracks(frame)).toEqual([320, 0, 480])
 +    // Closing the panel resets the flag in the store.
 +    act(() => { instance.actions.closePanel() })
 +    expect(instance.getSnapshot().panelExpanded).toBe(false)
@@ -848,10 +941,10 @@ index d865a5c186..f85d75e75a 100644
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
 -    frameWidth = 1250
-+    frameWidth = 1300
++    frameWidth = 1030
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
 -    expect(tracks(frame)).toEqual([280, 330])
-+    expect(tracks(frame)).toEqual([320, 340, 0])
++    expect(tracks(frame)).toEqual([320, 350, 0])
      frameWidth = 1920
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
 -    expect(tracks(frame)).toEqual([280, 360])
@@ -859,7 +952,7 @@ index d865a5c186..f85d75e75a 100644
    })
  
    it('drag handles disappear for collapsed columns', () => {
-@@ -279,6 +356,10 @@ describe('AppFrame', () => {
+@@ -279,6 +382,10 @@ describe('AppFrame', () => {
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
      act(() => { instance.actions.closeDetails() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
@@ -870,7 +963,7 @@ index d865a5c186..f85d75e75a 100644
      act(() => { instance.actions.toggleSidebar() })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
    })
-@@ -288,7 +369,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -288,7 +395,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
    it('mounts collapsed below the breakpoint with no sidebar handle', () => {
      frameWidth = 980
      const { frame, slotCalls } = mountFrame()
@@ -879,7 +972,7 @@ index d865a5c186..f85d75e75a 100644
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -298,11 +379,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -298,11 +405,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -893,7 +986,7 @@ index d865a5c186..f85d75e75a 100644
    })
  
    it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -312,7 +393,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -312,7 +419,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      act(() => { instance.actions.toggleSidebar() })
@@ -902,7 +995,7 @@ index d865a5c186..f85d75e75a 100644
      expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
    })
  
-@@ -321,10 +402,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -321,10 +428,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      act(() => { instance.actions.setSidebar(400) })
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
@@ -915,7 +1008,7 @@ index d865a5c186..f85d75e75a 100644
    })
  })
  
-@@ -345,28 +426,28 @@ describe('AppFrame — guard branches', () => {
+@@ -345,28 +452,28 @@ describe('AppFrame — guard branches', () => {
    it('two moves inside one frame coalesce through the pending rAF', () => {
      const { frame, instance } = mountFrame()
      const handle = frame.querySelectorAll('[class*="handle"]')[0]!
@@ -953,7 +1046,7 @@ index d865a5c186..f85d75e75a 100644
    })
  
    it('zero-width resize reports are ignored (display:none window)', () => {
-@@ -374,7 +455,7 @@ describe('AppFrame — guard branches', () => {
+@@ -374,7 +481,7 @@ describe('AppFrame — guard branches', () => {
      frameWidth = 0
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      // Track template still reflects the last non-zero viewport.
@@ -962,57 +1055,77 @@ index d865a5c186..f85d75e75a 100644
    })
  })
  
-@@ -391,8 +472,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
+@@ -391,8 +498,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
    it('double resize inside one frame rides the pending rAF (??= guard)', () => {
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
 -    frameWidth = 1250
-+    frameWidth = 1300
++    frameWidth = 1030
      act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
 -    expect(tracks(frame)).toEqual([280, 330])
-+    expect(tracks(frame)).toEqual([320, 340, 0])
++    expect(tracks(frame)).toEqual([320, 350, 0])
    })
  })
 diff --git a/packages/client/ui-layout/tests/columns.client.spec.ts b/packages/client/ui-layout/tests/columns.client.spec.ts
-index ae8c39a117..21206366a9 100644
+index ae8c39a117..131d85d84d 100644
 --- a/packages/client/ui-layout/tests/columns.client.spec.ts
 +++ b/packages/client/ui-layout/tests/columns.client.spec.ts
 @@ -1,7 +1,8 @@
  import { describe, expect, it } from 'vitest'
  import {
-   CENTER_MIN, clampWidth, computeColumns,
+-  CENTER_MIN, clampWidth, computeColumns,
 -  DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
++  CENTER_MIN, clampWidth, computeColumns, normalizePanelWidth,
 +  DETAILS_DEFAULT, DETAILS_MIN, PANEL_DEFAULT, PANEL_MIN,
 +  SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
  } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
  
  // Numeric preference form (0 = closed); helpers keep the scenario names readable.
-@@ -18,78 +19,108 @@ describe('clampWidth', () => {
+@@ -16,80 +17,123 @@ describe('clampWidth', () => {
+   })
+ })
  
++describe('normalizePanelWidth', () => {
++  it('keeps finite preferences without a fixed ceiling and rejects non-finite values', () => {
++    expect(normalizePanelWidth(1)).toBe(PANEL_MIN)
++    expect(normalizePanelWidth(1200.4)).toBe(1200)
++    expect(normalizePanelWidth(Number.NaN)).toBe(PANEL_MIN)
++    expect(normalizePanelWidth(Number.POSITIVE_INFINITY)).toBe(PANEL_MIN)
++  })
++})
++
  describe('computeColumns', () => {
    it('step 1: everything fits at preferred widths', () => {
 -    const cols = computeColumns(1920, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
 -    expect(cols).toEqual({ sidebar: 280, center: 1920 - 280 - 360, details: 360 })
 +    const cols = computeColumns(1920, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
-+    expect(cols).toEqual({ sidebar: 320, center: 1920 - 320 - 360 - 400, details: 360, panel: 400 })
++    expect(cols).toEqual({
++      sidebar: 320, center: 1920 - 320 - 360 - PANEL_DEFAULT, details: 360, panel: PANEL_DEFAULT,
++    })
    })
  
 -  it('closed sidebar keeps its compact rail while closed details contribute zero width', () => {
 -    expect(computeColumns(1920, closed(300), closed(360)))
 -      .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 1920 - SIDEBAR_COLLAPSED, details: 0 })
 +  it('closed sidebar keeps its compact rail while closed details and panel stay mounted at zero', () => {
-+    expect(computeColumns(1920, closed(300), closed(360), closed(400)))
++    expect(computeColumns(1920, closed(300), closed(360), closed(PANEL_DEFAULT)))
 +      .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 1920 - SIDEBAR_COLLAPSED, details: 0, panel: 0 })
    })
  
-   it('preferences beyond the clamp range are clamped before solving', () => {
+-  it('preferences beyond the clamp range are clamped before solving', () => {
 -    const cols = computeColumns(1920, open(9999), open(1))
-+    const cols = computeColumns(9999, open(9999), open(1), open(9999))
++  it('fixed-width preferences clamp while a panel preference has no fixed ceiling', () => {
++    const cols = computeColumns(20_000, open(9999), open(1), open(9999))
      expect(cols.sidebar).toBe(420)
      expect(cols.details).toBe(300)
 -    expect(computeColumns(1920, open(1), open(DETAILS_DEFAULT)).sidebar).toBe(SIDEBAR_MIN)
-+    expect(cols.panel).toBe(520)
++    expect(cols.panel).toBe(9999)
 +    expect(computeColumns(1920, open(1), open(DETAILS_DEFAULT), closed(PANEL_DEFAULT)).sidebar).toBe(SIDEBAR_MIN)
++  })
++
++  it('uses the viewport remainder as the panel\'s dynamic ceiling', () => {
++    expect(computeColumns(1512, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT), open(5000)))
++      .toEqual({ sidebar: 320, center: CENTER_MIN, details: 0, panel: 832 })
    })
  
 -  it('step 2: details shrinks first, center pinned at min', () => {
@@ -1020,9 +1133,9 @@ index ae8c39a117..21206366a9 100644
 -    const cols = computeColumns(1250, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
 -    expect(cols).toEqual({ sidebar: 280, center: CENTER_MIN, details: 330 })
 +  it('step 2: details shrinks first, center pinned at min, panel still at its preference', () => {
-+    // 320 + 360 + 640 = 1320 > 1300; details concedes to 1300-320-640 = 340.
-+    const cols = computeColumns(1300, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
-+    expect(cols).toEqual({ sidebar: 320, center: CENTER_MIN, details: 340, panel: 0 })
++    // 320 + 360 + 360 = 1040 > 1000; details concedes to 1000-320-360 = 320.
++    const cols = computeColumns(1000, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
++    expect(cols).toEqual({ sidebar: 320, center: CENTER_MIN, details: 320, panel: 0 })
    })
  
    it('boundary: exactly at the step-1/step-2 seam', () => {
@@ -1034,48 +1147,45 @@ index ae8c39a117..21206366a9 100644
 +    expect(cols).toEqual({ sidebar: 300, center: CENTER_MIN, details: 360, panel: 0 })
 +    const one = computeColumns(300 + 360 + CENTER_MIN - 1, open(300), open(360), closed(PANEL_DEFAULT))
 +    expect(one).toEqual({ sidebar: 300, center: CENTER_MIN, details: 359, panel: 0 })
++  })
++
++  it('step 3: the panel shrinks after details (details at its shrunk width)', () => {
++    // 320 + 360 + 480 + 360 = 1520 > 1380; step 2: details → 300, still
++    // starved (320+300+480+360 = 1460 > 1380); step 3: panel → 400.
++    const cols = computeColumns(1380, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
++    expect(cols).toEqual({ sidebar: 320, center: CENTER_MIN, details: 300, panel: 400 })
++  })
++
++  it('step 4: details auto-closes when its min still starves center — sidebar holds its preference', () => {
++    // 320 + 300 + 360 = 980 > 970 → details 0; center takes the free remainder.
++    const cols = computeColumns(970, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
++    expect(cols).toEqual({ sidebar: 320, center: 650, details: 0, panel: 0 })
++  })
++
++  it('step 4 with an open panel: details closes, the panel shrinks against the freed space', () => {
++    // At 1200, details-min + panel-min still starves center. Closing details
++    // frees enough room to preserve the 480 panel preference.
++    const cols = computeColumns(1200, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
++    expect(cols).toEqual({ sidebar: 320, center: 400, details: 0, panel: PANEL_DEFAULT })
    })
  
 -  it('step 3: details auto-closes when its min still starves center — sidebar holds its preference', () => {
 -    // 280 + 300 + 640 = 1220 > 1210 → details 0; sidebar untouched: center = 1210-280 = 930.
 -    const cols = computeColumns(1210, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
 -    expect(cols).toEqual({ sidebar: 280, center: 930, details: 0 })
-+  it('step 3: the panel shrinks after details (details at its shrunk width)', () => {
-+    // 320 + 360 + 400 + 640 = 1720 > 1600; step 2: details → 300, still
-+    // starved (320+300+400+640 = 1660 > 1600); step 3: panel → max(320,
-+    // 1600-320-300-640) = 340, and 320+300+340+640 = 1600 fits exactly.
-+    const cols = computeColumns(1600, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
-+    expect(cols).toEqual({ sidebar: 320, center: CENTER_MIN, details: 300, panel: 340 })
-+  })
-+
-+  it('step 4: details auto-closes when its min still starves center — sidebar holds its preference', () => {
-+    // 320 + 300 + 640 = 1260 > 1210 → details 0; sidebar untouched: center = 1210-320 = 890.
-+    const cols = computeColumns(1210, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
-+    expect(cols).toEqual({ sidebar: 320, center: 890, details: 0, panel: 0 })
-+  })
-+
-+  it('step 4 with an open panel: details closes, the panel shrinks against the freed space', () => {
-+    // 320 + 300 + 400 + 640 = 1660 > 1500; step 3 (panel shrink at d=300)
-+    // starves: 1500-320-300-640 = 240 < PANEL_MIN. Details closes; the panel
-+    // shrinks toward the freed remainder, never past its preference:
-+    // min(400, max(320, 1500-320-640)) = 400; center = 1500-320-400 = 780.
-+    const cols = computeColumns(1500, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
-+    expect(cols).toEqual({ sidebar: 320, center: 780, details: 0, panel: PANEL_DEFAULT })
-+  })
-+
 +  it('step 5: the panel auto-closes when its floor still starves center', () => {
-+    // 320 + 320 + 640 = 1280 > 1200 → panel 0 too; center absorbs: 1200-320 = 880.
-+    const cols = computeColumns(1200, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT), open(PANEL_MIN))
-+    expect(cols).toEqual({ sidebar: 320, center: 880, details: 0, panel: 0 })
++    // 320 + 320 + 360 = 1000 > 990 → panel 0 too; center absorbs the remainder.
++    const cols = computeColumns(990, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT), open(PANEL_MIN))
++    expect(cols).toEqual({ sidebar: 320, center: 670, details: 0, panel: 0 })
    })
  
    it('the sidebar never concedes: center absorbs the deficit below CENTER_MIN', () => {
 -    // 700 < 280+640: sidebar keeps 280, center takes 420 < CENTER_MIN.
 -    const cols = computeColumns(700, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT))
 -    expect(cols).toEqual({ sidebar: SIDEBAR_DEFAULT, center: 420, details: 0 })
-+    // 700 < 320+640: sidebar keeps 320, center takes 380 < CENTER_MIN.
-+    const cols = computeColumns(700, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
-+    expect(cols).toEqual({ sidebar: SIDEBAR_DEFAULT, center: 380, details: 0, panel: 0 })
++    // 650 < 320+360: sidebar keeps 320, center takes 330 < CENTER_MIN.
++    const cols = computeColumns(650, open(SIDEBAR_DEFAULT), closed(DETAILS_DEFAULT), closed(PANEL_DEFAULT))
++    expect(cols).toEqual({ sidebar: SIDEBAR_DEFAULT, center: 330, details: 0, panel: 0 })
    })
  
    it('sidebar-closed narrow window: details concedes then auto-closes', () => {
@@ -1107,7 +1217,7 @@ index ae8c39a117..21206366a9 100644
  
    it('recovery is pure: re-widening restores preferred widths untouched', () => {
 -    const squeezed = computeColumns(1100, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
-+    const squeezed = computeColumns(1100, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
++    const squeezed = computeColumns(900, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT), open(PANEL_DEFAULT))
      expect(squeezed.details).toBe(0)
 -    const restored = computeColumns(1920, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
 +    expect(squeezed.panel).toBe(0)
@@ -1129,14 +1239,14 @@ index ae8c39a117..21206366a9 100644
    })
  })
 diff --git a/packages/client/ui-layout/tests/layout-store.client.spec.ts b/packages/client/ui-layout/tests/layout-store.client.spec.ts
-index c6f0069197..5c21e761c3 100644
+index c6f0069197..61cc3f6fc0 100644
 --- a/packages/client/ui-layout/tests/layout-store.client.spec.ts
 +++ b/packages/client/ui-layout/tests/layout-store.client.spec.ts
 @@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
  import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
  import {
    DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
-+  PANEL_DEFAULT, PANEL_MAX, PANEL_MIN,
++  PANEL_DEFAULT, PANEL_MIN,
    SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
  } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
  
@@ -1159,24 +1269,27 @@ index c6f0069197..5c21e761c3 100644
    })
  
 -  it('setSidebar/setDetails clamp into the contract ranges', () => {
-+  it('setSidebar/setDetails/setPanel clamp into the contract ranges', () => {
++  it('setSidebar/setDetails clamp into fixed ranges; setPanel has only a floor', () => {
      const { store, actions } = createLayoutStore().create()
      actions.setSidebar(1)
      expect(store.getSnapshot().sidebar).toBe(SIDEBAR_MIN)
-@@ -39,6 +42,12 @@ describe('createLayoutStore', () => {
+@@ -39,6 +42,15 @@ describe('createLayoutStore', () => {
      expect(store.getSnapshot().details).toBe(DETAILS_MIN)
      actions.setDetails(9999)
      expect(store.getSnapshot().details).toBe(DETAILS_MAX)
 +    actions.setPanel(1)
 +    expect(store.getSnapshot().panel).toBe(PANEL_MIN)
 +    actions.setPanel(9999)
-+    expect(store.getSnapshot().panel).toBe(PANEL_MAX)
++    expect(store.getSnapshot().panel).toBe(9999)
 +    actions.setPanel(460)
++    expect(store.getSnapshot().panel).toBe(460)
++    actions.setPanel(Number.NaN)
++    actions.setPanel(Number.POSITIVE_INFINITY)
 +    expect(store.getSnapshot().panel).toBe(460)
    })
  
    it('toggleSidebar flips closed <-> contract default (drag width forgotten)', () => {
-@@ -55,7 +64,9 @@ describe('createLayoutStore', () => {
+@@ -55,7 +67,9 @@ describe('createLayoutStore', () => {
      actions.setSidebar(400)
      actions.setNarrow(true)
      actions.toggleSidebar()
@@ -1187,7 +1300,7 @@ index c6f0069197..5c21e761c3 100644
      actions.toggleSidebar()
      expect(store.getSnapshot().narrowExpanded).toBe(false)
      expect(store.getSnapshot().sidebar).toBe(400)
-@@ -85,17 +96,50 @@ describe('createLayoutStore', () => {
+@@ -85,17 +99,50 @@ describe('createLayoutStore', () => {
      expect(store.getSnapshot().details).toBe(0)
    })
  

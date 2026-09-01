@@ -1,0 +1,3 @@
+- insert:
+    - id: file-browser
+      name: '@dsh-desktop/file-browser'

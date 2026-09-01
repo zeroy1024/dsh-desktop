@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { shouldStretchTitleband, titlebandWidthPx } from '../geometry.ts'
 import { markDesktopFrame } from '../mark.ts'
 
@@ -59,20 +59,50 @@ export function createTitleband(actions: TitlebandProps) {
 }
 
 export function Titleband({ toggleSidebar, startSession, togglePanel, togglePanelExpand }: TitlebandProps) {
+  const titlebandRef = useRef<HTMLDivElement>(null)
+  const geometryRef = useRef({ collapsed: false, width: 280, fullBleed: false, panelWidth: 0 })
   const [collapsed, setCollapsed] = useState(false)
   const [width, setWidth] = useState(280)
   const [fullBleed, setFullBleed] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(true)
   const [panelExpanded, setPanelExpanded] = useState(false)
-  const [panelWidth, setPanelWidth] = useState(0)
 
   useEffect(() => {
     let raf = 0
     let sidebar: Element | null = null
     let panelCol: Element | null = null
-    const ro = new ResizeObserver(() => {
-      setWidth(Math.round(readSidebarWidth()))
-      setPanelWidth(Math.round(readPanelWidth()))
+    const applyTitlebandWidth = (): void => {
+      const geometry = geometryRef.current
+      const value = titlebandWidthPx(
+        geometry.width, geometry.collapsed, platform(), geometry.fullBleed, geometry.panelWidth,
+      )
+      if (titlebandRef.current !== null) {
+        titlebandRef.current.style.width = typeof value === 'number' ? `${value}px` : value
+      }
+    }
+    const ro = new ResizeObserver((entries) => {
+      let changed = false
+      for (const entry of entries) {
+        // Preserve getBoundingClientRect's border-box semantics without a
+        // synchronous geometry read. Chromium exposes borderBoxSize for every
+        // ResizeObserver entry; contentRect is the compatibility fallback.
+        const borderBox = Array.isArray(entry.borderBoxSize)
+          ? entry.borderBoxSize[0]
+          : entry.borderBoxSize
+        const next = Math.round(borderBox?.inlineSize ?? entry.contentRect.width)
+        if (entry.target === sidebar && next !== geometryRef.current.width) {
+          geometryRef.current.width = next
+          setWidth(next)
+          changed = true
+        } else if (entry.target === panelCol && next !== geometryRef.current.panelWidth) {
+          // Panel width changes on every animation/drag frame. It affects only
+          // this overlay box, so write the width directly instead of forcing
+          // the titleband button subtree through a React render per frame.
+          geometryRef.current.panelWidth = next
+          changed = true
+        }
+      }
+      if (changed) applyTitlebandWidth()
     })
 
     const watchSidebar = (): void => {
@@ -96,15 +126,25 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
       markDesktopFrame(document)
       watchSidebar()
       watchPanel()
-      setCollapsed(readCollapsed())
-      setWidth(Math.round(readSidebarWidth()))
-      setPanelWidth(Math.round(readPanelWidth()))
+      const nextCollapsed = readCollapsed()
+      const nextWidth = Math.round(readSidebarWidth())
+      const nextPanelWidth = Math.round(readPanelWidth())
+      const headerHeight = readCenterHeaderHeight()
+      const nextFullBleed = headerHeight !== null && shouldStretchTitleband(true, headerHeight)
+      geometryRef.current = {
+        collapsed: nextCollapsed,
+        width: nextWidth,
+        fullBleed: nextFullBleed,
+        panelWidth: nextPanelWidth,
+      }
+      setCollapsed(nextCollapsed)
+      setWidth(nextWidth)
       setPanelCollapsed(readPanelCollapsed())
       setPanelExpanded(readPanelExpanded())
       // blank ↔ 会话态切换伴随 titleRow 子树增删，现有 childList observer
       // 已能捕获，无需扩大 attributeFilter（观察 class 会被官方高频写打满）。
-      const headerHeight = readCenterHeaderHeight()
-      setFullBleed(headerHeight !== null && shouldStretchTitleband(true, headerHeight))
+      setFullBleed(nextFullBleed)
+      applyTitlebandWidth()
     }
 
     const schedule = (): void => {
@@ -138,8 +178,13 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
   return (
     <>
       <div
+        ref={titlebandRef}
         data-dsh-titleband=""
-        style={{ width: titlebandWidthPx(width, collapsed, platform(), fullBleed, panelWidth) }}
+        style={{
+          width: titlebandWidthPx(
+            width, collapsed, platform(), fullBleed, geometryRef.current.panelWidth,
+          ),
+        }}
       >
         <button
           type="button"

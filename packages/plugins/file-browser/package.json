@@ -1,0 +1,56 @@
+{
+  "name": "@dsh-desktop/file-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "侧栏文件浏览器：会话工作区只读文件树 + markdown/源码预览（复刻 Codex 侧栏「文件」页）。node 半挂 /dsh-file-browser 只读路由，client 半占 panel-shell 页。",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@dsh-desktop/panel-shell"
+      ],
+      "external": [
+        "@dsh-desktop/panel-shell/client"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "jetbrains-icons.manifest.json",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "scripts": {
+    "build": "tsx ./build.ts",
+    "icons:sync": "tsx ./scripts/sync-expui-icons.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@dsh-desktop/bridge": "workspace:*",
+    "@dsh-desktop/panel-shell": "workspace:*",
+    "@dsh-desktop/plugin-kit": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.9",
+    "@types/node": "^24.0.0",
+    "@types/react": "~18.3.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

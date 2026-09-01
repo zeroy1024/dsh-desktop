@@ -12,7 +12,7 @@ export function HelloBadge() {
         bottom: 16,
         zIndex: 30,
         padding: '6px 10px',
-        borderRadius: 8,
+        borderRadius: 'var(--dsh-radius-control, 8px)',
         background: 'rgba(16, 18, 26, 0.78)',
         color: '#fff',
         fontSize: 12,

@@ -99,7 +99,7 @@
 .badgeButton {
   padding: 4px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-control, 8px);
   background: transparent;
   color: var(--dsw-alias-label-primary);
   font-family: inherit;

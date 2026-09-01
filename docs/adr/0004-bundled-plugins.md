@@ -25,11 +25,11 @@
 
 采用 C。P2 落地时具体化为：
 
-1. `packages/plugins/*` 为双面插件包：node 半（cordis entry，纯 UI 插件可为空 `apply`）+ 浏览器半（`lib/client.js`）；package.json 声明 `dsh.bundle.patch`（自激活）与 `dsh.client`（`platform: 'web'`，浏览器名册）。
+1. `packages/plugins/*` 为双面插件包：node 半（cordis entry，纯 UI 插件可为空 `apply`）+ 浏览器半（`lib/client.js`）；package.json 声明 `dsh.bundle.patch`（自激活）与 `dsh.client`（`platform: 'web'`，浏览器名册）。构建后按 manifest `files[]` staging 到 `vendor/dsh-cli/node_modules/@dsh-desktop/*`，Host 插件因此从 dsh 安装闭包解析唯一一份 Cordis 与 service-definition 包。
 2. desktop 主进程启动 agent 前物化/自愈 `$DSH_HOME/profiles/desktop/`：
    - `package.json`：`dsh.profile.bundles = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", ...我们的插件]`；
    - `cordis.patch.yml`：`[]`（我们的配置层由各插件自带的 bundle patch 贡献）；
-   - `node_modules/<插件名>` → 插件构建产物的符号链接（dev 指向 workspace，打包态指向 app resources）；
+   - `node_modules/<插件名>` → CLI 闭包内 staged 插件的符号链接（dev 位于 `vendor/dsh-cli`，打包态位于 `app resources/dsh-cli`）；
    - 版本戳自愈；`cordis.yml` 不预置（dsh 自己维护）；已存在的非本 app profile 不覆盖。
 3. 启动参数从 `--profile web` 切到 `--profile desktop`。用户的 web profile 与命令行 dsh 零接触。
 4. 客户端构建 preset（上游 `packages/client/tsdown.client.ts`，不在 npm tarball 内）在本仓库镜像复刻（banner/footer 工厂包装、externals 基线、CSS Modules），注明来源；bump submodule 时对照上游原文更新。
@@ -37,7 +37,7 @@
 ## 后果
 
 - 插件版本 = app 版本；P4 打包时插件构建产物经 extraResources 随包携带，profile 物化逻辑不变。
-- dev 循环：插件 `tsdown --watch` 重写 `lib/client.js` → dsh client-hmr 500ms 轮询 → SSE `/plugins/events` → 浏览器热换（HTTP 模式下对仓库外插件天然可用，上游 `scripts/dev-web.ts:1-7` 明示）。node 半改动仍需重启 agent。
+- dev 循环：workspace 插件重建后先运行 `pnpm stage:plugins`，staged `lib/client.js` 再由 dsh client-hmr 轮询并热换。node 半改动仍需重启 agent；CLI 重装会清空 staging，因此 `sync:upstream` 之后也必须重新 stage。
 - file://（P3）下 HMR 的 EventSource 是硬编码 HTTP 端点（`packages/client/hmr/src/client/index.ts:167`），需随 IPC 桥一并解决。
 - 镜像的构建 preset 是维护点：上游 pre-release 无兼容承诺，`dsh.client` schema 与 preset 变更需列入升级 checklist。
 - dev 态符号链接目标（workspace 直链 vs vendor 安装副本）以保证 cordis/服务定义包单例为准，P2 实现时验证固化。

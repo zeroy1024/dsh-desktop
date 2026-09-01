@@ -1,0 +1,16 @@
+# dsh-web-search desktop layer.
+#
+# The plugin is a provider-only implementation: the model-facing `web_search`
+# tool remains owned by dsh-tool-web and the active chat model is untouched.
+# This layer only selects this provider and removes the competing built-in
+# DeepSeek provider, so provider selection is explicit and deterministic.
+- id: web
+  config:
+    searchProvider: dsh-web-search
+
+- id: web-search-deepseek
+  disabled: true
+
+- insert:
+    - id: web-search
+      name: '@dsh-desktop/web-search'
