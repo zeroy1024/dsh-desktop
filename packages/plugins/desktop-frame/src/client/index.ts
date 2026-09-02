@@ -4,13 +4,6 @@ import { createTitleband } from './Titleband.tsx'
 
 export const inject = ['slots', 'layout', 'workspaces']
 
-/**
- * Windows WCO（titleBarOverlay）让位不在此处做任何 JS：三键条宽度由
- * chrome.css 的 --dsh-wco-width（env(titlebar-area-*) 原生计算）给出，
- * panel-cluster、PanelShell header 与 details 折叠态 header 直接消费，
- * 拖拽/最大化/DPI 变化由 Chromium 实时求值，无监听与时序问题。
- */
-
 export function apply(ctx: ClientContext): void {
   const host = window.dshDesktop
   document.documentElement.dataset.dshDesktop = ''

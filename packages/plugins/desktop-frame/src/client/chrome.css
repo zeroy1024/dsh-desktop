@@ -20,19 +20,6 @@ html[data-dsh-desktop] body {
   background: transparent;
 }
 
-/* Windows WCO（titleBarOverlay）三键条宽度：固定常量，不做渲染端测量。
-   Electron 在 win32 上自绘的三枚标题栏按钮每枚 46 CSS px（draw_caption_buttons
-   的固定值；CSS px 即 DIP，不随 DPI/最大化变化），合计 138。
-   此前的两版测量（JS getTitlebarAreaRect / CSS env(titlebar-area-*)）在
-   BaseWindow + WebContentsView 结构下都拿不到 WCO 状态——Chromium 未把
-   WCO 接线到 WebContentsView 的渲染端（rect 恒为 0、env 落 fallback），
-   0.0.3/0.0.4 两版真机均因此让位失效。常量与 Electron 的绘制宽度解耦、
-   可被冒烟强断言（按钮簇内缩 100–250px）；若 Electron 未来改按钮宽度，
-   改这一个值即可。 */
-html[data-dsh-desktop][data-dsh-platform='win32'] {
-  --dsh-wco-width: 138px;
-}
-
 html[data-dsh-desktop] [data-dsh-frame='frame'] {
   background: transparent !important;
 }
@@ -264,10 +251,7 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 [data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
-  /* Windows WCO：右缘被系统最小化/最大化/关闭三键占用（宽度是上方定义的
-     --dsh-wco-width 常量），面板簇左移让位；mac/linux 未定义该变量，
-     fallback 0px 保持贴右缘。 */
-  right: var(--dsh-wco-width, 0px);
+  right: 0;
   z-index: 4;
   display: flex;
   pointer-events: auto;
@@ -311,12 +295,11 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 /* 面板关闭时 details 列直达窗口右缘，其 header 的关闭按钮（28×28 贴右缘，
    header padding-right 12px）会被钉角按钮盖住——单按钮时代就互相踩。此时
    簇里只剩开关一枚（放大钮仅面板展开时渲染），让 details header 自让
-   48px（40 + 呼吸 8）；Windows WCO 下系统三键在最右缘，一并让出
-   --dsh-wco-width。面板开时 details 列右缘止于面板列之前，无需让位。
+   48px（40 + 呼吸 8）。面板开时 details 列右缘止于面板列之前，无需让位。
    锚点用 data-slot 渲染位包裹层 + 结构位（DetailsPanel 根的首个子 div 是
    唯一 header），不碰 CSS module hash。 */
 html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [data-slot='details'] > div > div:first-child {
-  padding-right: calc(48px + var(--dsh-wco-width, 0px)) !important;
+  padding-right: 48px !important;
 }
 
 [data-dsh-titleband] button:hover {

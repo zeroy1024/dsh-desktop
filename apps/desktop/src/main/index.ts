@@ -68,13 +68,12 @@ async function waitForCiSmokeState(view: WebContentsView): Promise<void> {
     try {
       last = await Promise.race([
         view.webContents.executeJavaScript(`(() => {
-          // apply() 前几行的 dataset 标记之外，还断言按钮簇真实渲染并让位：
+          // apply() 前几行的 dataset 标记之外，还断言按钮簇真实渲染：
           // loader entry 半死（apply 后半段抛错）时 Titleband 与面板簇
           // 都不渲染，dataset 标记却已写入——0.0.3 的 Windows 残缺 UI
-          // 正是从这个缺口漏过去的。让位量用几何而非样式字符串断言：
+          // 正是从这个缺口漏过去的。内缩量用几何而非样式字符串断言：
           // getComputedStyle 对自定义属性返回未求值的 calc() token，
-          // 而 cluster 右缘距视口右缘的内缩（--dsh-wco-width 的布局结果）
-          // 是可靠数字（win32 ≈ 三键条宽，其他平台 0）。
+          // 而 cluster 右缘距视口右缘的内缩是可靠数字。
           const cluster = document.querySelector('[data-dsh-panel-cluster]')
           const titleband = document.querySelector('[data-dsh-titleband]')
           const inset = cluster === null
@@ -103,20 +102,16 @@ async function waitForCiSmokeState(view: WebContentsView): Promise<void> {
         panelCluster?: unknown
         clusterInset?: unknown
       }
-      // clusterInset：按钮簇右缘距视口右缘的内缩。win32 上等于 WCO 三键条
-      // 宽度常量（chrome.css 定义的 138px），必须显著大于 0——0 意味着让位
-      // 失效、系统三键叠上我们的按钮（0.0.3/0.0.4 真机回归，当时断言只设
-      // 上限没设下限，inset=0 被误判为通过）。其他平台变量未定义，内缩 0。
+      // clusterInset：按钮簇右缘距视口右缘的内缩。三平台标题栏策略不同，但
+      // 页面右缘都没有系统按钮占位（mac 红绿灯在左侧、win 原生标题栏在页面
+      // 之外、linux 无 overlay），应为 0——正数说明让位机制残留或布局异常。
       const inset = typeof state.clusterInset === 'number' ? state.clusterInset : -1
-      const insetOk = process.platform === 'win32'
-        ? inset >= 100 && inset <= 250
-        : inset >= 0 && inset <= 50
       if (state.desktop === true
         && state.platform === process.platform
         && state.bridgePlatform === process.platform
         && state.titleband === true
         && state.panelCluster === true
-        && insetOk) {
+        && inset >= 0 && inset <= 50) {
         console.log(`[ci-smoke] desktop-frame 标记就绪（按钮簇内缩 ${inset}px）`)
         return
       }
@@ -155,6 +150,11 @@ function createMainWindow(): BaseWindow {
     // hiddenInset：红绿灯叠在内容上，无独立标题栏。不能用 transparent: true
     // （会弄没红绿灯）。backgroundColor 透明让 vibrancy 透出；webui 视图
     // 同样透明，由页面中栏自己铺实底，侧栏才能吃到桌面模糊。
+    // Windows 用原生标题栏：WebUI 挂在 WebContentsView 里，Chromium 不把
+    // WCO 状态接线到该渲染端（env()/getTitlebarAreaRect 恒为 0），hidden +
+    // titleBarOverlay 的自绘三键无法被页面让位（0.0.3/0.0.4 两版真机按钮
+    // 叠加回归），原生标题栏让三键/snap layout/无障碍全部回归系统托管。
+    // Linux 维持 hidden（无三键的既有状态，另行决策，本变更不动）。
     ...(process.platform === 'darwin'
       ? {
           titleBarStyle: 'hiddenInset' as const,
@@ -163,23 +163,9 @@ function createMainWindow(): BaseWindow {
           visualEffectState: 'active' as const,
           backgroundColor: '#00000000',
         }
-      : process.platform === 'win32'
-        ? {
-            titleBarStyle: 'hidden' as const,
-            // Window Controls Overlay：hidden 标题栏本身没有系统按钮，由
-            // 系统把最小化/最大化/关闭三键叠加在窗口右上角。高度与
-            // desktop-frame 面板按钮簇（44px）对齐；web 侧经
-            // navigator.windowControlsOverlay 感知几何并让位（desktop-frame
-            // 插件注入 --dsh-wco-width）。color 透明让页面 header 背景透出。
-            titleBarOverlay: {
-              color: '#00000000',
-              symbolColor: '#d4d4d4',
-              height: 44,
-            },
-          }
-        : {
-            titleBarStyle: 'hidden' as const,
-          }),
+      : process.platform === 'linux'
+        ? { titleBarStyle: 'hidden' as const }
+        : {}),
   })
   if (state.isMaximized) win.maximize()
   trackWindowState(win)
