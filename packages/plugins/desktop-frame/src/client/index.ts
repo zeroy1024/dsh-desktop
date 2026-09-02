@@ -4,12 +4,33 @@ import { createTitleband } from './Titleband.tsx'
 
 export const inject = ['slots', 'layout', 'workspaces']
 
+/**
+ * Windows WCO（titleBarOverlay）让位：系统把最小化/最大化/关闭三键叠加在
+ * 窗口右上角，而面板按钮簇钉在同一位置。把系统按钮条的宽度写入 CSS 变量
+ * （chrome.css 用它把面板簇从右缘左移），窗口最大化/还原时几何会变，跟随
+ * geometrychange 同步。非 win32 或宿主未启用 WCO 时不设置，簇保持贴右缘。
+ */
+function syncWindowControlsOverlayInset(): void {
+  if (window.dshDesktop?.platform !== 'win32') return
+  const overlay = navigator.windowControlsOverlay
+  if (!overlay) return
+  const syncGeometry = (): void => {
+    document.documentElement.style.setProperty(
+      '--dsh-wco-width',
+      `${Math.round(overlay.getTitlebarRect().width)}px`,
+    )
+  }
+  syncGeometry()
+  overlay.addEventListener('geometrychange', syncGeometry)
+}
+
 export function apply(ctx: ClientContext): void {
   const host = window.dshDesktop
   document.documentElement.dataset.dshDesktop = ''
   if (host?.platform !== undefined && host.platform !== '') {
     document.documentElement.dataset.dshPlatform = host.platform
   }
+  syncWindowControlsOverlayInset()
 
   const DesktopTitleband = createTitleband({
     toggleSidebar: () => {

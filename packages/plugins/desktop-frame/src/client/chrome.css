@@ -251,7 +251,9 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 [data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
-  right: 0;
+  /* Windows WCO：右缘被系统最小化/最大化/关闭三键占用（宽度由 client/index.ts
+     写入 --dsh-wco-width），面板簇左移让位；mac/linux 未设置时保持贴右缘。 */
+  right: var(--dsh-wco-width, 0px);
   z-index: 4;
   display: flex;
   pointer-events: auto;

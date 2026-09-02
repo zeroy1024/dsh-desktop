@@ -124,9 +124,23 @@ function createMainWindow(): BaseWindow {
           visualEffectState: 'active' as const,
           backgroundColor: '#00000000',
         }
-      : {
-          titleBarStyle: 'hidden' as const,
-        }),
+      : process.platform === 'win32'
+        ? {
+            titleBarStyle: 'hidden' as const,
+            // Window Controls Overlay：hidden 标题栏本身没有系统按钮，由
+            // 系统把最小化/最大化/关闭三键叠加在窗口右上角。高度与
+            // desktop-frame 面板按钮簇（44px）对齐；web 侧经
+            // navigator.windowControlsOverlay 感知几何并让位（desktop-frame
+            // 插件注入 --dsh-wco-width）。color 透明让页面 header 背景透出。
+            titleBarOverlay: {
+              color: '#00000000',
+              symbolColor: '#d4d4d4',
+              height: 44,
+            },
+          }
+        : {
+            titleBarStyle: 'hidden' as const,
+          }),
   })
   if (state.isMaximized) win.maximize()
   trackWindowState(win)

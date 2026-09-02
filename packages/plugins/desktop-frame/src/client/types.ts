@@ -16,4 +16,21 @@ declare global {
   interface Window {
     dshDesktop?: { platform?: string; dev?: boolean }
   }
+
+  /** Windows WCO（titleBarOverlay）几何：系统窗口按钮占用的标题栏矩形。 */
+  interface Navigator {
+    readonly windowControlsOverlay?: {
+      getTitlebarRect(): { x: number; width: number }
+      addEventListener(
+        type: 'geometrychange',
+        listener: () => void,
+        options?: AddEventListenerOptions,
+      ): void
+      removeEventListener(
+        type: 'geometrychange',
+        listener: () => void,
+        options?: EventListenerOptions,
+      ): void
+    }
+  }
 }
