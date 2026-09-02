@@ -17,11 +17,16 @@ export interface FileOpenRequest {
   id: string
   /** Session whose workspace contains `relPath`. */
   sessionId: string
-  /** Canonical absolute POSIX workspace root. */
+  /** Canonical absolute POSIX workspace root; '' when the session has none. */
   cwd: string
   /** Path as authored by the source UI (absolute or workspace-relative). */
   path: string
-  /** Safe POSIX path relative to `cwd`; never starts with `/`. */
+  /**
+   * Safe POSIX path relative to `cwd` (never starts with `/`) — or, for the
+   * external single-file preview, the normalized absolute file path produced
+   * by {@link absoluteFilePath}. The two domains are disjoint: use
+   * {@link isExternalFilePath} to tell them apart.
+   */
   relPath: string
 }
 
@@ -198,7 +203,9 @@ function safeRelativePath(path: string): string | undefined {
  * Absolute paths must be inside `cwd` with a component boundary (`/repo2` is
  * not under `/repo`). Relative paths are already interpreted under `cwd`, but
  * traversal and ambiguous platform syntax are rejected rather than normalized.
- * Returning `undefined` is the caller's signal to use the system opener.
+ * Returning `undefined` is the caller's signal that the path is not a
+ * workspace path — the caller may still offer an external single-file preview
+ * via {@link absoluteFilePath} or fall back to the system opener.
  */
 export function toWorkspaceRelativePath(authoredPath: string, cwd: string): string | undefined {
   const root = canonicalCwd(cwd)
@@ -212,4 +219,47 @@ export function toWorkspaceRelativePath(authoredPath: string, cwd: string): stri
   if (authoredPath !== root && !authoredPath.startsWith(rootPrefix)) return undefined
   const relative = root === '/' ? authoredPath.slice(1) : authoredPath.slice(rootPrefix.length)
   return safeRelativePath(relative)
+}
+
+/**
+ * Normalize an authored path into an external absolute file path.
+ *
+ * This accepts only unambiguous absolute forms — POSIX `/...`, UNC
+ * `//server/share`, and Windows drive `X:/...` (backslashes folded to `/`,
+ * matching the Host's protocol-stable convention). Relative forms and `.`/`..`
+ * segments are rejected outright: an external path has no workspace anchor to
+ * re-check against, so relative traversal gets no benefit of the doubt.
+ * `undefined` means the caller must not preview this path externally.
+ */
+export function absoluteFilePath(authoredPath: string): string | undefined {
+  if (typeof authoredPath !== 'string' || authoredPath === '' || authoredPath.includes('\0')) {
+    return undefined
+  }
+  const drive = /^([A-Za-z]):[\\/](.*)$/u.exec(authoredPath)
+  let slashForm: string
+  if (drive !== null) {
+    slashForm = `${drive[1]}:/${drive[2].replaceAll('\\', '/')}`
+  } else if (authoredPath.startsWith('\\\\') || authoredPath.startsWith('//')) {
+    slashForm = `//${authoredPath.slice(2).replaceAll('\\', '/')}`
+  } else if (authoredPath.startsWith('/')) {
+    slashForm = authoredPath
+  } else {
+    return undefined
+  }
+  const segments = slashForm.split('/').filter(segment => segment !== '')
+  if (segments.some(segment => segment === '.' || segment === '..')) return undefined
+  if (drive !== null) return `${drive[1]}:/${segments.slice(1).join('/')}`
+  return slashForm.startsWith('//')
+    ? `//${segments.join('/')}`
+    : `/${segments.join('/')}`
+}
+
+/**
+ * Whether a request `relPath` (tab key / view-cache key) refers to an
+ * external absolute file rather than a workspace-relative path. The two key
+ * domains are syntactically disjoint — workspace relPaths never start with
+ * `/`, a drive letter, or `//` — so this stays a cheap pure test.
+ */
+export function isExternalFilePath(key: string): boolean {
+  return absoluteFilePath(key) !== undefined
 }

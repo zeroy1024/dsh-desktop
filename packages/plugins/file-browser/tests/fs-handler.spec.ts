@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile, realpath } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createFsHandler, FS_ROUTE_PREFIX } from '../src/fs-handler'
+import { createFsHandler, FS_ROUTE_PREFIX, normalizeAbsoluteInput } from '../src/fs-handler'
 
 const trustedHeaders = { host: '127.0.0.1:9', origin: 'http://127.0.0.1:9' }
 
@@ -149,5 +149,63 @@ describe('read op', () => {
   it('symlink 指向 root 外 → 403 symlink-escape（文件与目录两种）', async () => {
     expect((await get('/read?sessionId=s1&path=link-out')).body).toEqual({ ok: false, error: 'symlink-escape' })
     expect((await get('/list?sessionId=s1&path=dir-out')).body).toEqual({ ok: false, error: 'symlink-escape' })
+  })
+})
+
+describe('normalizeAbsoluteInput', () => {
+  it('接受并规范化绝对形态（POSIX / UNC / Windows 盘符）', () => {
+    expect(normalizeAbsoluteInput('/a/b.txt')).toBe('/a/b.txt')
+    expect(normalizeAbsoluteInput('//a//b//c')).toBe('//a/b/c')
+    expect(normalizeAbsoluteInput('C:\\Users\\z\\n.txt')).toBe('C:/Users/z/n.txt')
+    expect(normalizeAbsoluteInput('C:/a')).toBe('C:/a')
+    expect(normalizeAbsoluteInput('\\\\srv\\share')).toBe('//srv/share')
+  })
+
+  it('拒绝相对、穿越与畸形形态', () => {
+    const bad = ['', '.', '..', 'rel/file', 'rel\\file', 'C:relative', '/a/../b',
+      '/a/./b', '//a/../b', 'C:\\a\\..\\b', 'a\0b', '/a\0b']
+    for (const input of bad) expect(normalizeAbsoluteInput(input)).toBeUndefined()
+  })
+})
+
+describe('read op 工作区外单文件（abs）', () => {
+  /** abs 值需要 URL 编码（绝对路径含 `/`，Windows 盘符含 `:`）。 */
+  const readAbs = (abs: string, sessionId = 's1'): ReturnType<typeof get> =>
+    get(`/read?sessionId=${sessionId}&abs=${encodeURIComponent(abs)}`)
+
+  it('工作区外文件可预览（特性主路径）', async () => {
+    const { status, body } = await readAbs(join(outside, 'secret.txt'))
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ ok: true, text: 'top secret', size: 10 })
+  })
+
+  it('macOS tmp symlink（/var → /private/var）不误伤：realpath 后直接可读', async () => {
+    // abs 通道无 root 边界，realpath 的临时目录别名不影响结果。
+    const { body } = await readAbs(await realpath(join(outside, 'secret.txt')))
+    expect(body).toMatchObject({ ok: true, text: 'top secret' })
+  })
+
+  it('外部目录 → is-directory；缺失 → not-found', async () => {
+    expect((await readAbs(outside)).body).toEqual({ ok: false, error: 'is-directory' })
+    expect((await readAbs(join(outside, 'nope.txt'))).body).toEqual({ ok: false, error: 'not-found' })
+  })
+
+  it('非法形态（相对/穿越）→ 400 bad-path', async () => {
+    expect((await readAbs('secret.txt')).body).toEqual({ ok: false, error: 'bad-path' })
+    // 手动拼接保留 `..` 段（path.join 会提前规范化，测不到服务端拒绝）。
+    expect((await readAbs(`${root}/../outside/secret.txt`)).body)
+      .toEqual({ ok: false, error: 'bad-path' })
+  })
+
+  it('list 不接受 abs（文件树仍锚定工作区）→ 400 bad-request', async () => {
+    expect((await get(`/list?sessionId=s1&abs=${encodeURIComponent(join(outside, 'secret.txt'))}`)).body)
+      .toEqual({ ok: false, error: 'bad-request' })
+  })
+
+  it('abs read 仍要求有效会话 → 404 session-not-found', async () => {
+    expect((await readAbs(join(outside, 'secret.txt'), 'nope')).body)
+      .toEqual({ ok: false, error: 'session-not-found' })
+    expect((await readAbs(join(outside, 'secret.txt'), 's2')).body)
+      .toEqual({ ok: false, error: 'session-not-found' })
   })
 })

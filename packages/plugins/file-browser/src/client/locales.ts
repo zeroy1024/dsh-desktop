@@ -27,6 +27,7 @@ export type FileBrowserKey =
   | 'preview.source'
   | 'preview.rendered'
   | 'preview.copy'
+  | 'preview.external'
   | 'menu.open'
   | 'menu.openSystem'
   | 'menu.copyPath'
@@ -64,6 +65,7 @@ export const zh: Record<FileBrowserKey, string> = {
   'preview.source': '查看源代码',
   'preview.rendered': '渲染预览',
   'preview.copy': '复制',
+  'preview.external': '工作区外 · 只读',
   'menu.open': '打开',
   'menu.openSystem': '用系统默认应用打开',
   'menu.copyPath': '复制路径',
@@ -102,6 +104,7 @@ export const en: Record<FileBrowserKey, string> = {
   'preview.source': 'View source',
   'preview.rendered': 'Rendered preview',
   'preview.copy': 'Copy',
+  'preview.external': 'Outside workspace · read-only',
   'menu.open': 'Open',
   'menu.openSystem': 'Open with default app',
   'menu.copyPath': 'Copy path',

@@ -16,9 +16,10 @@ import {
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  fsList, fsRead, hostDescribe, hostOpenPath, openMux, fileActivityPaths,
+  fsList, fsRead, fsReadAbsolute, hostDescribe, hostOpenPath, openMux, fileActivityPaths,
   FsApiError, type FsFileContent, type FsErrorCode,
 } from './api.ts'
+import { isExternalFilePath } from './file-open.ts'
 import {
   applySelection, emptyTree, flattenTree, loadedPaths, withAncestorsExpanded, withDirState, withExpanded,
   type SelectMode, type TreeRow, type TreeState,
@@ -345,28 +346,32 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
   }, [])
 
   /** 读文件内容（视图缓存命中即跳过；force 可 supersede 旧读）。 */
-  const ensureFile = useCallback(async (relPath: string, force = false): Promise<void> => {
+  const ensureFile = useCallback(async (key: string, force = false): Promise<void> => {
     const epoch = sessionEpochRef.current
     if (currentSessionRef.current !== sessionId) return
-    if (!force && (viewsRef.current.has(relPath) || fileInFlight.current.has(relPath))) return
-    const token = (fileReadTokens.current.get(relPath) ?? 0) + 1
-    fileReadTokens.current.set(relPath, token)
-    fileInFlight.current.add(relPath)
+    if (!force && (viewsRef.current.has(key) || fileInFlight.current.has(key))) return
+    const token = (fileReadTokens.current.get(key) ?? 0) + 1
+    fileReadTokens.current.set(key, token)
+    fileInFlight.current.add(key)
     const loading = new Map(viewsRef.current)
-    loading.set(relPath, { loading: true })
+    loading.set(key, { loading: true })
     commitViews(loading)
     try {
-      const content: FsFileContent = await fsRead(sessionId, relPath)
+      // key 的两个域：工作区相对路径走 root 相对 read；外部绝对路径走
+      // 单文件预览通道（fsReadAbsolute，Host 侧无工作区边界校验）。
+      const content: FsFileContent = await (isExternalFilePath(key)
+        ? fsReadAbsolute(sessionId, key)
+        : fsRead(sessionId, key))
       if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId
-        || fileReadTokens.current.get(relPath) !== token) return
+        || fileReadTokens.current.get(key) !== token) return
       const next = new Map(viewsRef.current)
-      next.set(relPath, { loading: false, content })
+      next.set(key, { loading: false, content })
       commitViews(next)
     } catch (err) {
       if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId
-        || fileReadTokens.current.get(relPath) !== token) return
+        || fileReadTokens.current.get(key) !== token) return
       const next = new Map(viewsRef.current)
-      next.set(relPath, {
+      next.set(key, {
         loading: false,
         error: err instanceof FsApiError ? errorText(err.code, t) : t('error.unreadable'),
       })
@@ -374,9 +379,9 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     } finally {
       // An old read must not clear a newer force-refresh read for this path.
       if (sessionEpochRef.current === epoch && currentSessionRef.current === sessionId
-        && fileReadTokens.current.get(relPath) === token) {
-        fileInFlight.current.delete(relPath)
-        fileReadTokens.current.delete(relPath)
+        && fileReadTokens.current.get(key) === token) {
+        fileInFlight.current.delete(key)
+        fileReadTokens.current.delete(key)
       }
     }
   }, [commitViews, sessionId, t])
@@ -395,13 +400,18 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     }
   }, [loadDir, sessionId])
 
-  /** Focus one file consistently: select it, reveal its parent, and load it. */
-  const focusFile = useCallback((relPath: string, force = false): void => {
-    setSelection(prev => prev.size === 1 && prev.has(relPath) ? prev : new Set([relPath]))
-    anchorRef.current = relPath
-    void ensureFile(relPath, force)
-    const separator = relPath.lastIndexOf('/')
-    const parent = separator < 0 ? '' : relPath.slice(0, separator)
+  /**
+   * Focus one file consistently: select it, reveal its parent, and load it.
+   * External keys live outside the tree: load content only — no selection and
+   * no directory reveal (a slash-bearing absolute key is not a tree relPath).
+   */
+  const focusFile = useCallback((key: string, force = false): void => {
+    void ensureFile(key, force)
+    if (isExternalFilePath(key)) return
+    setSelection(prev => prev.size === 1 && prev.has(key) ? prev : new Set([key]))
+    anchorRef.current = key
+    const separator = key.lastIndexOf('/')
+    const parent = separator < 0 ? '' : key.slice(0, separator)
     void revealDir(parent)
   }, [ensureFile, revealDir])
 
@@ -466,10 +476,14 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     handleOpenFile(request.relPath)
   }, [collapseTreeForExternalOpen, fileOpenMailbox, handleOpenFile, pendingFileOpens, sessionId])
 
-  /** 「打开 ▾」的系统项：拼 canonical root 交 host.openPath。 */
-  const handleOpenSystem = useCallback((relPath: string) => {
+  /** 「打开 ▾」的系统项：工作区外 key 本身即绝对路径；工作区内拼 canonical root。 */
+  const handleOpenSystem = useCallback((key: string) => {
+    if (isExternalFilePath(key)) {
+      void hostOpenPath(key).catch(() => { /* 桌面能力缺位静默 */ })
+      return
+    }
     if (root === null) return
-    const absolute = root === '/' ? `/${relPath}` : `${root}/${relPath}`
+    const absolute = root === '/' ? `/${key}` : `${root}/${key}`
     void hostOpenPath(absolute).catch(() => { /* 桌面能力缺位静默 */ })
   }, [root])
 

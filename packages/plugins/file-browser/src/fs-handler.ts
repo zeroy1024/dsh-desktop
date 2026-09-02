@@ -13,6 +13,11 @@
  *      字符串层沙箱 → 400；
  *   3. symlink 逃逸：realpath(root) 与 realpath(target) 再前缀比较 → 403。
  *
+ * 工作区外单文件预览（read 专属）：`abs=<绝对路径>` 参数承载工作区外的
+ * 规范化绝对路径（POSIX / Windows 盘符 / UNC），跳过栅栏 2/3 的 root 边界
+ * ——特性即"可读工作区外文件"。信任锚不变：仍要求有效会话 + 信任栅栏 +
+ * 大小/二进制限量；list 不接受 abs（文件树仍严格锚定会话工作区）。
+ *
  * 只读、限量：list 有界截断（maxEntries），read 大小短路（maxReadBytes）+
  * NUL 采样判二进制（前 8 KiB，与上游 fs-local 同法）。错误信封统一
  * {ok:false, error:<code>}，成功也带 ok:true——client 半不必区分 HTTP 码。
@@ -143,6 +148,36 @@ function withinReal(rootReal: string, real: string): boolean {
   return target.value === root.value || target.value.startsWith(boundary)
 }
 
+/**
+ * 工作区外预览的客户端绝对路径白盒化（纯字符串层，无 fs I/O）。
+ *
+ * 只接受明确的绝对形态：POSIX `/...`、UNC `//server/share`、Windows 盘符
+ * `X:/...`（反斜杠统一折叠为 `/`，与 resolveWithinRoot 的协议稳定取向一致）。
+ * 相对形态、`./`、`../` 段与 NUL 一律拒绝——外部路径没有 root 锚点做二次
+ * 边界校验， therefore 在字符串层就不给任何"相对游走"的机会。
+ * @returns 统一 `/` 分隔的规范化绝对路径；非法输入返回 undefined。
+ */
+export function normalizeAbsoluteInput(input: string): string | undefined {
+  if (input === '' || input.includes('\0')) return undefined
+  const drive = /^([A-Za-z]):[\\/](.*)$/u.exec(input)
+  let slashForm: string | undefined
+  if (drive !== null) {
+    slashForm = `${drive[1]}:/${drive[2].replaceAll('\\', '/')}`
+  } else if (input.startsWith('\\\\') || input.startsWith('//')) {
+    slashForm = `//${input.slice(2).replaceAll('\\', '/')}`
+  } else if (input.startsWith('/')) {
+    slashForm = input
+  }
+  if (slashForm === undefined) return undefined
+  // 折叠重复分隔符后逐段拒绝 `.`/`..`：与 root 相对沙箱同强度。
+  const segments = slashForm.split('/').filter(segment => segment !== '')
+  if (segments.some(segment => segment === '.' || segment === '..')) return undefined
+  if (drive !== null) return `${drive[1]}:/${segments.slice(1).join('/')}`
+  return slashForm.startsWith('//')
+    ? `//${segments.join('/')}`
+    : `/${segments.join('/')}`
+}
+
 /** dirent → 条目：dir/file 分类，symlink 跟随 stat 判真实类型（断链归 file）。 */
 async function entryOf(
   parentRel: string,
@@ -234,28 +269,14 @@ async function handleList(
   sendJson(res, 200, { ok: true, root: rootReal, entries, truncated })
 }
 
-/** read op：文本预览（大小短路 + NUL 采样判二进制）。 */
-async function handleRead(
+/** read op 的共享主体：边界校验（含 symlink 防逃逸）之后的内容投递。 */
+async function readFilePayload(
   res: ServerResponse,
   deps: FsHandlerDeps,
-  root: string,
-  abs: string,
+  absReal: string,
   signal: AbortSignal | undefined,
 ): Promise<void> {
   const maxBytes = deps.maxReadBytes ?? DEFAULT_MAX_READ_BYTES
-  const rootReal = await raceAbort(realpath(root), signal)
-  let absReal: string
-  try {
-    absReal = await raceAbort(realpath(abs), signal)
-  } catch (err) {
-    if (err instanceof AbortedError) return
-    sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
-    return
-  }
-  if (!withinReal(rootReal, absReal)) {
-    sendJson(res, 403, { ok: false, error: 'symlink-escape' satisfies FsErrorCode })
-    return
-  }
   let info
   try {
     info = await raceAbort(stat(absReal), signal)
@@ -288,6 +309,52 @@ async function handleRead(
   sendJson(res, 200, { ok: true, text: buffer.toString('utf8'), size: info.size })
 }
 
+/** read op（root 内）：root 相对沙箱 + symlink 逃逸校验后投递。 */
+async function handleRead(
+  res: ServerResponse,
+  deps: FsHandlerDeps,
+  root: string,
+  abs: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const rootReal = await raceAbort(realpath(root), signal)
+  let absReal: string
+  try {
+    absReal = await raceAbort(realpath(abs), signal)
+  } catch (err) {
+    if (err instanceof AbortedError) return
+    sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  if (!withinReal(rootReal, absReal)) {
+    sendJson(res, 403, { ok: false, error: 'symlink-escape' satisfies FsErrorCode })
+    return
+  }
+  await readFilePayload(res, deps, absReal, signal)
+}
+
+/**
+ * read op（工作区外单文件）：`abs` 参数承载规范化绝对路径。无 root 边界
+ * 可言（特性本身），symlink 逃逸校验不适用——realpath 解析后的最终目标
+ * 就是读取对象；信任锚降为：有效会话 + 信任栅栏 + 大小/二进制限量。
+ */
+async function handleReadAbsolute(
+  res: ServerResponse,
+  deps: FsHandlerDeps,
+  abs: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  let absReal: string
+  try {
+    absReal = await raceAbort(realpath(abs), signal)
+  } catch (err) {
+    if (err instanceof AbortedError) return
+    sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  await readFilePayload(res, deps, absReal, signal)
+}
+
 /**
  * 构造 prefix 路由 handler（webserver 的 (req,res) 形状）。
  * 路由外的一切校验失败都收敛为 JSON 信封 + 恰当 HTTP 码。
@@ -311,6 +378,7 @@ export function createFsHandler(deps: FsHandlerDeps): (req: IncomingMessage, res
       }
       const sessionId = url.searchParams.get('sessionId')
       const rel = url.searchParams.get('path') ?? ''
+      const absParam = url.searchParams.get('abs')
       if (sessionId === null || sessionId === '') {
         sendJson(res, 400, { ok: false, error: 'session-not-found' satisfies FsErrorCode })
         return
@@ -320,12 +388,26 @@ export function createFsHandler(deps: FsHandlerDeps): (req: IncomingMessage, res
         sendJson(res, 404, { ok: false, error: 'session-not-found' satisfies FsErrorCode })
         return
       }
+      const signal = responseSignal(res)
+      if (absParam !== null) {
+        // 工作区外单文件预览：仅 read；list 的 abs 一律拒绝（树仍锚定工作区）。
+        if (op !== 'read') {
+          sendJson(res, 400, { ok: false, error: 'bad-request' satisfies FsErrorCode })
+          return
+        }
+        const target = normalizeAbsoluteInput(absParam)
+        if (target === undefined) {
+          sendJson(res, 400, { ok: false, error: 'bad-path' satisfies FsErrorCode })
+          return
+        }
+        await handleReadAbsolute(res, deps, target, signal)
+        return
+      }
       const abs = resolveWithinRoot(root, rel)
       if (abs === undefined) {
         sendJson(res, 400, { ok: false, error: 'bad-path' satisfies FsErrorCode })
         return
       }
-      const signal = responseSignal(res)
       if (op === 'list') await handleList(res, deps, root, rel, abs, signal)
       else await handleRead(res, deps, root, abs, signal)
     } catch (err) {

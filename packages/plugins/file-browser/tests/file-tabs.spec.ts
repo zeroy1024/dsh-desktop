@@ -37,6 +37,27 @@ describe('账本操作', () => {
   it('activateFile 只认账本内路径', () => {
     expect(activateFile(emptyFileTabs, 'ghost').activePath).toBeNull()
   })
+
+  it('外部绝对路径 key 与工作区 relPath 混存互不干扰', () => {
+    let state = openFile(emptyFileTabs, 'src/app.ts')
+    state = openFile(state, '/Users/z/.dsh/settings.yaml')
+    expect(state.openPaths).toEqual(['src/app.ts', '/Users/z/.dsh/settings.yaml'])
+    expect(state.activePath).toBe('/Users/z/.dsh/settings.yaml')
+    // 同名文件名不同域不算重复：relPath `settings.yaml` 与外部键并存。
+    state = openFile(state, 'settings.yaml')
+    expect(state.openPaths).toHaveLength(3)
+    // 关闭外部 tab 后激活位回落仍正常。
+    state = closeFile(state, '/Users/z/.dsh/settings.yaml')
+    expect(state.activePath).toBe('settings.yaml')
+  })
+
+  it('v1 持久化数据（纯 relPath）天然兼容', () => {
+    const restored = loadFileTabs(
+      memoryStorage({ [fileTabsKey('s')]: '{"openPaths":["a.md","b.ts"],"activePath":"a.md"}' }),
+      's',
+    )
+    expect(restored).toEqual({ openPaths: ['a.md', 'b.ts'], activePath: 'a.md' })
+  })
 })
 
 describe('持久化', () => {

@@ -9,7 +9,7 @@ import { IconFolderClose16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext } from './types.ts'
 import { FileBrowserPage } from './FileBrowserPage.tsx'
 import {
-  createFileOpenMailbox, toWorkspaceRelativePath, type FileBrowserOpenService,
+  absoluteFilePath, createFileOpenMailbox, toWorkspaceRelativePath, type FileBrowserOpenService,
 } from './file-open.ts'
 import { en, NS, zh } from './locales.ts'
 
@@ -24,10 +24,17 @@ export function apply(ctx: ClientContext): void {
   const fileOpenMailbox = createFileOpenMailbox()
   const fileBrowserService: FileBrowserOpenService = {
     async tryOpen({ sessionId, cwd, path }) {
-      if (cwd === undefined || ctx.panelShell.page('files') === undefined) return false
-      const relPath = toWorkspaceRelativePath(path, cwd)
-      if (relPath === undefined) return false
-      fileOpenMailbox.enqueue({ sessionId, cwd, path, relPath })
+      if (ctx.panelShell.page('files') === undefined) return false
+      const relPath = toWorkspaceRelativePath(path, cwd ?? '')
+      if (relPath !== undefined) {
+        fileOpenMailbox.enqueue({ sessionId, cwd: cwd ?? '', path, relPath })
+      } else {
+        // 工作区外（或会话无工作区）：规范化绝对路径走单文件只读预览，
+        // 面包屑直接显示绝对路径；拒绝相对/穿越形态，保持系统打开回退。
+        const external = absoluteFilePath(path)
+        if (external === undefined) return false
+        fileOpenMailbox.enqueue({ sessionId, cwd: cwd ?? '', path, relPath: external })
+      }
       ctx.layout.openPanel()
       ctx.panelShell.openPage('files')
       return true

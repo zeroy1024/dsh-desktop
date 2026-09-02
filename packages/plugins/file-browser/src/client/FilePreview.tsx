@@ -9,6 +9,7 @@ import {
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useHorizontalTabScroll } from '@dsh-desktop/panel-shell/client'
+import { isExternalFilePath } from './file-open.ts'
 import type { FileTabsState } from './file-tabs.ts'
 import type { FsFileContent } from './api.ts'
 import type { Translate } from './types.ts'
@@ -81,6 +82,19 @@ export const FilePreview = memo(function FilePreview({
   const [menuOpen, setMenuOpen] = useState(false)
   const active = tabs.activePath
   const name = active === null ? '' : active.slice(active.lastIndexOf('/') + 1)
+  // key 的两个域：工作区相对路径（面包屑 = root 内相对链）与外部绝对路径
+  // （面包屑 = 完整绝对路径分段；复制/系统打开直接用 key 本身）。
+  const external = active !== null && isExternalFilePath(active)
+  const crumbPrefix = active === null
+    ? null
+    : external
+      ? (active.startsWith('//') ? '//' : active.startsWith('/') ? '/' : null)
+      : '/'
+  const crumbSegments = active === null
+    ? []
+    : external
+      ? active.split('/').filter(segment => segment !== '')
+      : active.split('/')
   const richPreview = view?.content?.kind === 'text'
     ? shouldUseRichPreview(view.content.size, view.content.text)
     : false
@@ -147,8 +161,15 @@ export const FilePreview = memo(function FilePreview({
       {active !== null && (
         <div className={css.crumbBar}>
           <div className={css.crumbs}>
-            <span className={css.crumbText} title="/">/</span>
-            {active.split('/').map((segment, index, all) => {
+            {crumbPrefix !== null && (
+              <span className={css.crumbText} title={crumbPrefix}>{crumbPrefix}</span>
+            )}
+            {external && (
+              <span className={css.crumbExternal} title={t('preview.external')}>
+                {t('preview.external')}
+              </span>
+            )}
+            {crumbSegments.map((segment, index, all) => {
               const last = index === all.length - 1
               return (
                 <span
@@ -197,8 +218,9 @@ export const FilePreview = memo(function FilePreview({
               onSelect={(id) => {
                 setMenuOpen(false)
                 if (active === null) return
-                if (id === 'copy' && root !== null) {
-                  void writeClipboard(`${root}/${active}`)
+                if (id === 'copy') {
+                  // 外部 key 本身就是规范化绝对路径；工作区内拼 canonical root。
+                  void writeClipboard(external ? active : root === null ? active : `${root}/${active}`)
                 } else if (id === 'system') {
                   onOpenSystem(active)
                 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createFileOpenMailbox, FILE_OPEN_MAILBOX_MAX, toWorkspaceRelativePath,
+  absoluteFilePath, createFileOpenMailbox, FILE_OPEN_MAILBOX_MAX, isExternalFilePath,
+  toWorkspaceRelativePath,
 } from '../src/client/file-open.ts'
 
 const input = (path: string, id?: string) => ({
@@ -34,6 +35,33 @@ describe('toWorkspaceRelativePath', () => {
     for (const cwd of ['', 'repo', 'C:/repo', '\\\\server\\share', '//server/share', '/repo/./sub', '/repo/../sub']) {
       expect(toWorkspaceRelativePath('file.txt', cwd)).toBeUndefined()
     }
+  })
+})
+
+describe('absoluteFilePath / isExternalFilePath', () => {
+  it('normalizes absolute forms to a slash-separated canonical path', () => {
+    expect(absoluteFilePath('/Users/z/.dsh/settings.yaml')).toBe('/Users/z/.dsh/settings.yaml')
+    expect(absoluteFilePath('//repo//a//b.ts')).toBe('//repo/a/b.ts')
+    expect(absoluteFilePath('C:\\Users\\z\\n.txt')).toBe('C:/Users/z/n.txt')
+    expect(absoluteFilePath('C:/Users/z/n.txt')).toBe('C:/Users/z/n.txt')
+    expect(absoluteFilePath('\\\\srv\\share\\f.txt')).toBe('//srv/share/f.txt')
+  })
+
+  it('rejects relative, traversal, and malformed forms', () => {
+    const bad = ['', '.', './a', 'rel/file.txt', 'src/../secret', 'a/./b',
+      'C:relative', 'src\\a.ts', 'a\0b', '/a/../b', '/a/./b', '..']
+    for (const path of bad) expect(absoluteFilePath(path)).toBeUndefined()
+  })
+
+  it('domain test: external keys are disjoint from workspace relPaths', () => {
+    // 工作区 relPath 的合法域（toWorkspaceRelativePath 的输出）永远不是外部键。
+    for (const rel of ['a.ts', 'src/app.ts', 'a/b/c.md']) {
+      expect(isExternalFilePath(rel)).toBe(false)
+      expect(toWorkspaceRelativePath(rel, '/repo')).toBe(rel)
+    }
+    expect(isExternalFilePath('/etc/hosts')).toBe(true)
+    expect(isExternalFilePath('C:/x')).toBe(true)
+    expect(isExternalFilePath('')).toBe(false)
   })
 })
 

@@ -3,6 +3,11 @@
  * 注意与 panel-shell 的页级 tab 区分：那是右侧面板的页面按钮（轨迹/文件/
  * 诊断），这里是文件浏览器内部的多文件预览 tab（视频第三节）。
  * 会话切换时账本整体作废（不同会话的 relPath 无意义），按 sessionId 分键。
+ *
+ * tab key 的两个互斥域（以 {@link isExternalFilePath} 判别）：
+ *   - 工作区相对路径（树内文件）；
+ *   - 规范化绝对路径（工作区外单文件只读预览）。
+ * v1 持久化数据只含前者，天然兼容——绝对路径键是后增形态，无需升版本。
  */
 export interface FileTabsState {
   /** 打开顺序 = tab 顺序。 */

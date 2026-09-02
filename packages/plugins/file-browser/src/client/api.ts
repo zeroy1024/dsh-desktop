@@ -86,8 +86,15 @@ function normalizeCode(code: string | undefined): FsErrorCode {
 }
 
 /** GET /dsh-file-browser/<op>，信封 {ok:true,...}|{ok:false,error}。 */
-async function fsGet<T>(op: 'list' | 'read', sessionId: string, relPath: string): Promise<T> {
-  const url = `/dsh-file-browser/${op}?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(relPath)}`
+async function fsGet<T>(
+  op: 'list' | 'read',
+  sessionId: string,
+  query: { path?: string; abs?: string },
+): Promise<T> {
+  const params = new URLSearchParams({ sessionId })
+  if (query.path !== undefined) params.set('path', query.path)
+  if (query.abs !== undefined) params.set('abs', query.abs)
+  const url = `/dsh-file-browser/${op}?${params.toString()}`
   let res: Response
   try {
     res = await fetch(url)
@@ -107,13 +114,29 @@ async function fsGet<T>(op: 'list' | 'read', sessionId: string, relPath: string)
 
 /** 列一层目录（'' 为会话根）。 */
 export function fsList(sessionId: string, relPath: string): Promise<FsListing> {
-  return fsGet<FsListing>('list', sessionId, relPath)
+  return fsGet<FsListing>('list', sessionId, { path: relPath })
 }
 
-/** 读文件内容（三态：文本/过大/二进制）。 */
+/** 读文件内容（三态：文本/过大/二进制）。路径为会话 root 相对。 */
 export async function fsRead(sessionId: string, relPath: string): Promise<FsFileContent> {
   const body = await fsGet<{ text?: string; size?: number; tooLarge?: boolean; binary?: boolean }>(
-    'read', sessionId, relPath)
+    'read', sessionId, { path: relPath })
+  return fileContentOf(body)
+}
+
+/**
+ * 读工作区外单个文件（三态同 {@link fsRead}）。`absPath` 必须是
+ * {@link absoluteFilePath} 的产物（规范化绝对路径）；Host 侧仍要求有效
+ * 会话与信任栅栏，但不做工作区边界校验——这正是该通道的特性。
+ */
+export async function fsReadAbsolute(sessionId: string, absPath: string): Promise<FsFileContent> {
+  const body = await fsGet<{ text?: string; size?: number; tooLarge?: boolean; binary?: boolean }>(
+    'read', sessionId, { abs: absPath })
+  return fileContentOf(body)
+}
+
+/** wire 信封 → 三态内容投影（read 两形态共用）。 */
+function fileContentOf(body: { text?: string; size?: number; tooLarge?: boolean; binary?: boolean }): FsFileContent {
   const size = body.size ?? 0
   if (body.tooLarge === true) return { kind: 'too-large', size }
   if (body.binary === true) return { kind: 'binary', size }

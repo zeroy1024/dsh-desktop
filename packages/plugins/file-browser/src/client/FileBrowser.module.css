@@ -404,6 +404,22 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Outside-workspace badge: signals the read-only external single-file preview
+   so an absolute-path crumb chain is never mistaken for a workspace one. */
+.crumbExternal {
+  flex: none;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-subtle, color-mix(in srgb, currentColor 20%, transparent));
+  border-radius: var(--dsh-radius-micro, 4px);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .actions {
   flex: none;
   display: flex;
