@@ -228,13 +228,20 @@ jobs:
           }
           EOF
 
-      # AppImageKit serves its payload through a FUSE squashfs mount; fusermount
-      # and a non-root unsquashfs both drop setuid bits from any host copy, so
-      # the mode after --appimage-extract can never observe 4755 even when the
-      # packaged metadata is correct. An AppImage runtime therefore relies on
-      # Chromium's user-namespace sandbox fallback, and what must hold is that
-      # the distributable metadata itself still records chrome-sandbox as
-      # setuid 4755 and that nothing in the package disables the sandbox.
+      # Sandbox contract for the Linux distributables.
+      #
+      # tar.gz packs `linux-unpacked` directly, so the afterPack chmod 4755
+      # survives: assert the setuid helper verbatim in the archive metadata.
+      #
+      # AppImage cannot carry the setuid helper: electron-builder's stage copy
+      # (builder-util copyOrLinkFile) deliberately clears setuid/setgid before
+      # `mksquashfs -all-root`, and a FUSE mount would drop the bit anyway.
+      # The Chromium sandbox in the AppImage therefore falls back to kernel
+      # user namespaces; the generated AppRun probes that with
+      # `unshare -Ur true` and only passes --no-sandbox when they are
+      # unavailable. Assert that the helper is still present and
+      # owner-executable (755 today; 4755 would mean upstream stopped
+      # stripping the bit — also fine) and that nothing disables the sandbox.
       - name: Verify Linux sandbox in distributable archives
         if: ${{ matrix.platform == 'linux' }}
         shell: bash
@@ -272,7 +279,7 @@ jobs:
           chmod +x "${appimage}"
           echo '--- AppImage squashfs entries (chrome-sandbox / desktop entry) ---'
           grep -E 'chrome-sandbox|\.desktop$' "${listing}" || true
-          grep -E '^-rwsr-xr-x .*chrome-sandbox' "${listing}"
+          grep -E '^-(rwxr-xr-x|rwsr-xr-x) .*chrome-sandbox' "${listing}"
 
           # The desktop entry must keep the Chromium sandbox enabled.
           (
@@ -394,11 +401,12 @@ jobs:
           macOS arm64, Windows x64, and Linux x64. Verify downloaded files with
           SHA256SUMS before installing.
 
-          Linux note: the AppImage payload is FUSE-mounted, which strips the
-          setuid bit, so the Chromium sandbox falls back to kernel user
-          namespaces there; the portable tar.gz keeps the setuid chrome-sandbox
-          helper (mode 4755) for environments where the traditional setuid
-          sandbox works.
+          Linux note: the AppImage payload is FUSE-mounted and electron-builder
+          strips the setuid bit while staging it, so the Chromium sandbox there
+          falls back to kernel user namespaces; the generated AppRun probes
+          user namespaces at startup and never disables the sandbox by itself.
+          The portable tar.gz keeps the setuid chrome-sandbox helper (mode
+          4755) for environments where the traditional setuid sandbox works.
           EOF
 
       - name: Create or update prerelease with gh
