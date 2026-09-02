@@ -87,6 +87,29 @@ jobs:
           restore-keys: |
             pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-
 
+      # Same vendor-contract cache as CI: the contract is a pure function of
+      # the upstream pin, the patch queue, the sync script itself, and the
+      # Node major. Exact-key only (no restore-keys) so a release never
+      # consumes tarballs built for a different fingerprint. The cache is
+      # normally warmed by CI on main for the same commit.
+      - name: Compute vendor sync fingerprint
+        id: vendor-fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "upstream=$(git -C upstream rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore vendor contract cache
+        id: vendor-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            vendor/*.tgz
+            vendor/dsh-cli/package.json
+            vendor/dsh-cli/pnpm-workspace.yaml
+            vendor/dsh-cli/pnpm-lock.yaml
+          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', '.nvmrc') }}
+
       # sync:upstream is the only job that builds the patched upstream tree.
       # Only its platform-neutral tarballs and install contract cross the job
       # boundary; native node_modules are always installed on the target OS.
@@ -94,9 +117,11 @@ jobs:
         run: pnpm install --filter . --frozen-lockfile --ignore-scripts
 
       - name: Build patched upstream and prepare vendor
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: pnpm sync:upstream
 
       - name: Run targeted upstream patch tests
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: pnpm test:upstream-patches
 
       - name: Reject generated lockfile drift

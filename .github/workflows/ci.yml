@@ -87,15 +87,41 @@ jobs:
       # The root workspace has links into vendor/, which does not exist on a
       # clean checkout. Install only the root tooling needed to run sync first;
       # platform jobs do a complete workspace install after restoring vendor.
+      # The vendor contract is a pure function of the upstream pin, the patch
+      # queue, the sync script itself, and the Node major. Restore it from the
+      # cache instead of rebuilding the patched upstream tree when none of
+      # those inputs changed. Exact-key only: a restore-key prefix could hand
+      # platform jobs tarballs built for a different fingerprint.
+      - name: Compute vendor sync fingerprint
+        id: vendor-fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "upstream=$(git -C upstream rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore vendor contract cache
+        id: vendor-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            vendor/*.tgz
+            vendor/dsh-cli/package.json
+            vendor/dsh-cli/pnpm-workspace.yaml
+            vendor/dsh-cli/pnpm-lock.yaml
+          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', '.nvmrc') }}
+
       - name: Install root tooling for synchronization
         run: pnpm install --filter . --frozen-lockfile --ignore-scripts
 
       - name: Apply patches, build upstream, and pack vendor artifacts
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: pnpm sync:upstream
 
       - name: Run targeted upstream patch tests
         # Contract: the repository exposes this command without changing the
-        # upstream submodule's package.json.
+        # upstream submodule's package.json. Requires the upstream build, so it
+        # only runs when the vendor contract was rebuilt above.
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: pnpm test:upstream-patches
 
       - name: Reject generated lockfile drift
