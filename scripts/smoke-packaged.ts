@@ -259,7 +259,9 @@ function verifyPackagedRuntime(executable: string, platform: PackagedPlatform): 
       `打包产物 dsh-cli.tar 不可读：${listing.error?.message ?? listing.stderr.trim()}`,
     )
   }
-  const members = listing.stdout.split('\n').filter((line) => line.length > 0)
+  // Windows 下 tar -tf 的输出行可能带 \r 等行尾杂质，统一 trim，
+  // 否则整行/后缀匹配会漏判（stage 自检的子串匹配对此不敏感）
+  const members = listing.stdout.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
   const has = (suffix: string): boolean =>
     members.some((member) => member === suffix || member === `./${suffix}` || member.endsWith(`/${suffix}`))
   if (!has('node_modules/@deepseek-ai/dsh/lib/bin.js')) {
