@@ -161,13 +161,13 @@ export const FilePreview = memo(function FilePreview({
       {active !== null && (
         <div className={css.crumbBar}>
           <div className={css.crumbs}>
-            {crumbPrefix !== null && (
-              <span className={css.crumbText} title={crumbPrefix}>{crumbPrefix}</span>
-            )}
             {external && (
               <span className={css.crumbExternal} title={t('preview.external')}>
                 {t('preview.external')}
               </span>
+            )}
+            {crumbPrefix !== null && (
+              <span className={css.crumbText} title={crumbPrefix}>{crumbPrefix}</span>
             )}
             {crumbSegments.map((segment, index, all) => {
               const last = index === all.length - 1
