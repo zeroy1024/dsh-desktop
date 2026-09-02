@@ -70,6 +70,23 @@ extraResources:
     to: dsh-cli/node_modules
     filter:
       - '**/*'
+      # prune 非运行时内容:.map/.ts/.md/.pdb 等仅用于开发调试,
+      # 不影响 Node 运行时加载,显著减少安装包文件数与体积
+      # 注意:yaml 包的 doc/ 目录是运行时依赖(directives.js),不能删
+      - '!**/*.map'
+      - '!**/*.ts'
+      - '!**/*.mts'
+      - '!**/*.cts'
+      - '!**/*.md'
+      - '!**/*.pdb'
+      - '!**/CHANGELOG*'
+      - '!**/example/**'
+      - '!**/examples/**'
+      - '!**/test/**'
+      - '!**/tests/**'
+      - '!**/spec/**'
+      - '!**/__tests__/**'
+      - '!**/coverage/**'
 #   - from: ../../vendor/node-runtime
 #     to: node-runtime
 # 内置插件由 `pnpm stage:plugins` 放进上面的 dsh-cli/node_modules/@dsh-desktop，

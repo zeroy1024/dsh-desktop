@@ -253,6 +253,31 @@ function verifyPackagedRuntime(executable: string, platform: PackagedPlatform): 
   if (!isDirectory(plugins)) {
     throw new Error(`打包产物缺少内置插件闭包：${plugins}`)
   }
+  // 文件数回归断言：hoisted 布局 + prune 后应远低于 20,000;
+  // 若某次变更重新引入大量文件,CI 会在此直接失败
+  const fileCount = countFiles(dshCli)
+  const maxFiles = 20000
+  if (fileCount > maxFiles) {
+    throw new Error(
+      `打包产物 dsh-cli 文件数超限：${fileCount} > ${maxFiles}。`
+      + '检查是否意外引入 .map/.ts/.md 等非运行时文件或布局回退。',
+    )
+  }
+  console.log(`[packaged-smoke] dsh-cli 文件数 ${fileCount} / ${maxFiles}`)
+}
+
+function countFiles(dir: string): number {
+  let count = 0
+  const entries = readdirSync(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      count += countFiles(full)
+    } else if (entry.isFile()) {
+      count += 1
+    }
+  }
+  return count
 }
 
 function boundedAppend(current: string, chunk: Buffer | string): string {

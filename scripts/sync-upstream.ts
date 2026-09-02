@@ -421,6 +421,10 @@ function installCli(packages: readonly PackedPackage[]): void {
         'node-pty': true,
         protobufjs: true,
       },
+      // hoisted 布局把全部依赖提升为单一 node_modules 目录,消除 isolated
+      // 布局中 .pnpm/<pkg> 与顶层 hoisted 目录的两份实体冗余,显著降低
+      // electron-builder 打包时的文件数与安装时长。
+      nodeLinker: 'hoisted',
     }, { lineWidth: -1, noRefs: true }),
   )
   // 本地 tarball 每次同步都会以相同版本号重建。--force 让 pnpm 重新导入，
