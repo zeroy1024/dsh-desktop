@@ -367,6 +367,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # GitHub rewrites spaces in release asset names to dots on upload.
+          # Normalize locally first so SHA256SUMS records the final asset
+          # names and `sha256sum -c` works against downloaded files.
+          find release-assets -maxdepth 1 -type f -name '* *' -print0 |
+            while IFS= read -r -d '' asset; do
+              mv "${asset}" "${asset// /.}"
+            done
           mapfile -d '' assets < <(
             find release-assets -maxdepth 1 -type f -print0 | sort -z
           )
