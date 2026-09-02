@@ -45,9 +45,15 @@ if (ciSmoke && process.env.DSH_HOME !== undefined) {
   app.setPath('userData', join(process.env.DSH_HOME, 'electron-user-data'))
 }
 
-/** 应用图标（resources/icons/icon.png，dist 的上一级）。 */
+/**
+ * 应用图标（resources/icons/，dist 的上一级）。
+ * Windows 任务栏对窗口图标 1:1 渲染且没有 macOS 的 grid 边距补偿，
+ * icon.png 四周 10% 透明边距会让图标视觉上偏小，因此用铺满画布的
+ * icon-win.png 变体；其余平台保持原图标。
+ */
 function appIconPath(): string {
-  return join(import.meta.dirname, '..', 'resources', 'icons', 'icon.png')
+  const name = process.platform === 'win32' ? 'icon-win.png' : 'icon.png'
+  return join(import.meta.dirname, '..', 'resources', 'icons', name)
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))

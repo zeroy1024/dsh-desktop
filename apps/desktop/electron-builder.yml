@@ -13,6 +13,8 @@ files:
   - dist/**
   - package.json
   - resources/icons/icon.png
+  # Windows 运行时窗口/任务栏图标（src/main/index.ts appIconPath）
+  - resources/icons/icon-win.png
 mac:
   icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
@@ -24,7 +26,9 @@ mac:
       arch:
         - arm64
 win:
-  icon: resources/icons/icon.ico
+  # 铺满画布的 Windows 变体：icon.ico 按 macOS grid 留 10% 透明边距，
+  # Windows 1:1 渲染会让任务栏/桌面图标显得偏小
+  icon: resources/icons/icon-win.ico
   target:
     - target: nsis
       arch:
