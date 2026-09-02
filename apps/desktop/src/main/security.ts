@@ -1,8 +1,9 @@
 /**
  * security.ts — 渲染进程安全基线。
  *
- * dsh webui 只与当前这一代 agent 的 127.0.0.1:<port> 通信：拒绝一切权限请求、
- * 禁止 window.open、导航只允许该 origin，其余一律交给系统浏览器。
+ * dsh webui 只与当前这一代 agent 的 127.0.0.1:<port> 通信：权限默认全拒、
+ * 仅按白名单放行剪贴板写入，禁止 window.open、导航只允许该 origin，
+ * 其余一律交给系统浏览器。
  */
 import {
   app,
@@ -12,6 +13,7 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron'
 import { isAgentRendererUrl } from '@dsh-desktop/bridge'
+import { isPermissionAllowed } from './permissions'
 
 let allowedPort: () => number | null = () => null
 
@@ -49,10 +51,14 @@ export function isTrustedIpcSender(event: IpcMainEvent | IpcMainInvokeEvent): bo
  */
 export function installSecurityHooks(getAllowedPort: () => number | null): void {
   allowedPort = getAllowedPort
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
-    callback(false)
+  // Chromium 的剪贴板写入会分别命中 request（异步授权）与 check（同步检查）
+  // 两条钩子：clipboard-sanitized-write 任一条被拒，navigator.clipboard.writeText
+  // 都会抛 NotAllowedError，上游全部复制控件随之失效，因此两处共用同一判定。
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    callback(isPermissionAllowed(permission, details.requestingUrl, getAllowedPort()))
   })
-  session.defaultSession.setPermissionCheckHandler(() => false)
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
+    isPermissionAllowed(permission, requestingOrigin, getAllowedPort()))
 
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(({ url }) => {
