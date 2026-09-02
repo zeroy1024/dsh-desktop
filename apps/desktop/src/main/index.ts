@@ -67,21 +67,55 @@ async function waitForCiSmokeState(view: WebContentsView): Promise<void> {
     const slice = Math.min(500, Math.max(1, deadline - Date.now()))
     try {
       last = await Promise.race([
-        view.webContents.executeJavaScript(`({
-          desktop: document.documentElement.hasAttribute('data-dsh-desktop'),
-          platform: document.documentElement.dataset.dshPlatform,
-          bridgePlatform: window.dshDesktop?.platform,
-        })`),
+        view.webContents.executeJavaScript(`(() => {
+          // apply() 前几行的 dataset 标记之外，还断言按钮簇真实渲染并让位：
+          // loader entry 半死（apply 后半段抛错）时 Titleband 与面板簇
+          // 都不渲染，dataset 标记却已写入——0.0.3 的 Windows 残缺 UI
+          // 正是从这个缺口漏过去的。让位量用几何而非样式字符串断言：
+          // getComputedStyle 对自定义属性返回未求值的 calc() token，
+          // 而 cluster 右缘距视口右缘的内缩（--dsh-wco-width 的布局结果）
+          // 是可靠数字（win32 ≈ 三键条宽，其他平台 0）。
+          const cluster = document.querySelector('[data-dsh-panel-cluster]')
+          const titleband = document.querySelector('[data-dsh-titleband]')
+          const inset = cluster === null
+            ? -1
+            : Math.round(window.innerWidth - cluster.getBoundingClientRect().right)
+          return {
+            desktop: document.documentElement.hasAttribute('data-dsh-desktop'),
+            platform: document.documentElement.dataset.dshPlatform,
+            bridgePlatform: window.dshDesktop?.platform,
+            titleband: titleband !== null,
+            panelCluster: cluster !== null,
+            clusterInset: inset,
+          }
+        })()`),
         delay(slice).then(() => 'renderer-poll-timeout' as const),
       ])
     } catch (error) {
       last = error instanceof Error ? error.message : String(error)
     }
     if (typeof last === 'object' && last !== null) {
-      const state = last as { desktop?: unknown; platform?: unknown; bridgePlatform?: unknown }
+      const state = last as {
+        desktop?: unknown
+        platform?: unknown
+        bridgePlatform?: unknown
+        titleband?: unknown
+        panelCluster?: unknown
+        clusterInset?: unknown
+      }
+      // clusterInset：按钮簇右缘距视口右缘的内缩。win32 上是 WCO 三键条
+      // 宽度（env() 计算结果，100% DPI 约 138px），其他平台 0（变量未定义
+      // 走 0px fallback）。上限按 300px 防御（高 DPI 缩放留裕量）——值越界
+      // 说明让位公式失效（曾被推飞整窗宽，正是 0.0.3 的按钮冲突）。
+      const insetOk = typeof state.clusterInset === 'number'
+        && state.clusterInset >= 0
+        && state.clusterInset <= 300
       if (state.desktop === true
         && state.platform === process.platform
-        && state.bridgePlatform === process.platform) return
+        && state.bridgePlatform === process.platform
+        && state.titleband === true
+        && state.panelCluster === true
+        && insetOk) return
     }
     await delay(100)
   }

@@ -20,6 +20,17 @@ html[data-dsh-desktop] body {
   background: transparent;
 }
 
+/* Windows WCO（titleBarOverlay）三键条宽度：Chromium 原生 env() 实时求值，
+   窗口拖拽/最大化还原/DPI 变化自动跟随，无需任何 JS 监听。未启用 WCO 的
+   窗口 titlebar-area-* 回退为整窗区域，差值恰为 0。用 100vw 而非 100%：
+   值与使用处的包含块无关（按钮簇 absolute、各 header 是普通流）。
+   仅 win32 定义；mac/linux 上消费方一律走 var() 的 0px fallback，布局不变。
+   消费方：panel-cluster（本文件）、PanelShell.module.css header、
+   details 折叠态 header（本文件）。 */
+html[data-dsh-desktop][data-dsh-platform='win32'] {
+  --dsh-wco-width: calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0vw));
+}
+
 html[data-dsh-desktop] [data-dsh-frame='frame'] {
   background: transparent !important;
 }
@@ -251,8 +262,9 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 [data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
-  /* Windows WCO：右缘被系统最小化/最大化/关闭三键占用（宽度由 client/index.ts
-     写入 --dsh-wco-width），面板簇左移让位；mac/linux 未设置时保持贴右缘。 */
+  /* Windows WCO：右缘被系统最小化/最大化/关闭三键占用（宽度由上方
+     env() 计算的 --dsh-wco-width 给出），面板簇左移让位；mac/linux
+     未定义该变量，fallback 0px 保持贴右缘。 */
   right: var(--dsh-wco-width, 0px);
   z-index: 4;
   display: flex;
@@ -297,11 +309,12 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 /* 面板关闭时 details 列直达窗口右缘，其 header 的关闭按钮（28×28 贴右缘，
    header padding-right 12px）会被钉角按钮盖住——单按钮时代就互相踩。此时
    簇里只剩开关一枚（放大钮仅面板展开时渲染），让 details header 自让
-   48px（40 + 呼吸 8）。面板开时 details 列右缘止于面板列之前，无需让位。
+   48px（40 + 呼吸 8）；Windows WCO 下系统三键在最右缘，一并让出
+   --dsh-wco-width。面板开时 details 列右缘止于面板列之前，无需让位。
    锚点用 data-slot 渲染位包裹层 + 结构位（DetailsPanel 根的首个子 div 是
    唯一 header），不碰 CSS module hash。 */
 html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [data-slot='details'] > div > div:first-child {
-  padding-right: 48px !important;
+  padding-right: calc(48px + var(--dsh-wco-width, 0px)) !important;
 }
 
 [data-dsh-titleband] button:hover {

@@ -20,14 +20,16 @@
    trailing padding reserves the frame toolbar's right-edge button cluster
    (放大/恢复 + 开关，2×40px + 呼吸 8px = 88px；桌面壳的两枚按钮骑在
    full-width toolbar 之上), so the tab strip and the "+" menu anchor never
-   sit under them. */
+   sit under them. Windows WCO 下系统三键在最右缘（--dsh-wco-width 由
+   desktop-frame chrome.css 的 env() 计算，仅 win32 定义），一并让出；
+   mac/linux 走 0px fallback 值不变。 */
 .header {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
   height: var(--dsh-titleband-height, 44px);
-  padding: 0 88px 0 12px;
+  padding: 0 calc(88px + var(--dsh-wco-width, 0px)) 0 12px;
   box-sizing: border-box;
 }
 
