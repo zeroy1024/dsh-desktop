@@ -1,6 +1,10 @@
 # electron-builder 配置（v0.0.1 未签名 developer preview）
 # 关键点：
-#   - extraResources 携带平台原生安装的 dsh CLI 闭包；当前由 Electron 以 Node 模式运行
+#   - dsh CLI 运行时以单个未压缩 tar（.runtime-archive/dsh-cli.tar，由
+#     stage-runtime-archive.ts 从 vendor/dsh-cli 产出）随包携带；首启时主进程
+#     解压到 userData（src/main/runtime-archive.ts）。NSIS 逐文件携带上万个
+#     小文件会让 Windows 安装/升级/卸载极慢（每文件过 Defender），单文件
+#     携带把安装器写文件数降到几百
 #   - 独立 Node 24 runtime、签名/公证与自动更新仍属于后续完整 P4
 #   - 渲染层是 upstream apps/web 的静态 dist，无 webpack/vite 打包步骤
 appId: ai.deepseek.harness.desktop
@@ -58,36 +62,12 @@ appImage:
   # Keep Chromium's sandbox enabled; the afterPack hook installs its helper.
   executableArgs: []
 extraResources:
-  - from: ../../vendor/dsh-cli
-    to: dsh-cli
-    filter:
-      - package.json
-      - pnpm-workspace.yaml
-      - pnpm-lock.yaml
-  # electron-builder always excludes a source tree's root `node_modules`.
-  # Make it the FileSet root so the complete pnpm runtime closure is copied.
-  - from: ../../vendor/dsh-cli/node_modules
-    to: dsh-cli/node_modules
-    filter:
-      - '**/*'
-      # prune 非运行时内容:.map/.ts/.md/.pdb 等仅用于开发调试,
-      # 不影响 Node 运行时加载,显著减少安装包文件数与体积
-      # 注意:yaml 包的 doc/ 目录是运行时依赖(directives.js),不能删
-      - '!**/*.map'
-      - '!**/*.ts'
-      - '!**/*.mts'
-      - '!**/*.cts'
-      - '!**/*.md'
-      - '!**/*.pdb'
-      - '!**/CHANGELOG*'
-      - '!**/example/**'
-      - '!**/examples/**'
-      - '!**/test/**'
-      - '!**/tests/**'
-      - '!**/spec/**'
-      - '!**/__tests__/**'
-      - '!**/coverage/**'
+  # 单个未压缩 tar：外层 NSIS solid lzma / dmg UDZO / zip deflate 负责压缩，
+  # 安装包体积与逐文件携带基本持平。剪枝（.map/.ts/test 等）在
+  # stage-runtime-archive.ts 建包时完成。
+  - from: .runtime-archive/dsh-cli.tar
+    to: dsh-cli.tar
 #   - from: ../../vendor/node-runtime
 #     to: node-runtime
-# 内置插件由 `pnpm stage:plugins` 放进上面的 dsh-cli/node_modules/@dsh-desktop，
-# 不再单独复制；这样 Host 插件与 CLI 共用同一份 @deepseek-ai 运行时闭包。
+# 内置插件由 `pnpm stage:plugins` 放进 dsh-cli/node_modules/@dsh-desktop 后一并
+# 进入 tar；这样 Host 插件与 CLI 共用同一份 @deepseek-ai 运行时闭包。

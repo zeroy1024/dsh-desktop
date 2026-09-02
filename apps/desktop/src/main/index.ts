@@ -13,6 +13,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentPageUrl } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
+import { ensureDshRuntime } from './runtime-archive'
 import { installSecurityHooks, isTrustedIpcSender } from './security'
 import {
   MOUNT_TIMEOUT_MS,
@@ -229,11 +230,22 @@ async function runStartup(generation: number): Promise<void> {
   await controller.attachSplash()
   if (generation !== startupGeneration || mainWindow !== win || quitRequested) return
 
+  // starting 阶段提前推送：首启解压（仅打包态）期间水位 creep 持续兜底
+  controller.sendPhase('starting')
+  if (app.isPackaged) {
+    // 安装产物只携带单个 dsh-cli.tar；首启（或版本/产物变更）解压到 userData
+    await ensureDshRuntime({
+      userDataDir: app.getPath('userData'),
+      version: app.getVersion(),
+      archivePath: join(process.resourcesPath, 'dsh-cli.tar'),
+    })
+    if (generation !== startupGeneration || mainWindow !== win || quitRequested) return
+  }
+
   const candidate = createSupervisor()
   supervisor = candidate
   wireSupervisor(candidate)
 
-  controller.sendPhase('starting')
   controller.sendProgress(5)
   const ready = await candidate.start()
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) {

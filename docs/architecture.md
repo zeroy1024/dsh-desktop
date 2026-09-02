@@ -47,7 +47,7 @@ spawn: --profile desktop --no-open --port 0
 ```
 
 - 解析链路：bundle 双锚点（安装目录 → profile 目录）+ 裸名 Node walk（profile 级 `node_modules` 第一优先），全部为上游既有机制，零上游改动。`stage:plugins` 先把发布面放进 CLI 的 canonical `node_modules` 闭包，避免 profile 符号链接被 Node realpath 回 workspace 后加载第二份 Cordis／HarnessError；物化前校验插件名/manifest/路径，托管文件原子替换，版本戳记录插件名册以清理旧的托管链接。
-- 插件版本 = app 版本；P4 时构建产物经 extraResources 随包携带。
+- 插件版本 = app 版本；打包时随 dsh-cli 闭包一起由 `stage-runtime-archive.ts` 打成单个 `dsh-cli.tar` 随包携带，首启解压到 `userData/dsh-runtime/<version>/`（安装器不再逐文件写上万个运行时文件，Windows 安装/升级/卸载提速；解压与自愈细节见 `apps/desktop/src/main/runtime-archive.ts`）。
 - dev 启动：先构建全部插件，再把 manifest `files[]` staging 到 CLI 闭包，然后物化 profile。重建插件后需再次执行 `pnpm stage:plugins`，staged `lib/client.js` 的变更才会进入 dsh client-hmr。
 
 ## 目录结构与所有权

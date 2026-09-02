@@ -433,6 +433,12 @@ jobs:
           macOS arm64, Windows x64, and Linux x64. Verify downloaded files with
           SHA256SUMS before installing.
 
+          Windows note: on first launch the app unpacks its bundled agent
+          runtime into the user data directory (one-time, progress shown on the
+          splash screen). If the NSIS installer itself is slow in your
+          environment, the win-x64.zip archive works as a portable build —
+          extract it with 7-Zip and run the executable directly.
+
           Linux note: the AppImage payload is FUSE-mounted and electron-builder
           strips the setuid bit while staging it, so the Chromium sandbox there
           falls back to kernel user namespaces; the generated AppRun probes

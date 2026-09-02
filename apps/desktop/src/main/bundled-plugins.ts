@@ -1,12 +1,14 @@
 /**
  * 扫描 staging 后的 app 内置插件目录，供 desktop profile 物化做符号链接。
- * 插件位于 dsh CLI 的 node_modules 闭包内，确保 Host bare import 与 dsh
+ * 插件位于 dsh CLI 的 node_modules 闭包内（打包态为首启解压出的副本，见
+ * paths.ts dshRuntimeRoot），确保 Host bare import 与 dsh
  * 运行时共享同一份 Cordis/service-definition 包。
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { BundledPlugin } from '@dsh-desktop/agent-host'
+import { dshRuntimeRoot } from './paths'
 
 /** desktop 包 version，写入 profile 戳。 */
 export function appVersion(): string {
@@ -18,7 +20,7 @@ export function appVersion(): string {
 /** 内置插件根目录。 */
 export function bundledPluginsRoot(): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'dsh-cli', 'node_modules', '@dsh-desktop')
+    ? join(dshRuntimeRoot(), 'node_modules', '@dsh-desktop')
     : join(import.meta.dirname, '..', '..', '..', 'vendor', 'dsh-cli', 'node_modules', '@dsh-desktop')
 }
 

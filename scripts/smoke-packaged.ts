@@ -244,40 +244,40 @@ export function packagedResourcesDir(executable: string, platform: NodeJS.Platfo
 }
 
 function verifyPackagedRuntime(executable: string, platform: PackagedPlatform): void {
-  const dshCli = join(packagedResourcesDir(executable, platform), 'dsh-cli')
-  const cliEntry = join(dshCli, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
-  const plugins = join(dshCli, 'node_modules', '@dsh-desktop')
-  if (!isRegularFile(cliEntry)) {
-    throw new Error(`打包产物缺少 dsh CLI 入口：${cliEntry}`)
+  // 打包态只携带单个未压缩 tar（stage-runtime-archive.ts 产出），
+  // 首启解压到 userData；这里直接校验 tar 成员清单。
+  const archive = join(packagedResourcesDir(executable, platform), 'dsh-cli.tar')
+  if (!isRegularFile(archive)) {
+    throw new Error(`打包产物缺少 dsh-cli 运行时包：${archive}`)
   }
-  if (!isDirectory(plugins)) {
-    throw new Error(`打包产物缺少内置插件闭包：${plugins}`)
-  }
-  // 文件数回归断言：hoisted 布局 + prune 后应远低于 20,000;
-  // 若某次变更重新引入大量文件,CI 会在此直接失败
-  const fileCount = countFiles(dshCli)
-  const maxFiles = 20000
-  if (fileCount > maxFiles) {
+  const listing = spawnSync('tar', ['-tf', archive], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  if (listing.status !== 0 || listing.error !== undefined) {
     throw new Error(
-      `打包产物 dsh-cli 文件数超限：${fileCount} > ${maxFiles}。`
-      + '检查是否意外引入 .map/.ts/.md 等非运行时文件或布局回退。',
+      `打包产物 dsh-cli.tar 不可读：${listing.error?.message ?? listing.stderr.trim()}`,
     )
   }
-  console.log(`[packaged-smoke] dsh-cli 文件数 ${fileCount} / ${maxFiles}`)
-}
-
-function countFiles(dir: string): number {
-  let count = 0
-  const entries = readdirSync(dir, { withFileTypes: true })
-  for (const entry of entries) {
-    const full = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      count += countFiles(full)
-    } else if (entry.isFile()) {
-      count += 1
-    }
+  const members = listing.stdout.split('\n').filter((line) => line.length > 0)
+  const has = (suffix: string): boolean =>
+    members.some((member) => member === suffix || member === `./${suffix}` || member.endsWith(`/${suffix}`))
+  if (!has('node_modules/@deepseek-ai/dsh/lib/bin.js')) {
+    throw new Error('打包产物 dsh-cli.tar 缺少 dsh CLI 入口（bin.js）')
   }
-  return count
+  if (!members.some((member) => member.includes('node_modules/@dsh-desktop/'))) {
+    throw new Error('打包产物 dsh-cli.tar 缺少内置插件闭包（@dsh-desktop）')
+  }
+  // 文件数回归断言：剪枝后应远低于 20,000;
+  // 若某次变更重新引入大量文件,CI 会在此直接失败
+  const maxFiles = 20000
+  if (members.length > maxFiles) {
+    throw new Error(
+      `打包产物 dsh-cli.tar 成员数超限：${members.length} > ${maxFiles}。`
+      + '检查是否意外引入 .map/.ts/.md 等非运行时文件。',
+    )
+  }
+  console.log(`[packaged-smoke] dsh-cli.tar 成员数 ${members.length} / ${maxFiles}`)
 }
 
 function boundedAppend(current: string, chunk: Buffer | string): string {

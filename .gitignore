@@ -16,6 +16,8 @@ vendor/dsh-cli/*
 
 # Electron 打包产物
 apps/desktop/release/
+# dsh-cli 运行时单 tar（stage-runtime-archive.ts 产出，随包携带、首启解压）
+apps/desktop/.runtime-archive/
 
 # CI 失败诊断（日志、截图、探针输出）
 .ci-artifacts/
