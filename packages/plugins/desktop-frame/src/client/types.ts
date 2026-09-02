@@ -20,7 +20,7 @@ declare global {
   /** Windows WCO（titleBarOverlay）几何：系统窗口按钮占用的标题栏矩形。 */
   interface Navigator {
     readonly windowControlsOverlay?: {
-      getTitlebarRect(): { x: number; width: number }
+      getTitlebarAreaRect(): { x: number; width: number }
       addEventListener(
         type: 'geometrychange',
         listener: () => void,

@@ -17,7 +17,7 @@ function syncWindowControlsOverlayInset(): void {
   const syncGeometry = (): void => {
     document.documentElement.style.setProperty(
       '--dsh-wco-width',
-      `${Math.round(overlay.getTitlebarRect().width)}px`,
+      `${Math.round(overlay.getTitlebarAreaRect().width)}px`,
     )
   }
   syncGeometry()
