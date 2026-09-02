@@ -1,0 +1,106 @@
+/* 只用 currentColor / 半透明层，继承官方设置面板的明暗主题，不硬编码配色。 */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.64;
+}
+
+.notice,
+.error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.notice {
+  background: rgba(234, 179, 8, 0.14);
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.empty {
+  margin: 24px 0;
+  font-size: 13px;
+  opacity: 0.5;
+  text-align: center;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.restoreBtn {
+  flex: none;
+  padding: 4px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.restoreBtn:hover:not(:disabled) {
+  background: rgba(128, 128, 128, 0.14);
+}
+
+.restoreBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
