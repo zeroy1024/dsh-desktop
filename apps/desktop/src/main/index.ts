@@ -103,19 +103,23 @@ async function waitForCiSmokeState(view: WebContentsView): Promise<void> {
         panelCluster?: unknown
         clusterInset?: unknown
       }
-      // clusterInset：按钮簇右缘距视口右缘的内缩。win32 上是 WCO 三键条
-      // 宽度（env() 计算结果，100% DPI 约 138px），其他平台 0（变量未定义
-      // 走 0px fallback）。上限按 300px 防御（高 DPI 缩放留裕量）——值越界
-      // 说明让位公式失效（曾被推飞整窗宽，正是 0.0.3 的按钮冲突）。
-      const insetOk = typeof state.clusterInset === 'number'
-        && state.clusterInset >= 0
-        && state.clusterInset <= 300
+      // clusterInset：按钮簇右缘距视口右缘的内缩。win32 上等于 WCO 三键条
+      // 宽度常量（chrome.css 定义的 138px），必须显著大于 0——0 意味着让位
+      // 失效、系统三键叠上我们的按钮（0.0.3/0.0.4 真机回归，当时断言只设
+      // 上限没设下限，inset=0 被误判为通过）。其他平台变量未定义，内缩 0。
+      const inset = typeof state.clusterInset === 'number' ? state.clusterInset : -1
+      const insetOk = process.platform === 'win32'
+        ? inset >= 100 && inset <= 250
+        : inset >= 0 && inset <= 50
       if (state.desktop === true
         && state.platform === process.platform
         && state.bridgePlatform === process.platform
         && state.titleband === true
         && state.panelCluster === true
-        && insetOk) return
+        && insetOk) {
+        console.log(`[ci-smoke] desktop-frame 标记就绪（按钮簇内缩 ${inset}px）`)
+        return
+      }
     }
     await delay(100)
   }

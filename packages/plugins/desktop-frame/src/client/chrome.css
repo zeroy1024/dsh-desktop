@@ -20,15 +20,17 @@ html[data-dsh-desktop] body {
   background: transparent;
 }
 
-/* Windows WCO（titleBarOverlay）三键条宽度：Chromium 原生 env() 实时求值，
-   窗口拖拽/最大化还原/DPI 变化自动跟随，无需任何 JS 监听。未启用 WCO 的
-   窗口 titlebar-area-* 回退为整窗区域，差值恰为 0。用 100vw 而非 100%：
-   值与使用处的包含块无关（按钮簇 absolute、各 header 是普通流）。
-   仅 win32 定义；mac/linux 上消费方一律走 var() 的 0px fallback，布局不变。
-   消费方：panel-cluster（本文件）、PanelShell.module.css header、
-   details 折叠态 header（本文件）。 */
+/* Windows WCO（titleBarOverlay）三键条宽度：固定常量，不做渲染端测量。
+   Electron 在 win32 上自绘的三枚标题栏按钮每枚 46 CSS px（draw_caption_buttons
+   的固定值；CSS px 即 DIP，不随 DPI/最大化变化），合计 138。
+   此前的两版测量（JS getTitlebarAreaRect / CSS env(titlebar-area-*)）在
+   BaseWindow + WebContentsView 结构下都拿不到 WCO 状态——Chromium 未把
+   WCO 接线到 WebContentsView 的渲染端（rect 恒为 0、env 落 fallback），
+   0.0.3/0.0.4 两版真机均因此让位失效。常量与 Electron 的绘制宽度解耦、
+   可被冒烟强断言（按钮簇内缩 100–250px）；若 Electron 未来改按钮宽度，
+   改这一个值即可。 */
 html[data-dsh-desktop][data-dsh-platform='win32'] {
-  --dsh-wco-width: calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0vw));
+  --dsh-wco-width: 138px;
 }
 
 html[data-dsh-desktop] [data-dsh-frame='frame'] {
@@ -262,9 +264,9 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 [data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
-  /* Windows WCO：右缘被系统最小化/最大化/关闭三键占用（宽度由上方
-     env() 计算的 --dsh-wco-width 给出），面板簇左移让位；mac/linux
-     未定义该变量，fallback 0px 保持贴右缘。 */
+  /* Windows WCO：右缘被系统最小化/最大化/关闭三键占用（宽度是上方定义的
+     --dsh-wco-width 常量），面板簇左移让位；mac/linux 未定义该变量，
+     fallback 0px 保持贴右缘。 */
   right: var(--dsh-wco-width, 0px);
   z-index: 4;
   display: flex;
