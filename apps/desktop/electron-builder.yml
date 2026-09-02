@@ -32,6 +32,12 @@ win:
     - target: zip
       arch:
         - x64
+# NSIS:向导式安装,允许用户自选目录;按机器安装到 Program Files(需管理员)。
+# per-user 的 %LOCALAPPDATA% 静默安装不再使用。
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
 linux:
   icon: resources/icons
   category: Development
