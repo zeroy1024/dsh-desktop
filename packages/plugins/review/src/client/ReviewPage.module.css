@@ -1,4 +1,4 @@
-/* 审查页：面板列内的纵向布局（notice/摘要条/文件列表/草稿托盘）。
+/* 审查页：面板列内的纵向布局（模式切换/摘要条/文件列表/草稿托盘）。
    diff 行的视觉约定镜像上游 DiffBlock（--dsw-* token、pre 不折行、
    22px 行高、- /+ 前缀带色），保证与对话流里的 diff 卡同一家族。 */
 
@@ -12,40 +12,6 @@
   padding: 12px;
   gap: 10px;
   font-size: 13px;
-  color: var(--dsw-alias-label-primary);
-}
-
-/* ---- 口径提示条 ---- */
-
-.notice {
-  flex: none;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsh-radius-control, 8px);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.noticeText {
-  flex: 1;
-  min-width: 0;
-}
-
-.noticeDismiss {
-  flex: none;
-  border: none;
-  background: transparent;
-  padding: 0;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  cursor: pointer;
-}
-
-.noticeDismiss:hover {
   color: var(--dsw-alias-label-primary);
 }
 

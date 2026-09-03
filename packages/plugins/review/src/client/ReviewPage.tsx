@@ -61,7 +61,6 @@ const EMPTY_DRAFTS: readonly CommentDraft[] = []
 export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageProps) {
   const [aggregation, setAggregation] = useState<AggregationState>({ status: 'loading' })
   const [sortMode, setSortMode] = useState<'changes' | 'path'>('changes')
-  const [noticeVisible, setNoticeVisible] = useState(true)
   /** 改动源：会话内（默认）/ 工作区 git（懒加载，仅 uncommitted）。 */
   const [mode, setMode] = useState<ReviewMode>('session')
   const [gitState, setGitState] = useState<GitState>({ status: 'idle' })
@@ -437,15 +436,6 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
 
   return (
     <div className={css.root}>
-      {noticeVisible && (
-        <div className={css.notice}>
-          <span className={css.noticeText}>{t('notice.body')}</span>
-          <button type="button" className={css.noticeDismiss} onClick={() => { setNoticeVisible(false) }}>
-            {t('notice.dismiss')}
-          </button>
-        </div>
-      )}
-
       {/* 改动源切换：会话内（默认）/ 工作区 git（懒加载，首次切入才请求） */}
       <div className={css.modeTabs}>
         <button
@@ -556,19 +546,18 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
             </div>
           )}
 
+          {/* 非仓库/无改动与会话模式共用同一空态版式：大标题统一，原因落到小字 */}
           {gitState.status === 'unavailable' && (
-            <div className={css.stateBox}>
-              <span>{t('git.unavailable')}</span>
-              <button type="button" className={css.ghostBtn} onClick={() => { switchMode('session') }}>
-                {t('mode.session')}
-              </button>
+            <div className={css.emptyState}>
+              <div className={css.emptyTitle}>{t('empty.title')}</div>
+              <div className={css.emptyGuide}>{t('git.unavailable')}</div>
             </div>
           )}
 
           {gitState.status === 'ready' && gitFiles.length === 0 && (
             <div className={css.emptyState}>
-              <div className={css.emptyTitle}>{t('git.clean')}</div>
-              <div className={css.emptyGuide}>{t('empty.guide')}</div>
+              <div className={css.emptyTitle}>{t('empty.title')}</div>
+              <div className={css.emptyGuide}>{t('git.clean')}</div>
             </div>
           )}
 

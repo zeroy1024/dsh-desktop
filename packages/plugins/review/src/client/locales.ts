@@ -38,8 +38,6 @@ export type ReviewKey =
   | 'git.truncated'
   | 'git.revertFailed'
   | 'git.binary'
-  | 'notice.body'
-  | 'notice.dismiss'
   | 'empty.title'
   | 'empty.guide'
   | 'error.load'
@@ -87,13 +85,11 @@ export const zh: Record<ReviewKey, string> = {
   'action.revertConfirm': '确认',
   'git.loading': '读取工作区改动…',
   'git.error': '读取工作区改动失败',
-  'git.unavailable': '当前会话的工作目录不是 git 仓库',
-  'git.clean': '工作区没有待审改动',
+  'git.unavailable': '当前会话的工作目录不是 git 仓库。',
+  'git.clean': '工作区没有未提交的改动。',
   'git.truncated': '改动过多，diff 已截断',
   'git.revertFailed': '撤销失败，请重试',
   'git.binary': '二进制文件，无行级 diff',
-  'notice.body': '会话内改动仅覆盖 write/edit 文件写入工具；shell 命令产生的改动请切换到「工作区改动」查看。',
-  'notice.dismiss': '知道了',
   'empty.title': '暂无可审查的改动',
   'empty.guide': 'agent 在本会话中写入或编辑文件后，改动会按文件汇总在这里。',
   'error.load': '加载会话改动失败',
@@ -142,13 +138,11 @@ export const en: Record<ReviewKey, string> = {
   'action.revertConfirm': 'Confirm',
   'git.loading': 'Reading workspace changes…',
   'git.error': 'Failed to read workspace changes',
-  'git.unavailable': 'The working directory of this session is not a git repository',
-  'git.clean': 'No uncommitted changes in the workspace',
+  'git.unavailable': 'The working directory of this session is not a git repository.',
+  'git.clean': 'No uncommitted changes in the workspace.',
   'git.truncated': 'Too many changes — diff truncated',
   'git.revertFailed': 'Revert failed — try again',
   'git.binary': 'Binary file — no line diff',
-  'notice.body': 'Session changes cover write/edit file tools only; switch to "Workspace changes" for shell-made modifications.',
-  'notice.dismiss': 'Got it',
   'empty.title': 'No changes to review',
   'empty.guide': 'When the agent writes or edits files in this session, changes will be grouped here by file.',
   'error.load': 'Failed to load session changes',
