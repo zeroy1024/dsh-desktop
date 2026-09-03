@@ -1,0 +1,273 @@
+diff --git a/docs/persistence-catalog.md b/docs/persistence-catalog.md
+index aaedabf93d..9083335ce4 100644
+--- a/docs/persistence-catalog.md
++++ b/docs/persistence-catalog.md
+@@ -393,6 +393,23 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
+ 
+ Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
+ 
++### `dsh-desktop/*`
++
++<a id="dsh-desktopsession-rewind--log-only"></a>
++
++#### `dsh-desktop/session-rewind` — log-only
++
++```ts persistence-catalog
++/**
++ * Rewind tombstone: withdraws surface nodes with `seq` in
++ * `[atSeq, seq)`. `atSeq` must be a non-negative safe integer addressing
++ * a position at or before the marker itself.
++ */
++'dsh-desktop/session-rewind': { atSeq: number }
++```
++
++Source: [`packages/core/session/src/rewind.ts:29`](../packages/core/session/src/rewind.ts)
++
+ ### `feedback/*`
+ 
+ <a id="feedbackrecord--log-only"></a>
+diff --git a/packages/core/session/src/known-event-types.ts b/packages/core/session/src/known-event-types.ts
+index 098743dd8a..6cfdd7e873 100644
+--- a/packages/core/session/src/known-event-types.ts
++++ b/packages/core/session/src/known-event-types.ts
+@@ -30,6 +30,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
+   'compaction/prune',
+   'compaction/start',
+   'compaction/summary',
++  'dsh-desktop/session-rewind',
+   'feedback/record',
+   'goal/change',
+   'hook/invoked',
+diff --git a/packages/core/session/src/rewind.ts b/packages/core/session/src/rewind.ts
+new file mode 100644
+index 0000000000..2d46c4cb8d
+--- /dev/null
++++ b/packages/core/session/src/rewind.ts
+@@ -0,0 +1,31 @@
++/**
++ * Desktop-harness rewind tombstone. `dsh-desktop/session-rewind` is an
++ * append-only marker that withdraws every model-visible surface node with
++ * `seq` in `[atSeq, markerSeq)` at the marker's log position; events appended
++ * after the marker rebuild the surface from there. The raw log keeps the
++ * withdrawn events forever — the tombstone only changes what every surface
++ * fold derives, which is why skipping it on replay would reconstruct a wrong
++ * session (the reason the type is catalogued below instead of `ignorable`).
++ *
++ * Patch-owned addition (deepseek-harness-desktop `patches/0012`); the
++ * declaration lives in this package so the persistence catalog generator
++ * (`scripts/gen-persistence-catalog.ts`) lists the type and the persistence
++ * read path accepts logs carrying it. The upstream-fold integration is in
++ * `./surface.ts` (`planRewindEvent` / the `truncate` plan variant).
++ *
++ * @module @deepseek-ai/dsh-session/rewind
++ */
++
++/** The tombstone event type. Namespaced to the desktop harness owner. */
++export const REWIND_EVENT_TYPE = 'dsh-desktop/session-rewind'
++
++declare module '@deepseek-ai/dsh-session/types' {
++  interface SessionEventMap {
++    /**
++     * Rewind tombstone: withdraws surface nodes with `seq` in
++     * `[atSeq, seq)`. `atSeq` must be a non-negative safe integer addressing
++     * a position at or before the marker itself.
++     */
++    'dsh-desktop/session-rewind': { atSeq: number }
++  }
++}
+diff --git a/packages/core/session/src/surface.ts b/packages/core/session/src/surface.ts
+index ba6c2dda80..eff47baef0 100644
+--- a/packages/core/session/src/surface.ts
++++ b/packages/core/session/src/surface.ts
+@@ -9,8 +9,11 @@
+  */
+ 
+ import type { Message } from '@deepseek-ai/dsh-llm'
++import { REWIND_EVENT_TYPE } from './rewind.ts'
+ import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
+ 
++export { REWIND_EVENT_TYPE }
++
+ /** Runtime counterpart of the message-producing event union. */
+ const SURFACE_EVENT_TYPES = new Set<string>([
+   'user/message',
+@@ -158,6 +161,7 @@ interface SurfaceReplacePlan extends SurfaceFoldReplacement {
+ type SurfacePlan =
+   | { kind: 'append'; seq: number }
+   | SurfaceReplacePlan
++  | { kind: 'truncate'; atSeq: number }
+ 
+ /** Create an empty surface fold state. */
+ function createFoldState(): SurfaceFoldState {
+@@ -317,6 +321,22 @@ function assertToolResultRewrite(
+   }
+ }
+ 
++/**
++ * Validate a rewind tombstone at its replay boundary into a truncate
++ * transition. A tombstone withdraws every surface node with `seq` in
++ * `[atSeq, event.seq)`; events appended after the marker rebuild the surface
++ * from there. An `atSeq` above the marker's own position would hide nothing
++ * and is rejected as a malformed marker.
++ */
++function planRewindEvent(event: SessionEvent): SurfacePlan | undefined {
++  if (event.type !== REWIND_EVENT_TYPE) return undefined
++  const atSeq = event.data.atSeq
++  if (!isEventSeq(atSeq) || atSeq > event.seq) {
++    throw new Error(`rewind tombstone at seq ${event.seq} carries invalid atSeq ${String(atSeq)}`)
++  }
++  return { kind: 'truncate', atSeq }
++}
++
+ /** Validate one event at its replay boundary and prepare its atomic fold transition. */
+ function planSurfaceEvent(
+   state: SurfaceFoldState,
+@@ -329,7 +349,7 @@ function planSurfaceEvent(
+     throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
+   }
+   const surfaceOp = surfaceOpOf(event)
+-  if (surfaceOp === undefined) return
++  if (surfaceOp === undefined) return planRewindEvent(event)
+   if (surfaceOp === 'append') {
+     assertProvenance(event, [])
+     return { kind: 'append', seq: event.seq }
+@@ -368,6 +388,12 @@ function applySurfacePlan(
+   } else if (plan?.kind === 'replace') {
+     state.nodes.splice(plan.startIdx, plan.endIdx - plan.startIdx + 1, plan.seq)
+     state.replaceGeneration += 1
++  } else if (plan?.kind === 'truncate') {
++    // Truncate is positional like replace: the generation bump is what makes
++    // deriveMessages' incremental cache rebuild instead of retaining the
++    // withdrawn tail forever.
++    state.nodes = state.nodes.filter(seq => seq < plan.atSeq)
++    state.replaceGeneration += 1
+   }
+   if (plan?.kind !== 'replace') return
+   return {
+diff --git a/packages/core/session/tests/rewind.spec.ts b/packages/core/session/tests/rewind.spec.ts
+new file mode 100644
+index 0000000000..8d3bae72bd
+--- /dev/null
++++ b/packages/core/session/tests/rewind.spec.ts
+@@ -0,0 +1,121 @@
++import { describe, expect, it } from 'vitest'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import { Session, SessionId, foldSurface } from '@deepseek-ai/dsh-session'
++import { SurfaceManager } from '@deepseek-ai/dsh-session/surface'
++import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
++import { REWIND_EVENT_TYPE } from '../src/rewind.ts'
++import { KNOWN_SESSION_EVENT_TYPES } from '../src/known-event-types.ts'
++
++/** Append one completed turn (user + assistant) and return the user event seq. */
++function appendTurn(session: Session, turn: number, text: string): number {
++  session.append('turn/start', { turn })
++  const user = session.append('user/message', createUserMessage({
++    content: [{ type: 'text', text }],
++    source: { kind: 'user' },
++  }), { surfaceOp: 'append' })
++  session.append('assistant/message', {
++    turn,
++    step: 1,
++    message: createMessage({
++      role: 'assistant',
++      content: [{ type: 'text', text: `answer ${turn}` }],
++      source: { kind: 'model', ...{ provider: 'mock', model: 'mock' } },
++    }),
++  }, { surfaceOp: 'append' })
++  session.append('turn/end', { turn, reason: { kind: 'completed' } })
++  return user.seq
++}
++
++/** A session with two completed turns; the rewind targets land inside turn 2. */
++function twoTurnSession(): { session: Session; firstUserSeq: number; secondUserSeq: number } {
++  const session = Session.create(SessionId('rewind'))
++  const firstUserSeq = appendTurn(session, 1, 'first')
++  const secondUserSeq = appendTurn(session, 2, 'second')
++  return { session, firstUserSeq, secondUserSeq }
++}
++
++describe('rewind tombstone surface fold', () => {
++  it('withdraws the [atSeq, marker) range while post-rewind appends stay visible', () => {
++    const { session, secondUserSeq } = twoTurnSession()
++    // Layout: turn1 = seq 0..3 (user 1, assistant 2), turn2 = seq 4..7 (user 5, assistant 6).
++    expect(secondUserSeq).toBe(5)
++    const marker = session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
++    expect(marker.seq).toBe(8)
++    appendTurn(session, 3, 'retry')
++
++    // [5, 8) withdrawn: turn 2's messages leave the surface, turn 3 (seq 9..12
++    // rebuilt from the marker) stays visible alongside the turn 1 prefix.
++    expect(foldSurface(session.events).nodes).toEqual([1, 2, 10, 11])
++  })
++
++  it('keeps the incremental SurfaceManager replay equal to the full fold', () => {
++    const { session, secondUserSeq } = twoTurnSession()
++    session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
++    appendTurn(session, 3, 'retry')
++    session.append(REWIND_EVENT_TYPE, { atSeq: 0 })
++
++    const full = foldSurface(session.events)
++    const incremental = new SurfaceManager(session.events)
++    expect(incremental.nodes).toEqual(full.nodes)
++    expect(incremental.nodes).toEqual([])
++    expect(incremental.replaceGeneration).toBe(2)
++  })
++
++  it('drops withdrawn messages from deriveMessages and invalidates the incremental cache', () => {
++    const { session, secondUserSeq } = twoTurnSession()
++    expect(session.deriveMessages()).toHaveLength(4)
++    // Warm the incremental cache so the truncation must force a rebuild.
++    expect(session.deriveMessages()).toHaveLength(4)
++
++    session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
++    expect(session.deriveMessages()).toHaveLength(2)
++    expect(session.deriveMessages()[0]?.content).toEqual([{ type: 'text', text: 'first' }])
++
++    appendTurn(session, 3, 'retry')
++    const messages = session.deriveMessages()
++    expect(messages).toHaveLength(4)
++    expect(messages[2]?.content).toEqual([{ type: 'text', text: 'retry' }])
++    expect(messages.at(-1)?.content).toEqual([{ type: 'text', text: 'answer 3' }])
++  })
++
++  it('composes chained tombstones reaching further back', () => {
++    const { session, firstUserSeq, secondUserSeq } = twoTurnSession()
++    session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
++    appendTurn(session, 3, 'retry')
++    // Second rewind withdraws everything from the first turn's user message.
++    session.append(REWIND_EVENT_TYPE, { atSeq: firstUserSeq })
++    expect(session.deriveMessages()).toHaveLength(0)
++  })
++
++  it('rejects malformed markers at append and seed boundaries', () => {
++    const { session, secondUserSeq } = twoTurnSession()
++    expect(() => session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq + 999 }))
++      .toThrow(/invalid atSeq/)
++    expect(() => session.append(REWIND_EVENT_TYPE, { atSeq: -1 }))
++      .toThrow(/invalid atSeq/)
++    expect(() => session.append(REWIND_EVENT_TYPE, { atSeq: 1.5 }))
++      .toThrow(/invalid atSeq/)
++
++    const good = twoTurnSession()
++    const marker = good.session.append(REWIND_EVENT_TYPE, { atSeq: good.secondUserSeq })
++    // Contiguous seq but an atSeq beyond the marker: the seed's surface
++    // validation must reject the malformed marker itself.
++    const seed = [...good.session.events, { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
++    expect(() => Session.create(SessionId('rewind-seed'), seed)).toThrow(/invalid seed event/)
++  })
++
++  it('reconstructs the truncated surface from a seed replay', () => {
++    const { session, secondUserSeq } = twoTurnSession()
++    session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
++    const markerSeq = session.events.at(-1)!.seq
++    appendTurn(session, 3, 'retry')
++
++    const replayed = Session.create(SessionId('rewind-replay'), session.events)
++    expect(replayed.deriveMessages()).toHaveLength(4)
++    expect(replayed.events.at(-1)!.seq).toBeGreaterThan(markerSeq)
++  })
++
++  it('catalogues the tombstone type so persistence reads accept it', () => {
++    expect(KNOWN_SESSION_EVENT_TYPES.has(REWIND_EVENT_TYPE)).toBe(true)
++  })
++})

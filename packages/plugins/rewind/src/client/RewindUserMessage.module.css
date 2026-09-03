@@ -1,0 +1,150 @@
+/* 镜像官方 MessageItem.module.css 的用户气泡与 MessageIconActions.module.css
+   的动作行：直接复用主题 CSS 变量，明暗主题自动跟随。 */
+
+.userRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.userStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bubble {
+  max-width: 100%;
+  background: var(--dsw-specific-bubble);
+  border-radius: 22px;
+  padding: 10px 16px;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* —— 动作行（官方 MessageIconActions 布局：时间 · 撤回 · 复制） —— */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+}
+
+.timeStart {
+  padding-right: 12px;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  [data-time-hover-root] .timeStart {
+    opacity: 0;
+    transition: opacity 80ms ease;
+  }
+
+  [data-time-hover-root]:hover .timeStart,
+  [data-time-hover-root]:focus-within .timeStart {
+    opacity: 1;
+  }
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: none;
+  border-radius: 28px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.action[data-unavailable] {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.action[data-unavailable]:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* —— 确认 / 错误：与动作行共用同一 28px 行槽位（原位替换，零高度变化） —— */
+
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.confirmText {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.errorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.errorText {
+  min-width: 0;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.14);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btnPrimary {
+  border-color: transparent;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-specific-bubble);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

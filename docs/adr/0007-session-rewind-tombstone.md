@@ -1,0 +1,76 @@
+# ADR-0007：会话撤回 —— 墓碑事件 + 上游 fold 最小补丁
+
+- 状态：已接受
+- 日期：2026-09-03
+
+## 背景
+
+用户需要「撤回编辑」能力（对标 Kimi Code 的 `/undo`）：撤回到某条用户消息发送前，
+消息文本回输入框供编辑重发。会话 ID 不变、无切换闪烁、磁盘近零增长。
+
+上游 dsh 没有任何回退原语：会话是 append-only 事件日志，唯一"回到历史点"的官方
+机制是 `session.fork`（复制到新会话）。fork 方案（ADR 评估过）的代价：每次撤回
+产生一个新会话（空间随撤回次数线性增长）、切换过渡可感知、旧会话需归档管理。
+
+Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓碑记录**——
+`context.undo {count}` 追加进记录流，所有消费者（LLM 上下文、transcript、resume
+重放、搜索）通过同一个 fold 应用墓碑统一剔除被撤回内容。物理日志保留（审计/
+回放源），语义层一致回退。
+
+## 选项
+
+- **A. fork + 归档（纯插件，前次评估的方案）**：零 patch，但会话 ID 变化、
+  空间线性增长、切换闪烁。否决为 v1 主方案。
+- **B. 墓碑 + patch 上游两个 fold（选定）**：机制与 Kimi 同构，交互质量最高。
+- **C. 墓碑 + 纯插件**：不可行——墓碑的解释层（core surface fold、client
+  conversation ingest）是上游所有代码路径的私有汇合点，插件对两者均无拦截面
+  （`deriveMessages`、客户端 assembler 增量路径连"自撤"都抛错）。
+
+## 决定
+
+采用 B。对 patches.yml 标准（"能做成插件/配置叠层的不动源码"）的论证：墓碑的
+写入侧（append 自定义事件）与全部 UI 是插件能做的；但**解释层**（`surface.ts` 的
+`planSurfaceEvent`/`applySurfacePlan`、client `session.ts` 的事件 ingest）上游私有，
+与 0008（"inspectCall 内嵌于上游 apply 闭包，插件无任何拦截点"）同性质。
+
+1. **事件**：`'dsh-desktop/session-rewind'`，data `{ atSeq: number }`，由 host
+   插件向 live Session append（`Session.append` 无运行时类型白名单，已核实）。
+   可见性语义：seq T 处的墓碑隐藏区间 **[atSeq, T)**（撤回后新事件 seq > T 照常
+   可见）；多墓碑链式叠加（∃r: r.atSeq ≤ e.seq < r.seq 则隐藏）。
+2. **patch 0012（core/session）**：`SurfacePlan` 加 `truncate` 变体；
+   `applySurfacePlan` 执行 `nodes.filter(seq < atSeq)` 并 **`replaceGeneration += 1`**
+   （否则 `deriveMessages` 增量缓存不收缩——已核实的坑）。三路径（live append /
+   fromRestore / foldSurface 全量）汇入同一对函数，一处生效。
+3. **patch 0013（client/runtime）**：纯函数 `visibleViewEvents`（∃-range 折叠，
+   墓碑事件本身保留在流中）接线到 ingest 三口（初始窗口 /
+   实时事件 / 翻页 prepend），重建走现成 `replaceWindow`（key 稳定、无 withdraw
+   抛错、raw 窗口与分页游标不动）。**墓碑不渲染任何标记**（2026-09-03 修订：
+   最初的 definition 认领渲染「已撤回」分隔线在多次撤回后堆叠成纯噪音；桌面
+   单用户场景接缝自明，未认领的墓碑被上游 fallback 静默忽略，视图无痕）。
+4. **持久化目录**：patch 携带 `declare module '@deepseek-ai/dsh-session/types'`
+   声明（上游标准扩展模式）+ 重新生成 `known-event-types.ts`。
+5. **互操作行为（由上游契约唯一决定）**：官方终端 CLI 打开含墓碑的会话会显式
+   拒读（"written by a newer harness"）。不使用 `ignorable`——其语义契约是
+   "跳过不影响重建"，对墓碑为假（跳过=截断丢失=重建出错误会话，恰是上游错误
+   信息警告的场景）。显式拒读优于静默漏上下文。DSH_HOME 与 CLI 共享，此限制
+   明示于 README。
+6. **v1 范围**：仅 live 会话（agent 已附着）。冷会话撤回返回结构化错误——冷路径
+   需"prepare→append→publish"舞蹈且与后续 prompt-resume 存在互斥
+   （`coordinator.prepare` 对 live 抛错），列为 v2 专项。
+7. **host precheck**：live → agent idle → 边界扫描（拒绝跨 compaction 替换段的
+   撤回：∃替换事件 R: R.seq ≥ atSeq ∧ R.surfaceOp.start < atSeq）→ atSeq 指向
+   user/message 事件。运行中撤回被拒（提示先停止）。
+
+## 后果
+
+- 撤回后会话 ID 不变、无切换、磁盘只增一条小记录；模型上下文与人类视图真实
+  回退，重启/恢复一致（core 三路径共用 fold）。
+- **已知限制（v1）**：token-meter 是独立的游标式 fold（`isSurfaceEvent` 对墓碑
+  为 false），撤回后其上下文用量显示与 compaction 规划面按旧表面估算——读侧
+  显示偏差，不影响模型真实上下文；完整对齐需 token-meter 消费墓碑，列为后续。
+  搜索索引同样仍含被撤回消息。
+- patch 维护：surface.ts / session.ts 是上游活跃文件，submodule bump 时按既有
+  patch 队列流程（sync-upstream CI 演练）重放校验；两个 patch 独立登记、可独立修复。
+- 官方 CLI 拒读含墓碑会话（见决定 5）；上游落地原生 rewind 原语后两 patch 退役、
+  插件仅换事件类型，UI 层不动。
+- shadow 用户消息渲染器镜像官方气泡样式，列入升级 checklist。

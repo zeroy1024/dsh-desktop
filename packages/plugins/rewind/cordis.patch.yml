@@ -1,0 +1,5 @@
+# rewind 自激活层：被列入 desktop profile 的 dsh.profile.bundles 后叠进
+# web-app 之上，把本包装进 cordis 树。客户端半由 dsh.client + ./client 导出加载。
+- insert:
+    - id: rewind
+      name: '@dsh-desktop/rewind'

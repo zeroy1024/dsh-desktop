@@ -1,0 +1,63 @@
+{
+  "name": "@dsh-desktop/rewind",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "会话撤回：用户消息行「撤回编辑」——墓碑事件回退到该消息发送前（模型上下文与视图一致），原文回输入框。机制见 docs/adr/0007。",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsx ./build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "^0.1.1-rc.2"
+  },
+  "devDependencies": {
+    "@dsh-desktop/plugin-kit": "workspace:*",
+    "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-host-webserver": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver",
+    "@deepseek-ai/dsh-session": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.1",
+    "esbuild": "^0.28.2",
+    "jsdom": "29.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

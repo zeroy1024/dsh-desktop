@@ -1,0 +1,348 @@
+diff --git a/packages/client/runtime/src/client/sessions/rewind.ts b/packages/client/runtime/src/client/sessions/rewind.ts
+new file mode 100644
+index 0000000000..fb697041f7
+--- /dev/null
++++ b/packages/client/runtime/src/client/sessions/rewind.ts
+@@ -0,0 +1,53 @@
++/**
++ * Client-side visibility fold for rewind tombstones — the transcript-side
++ * counterpart of the core `dsh-desktop/session-rewind` surface fold. A
++ * tombstone at seq `T` carrying `atSeq: A` hides raw transcript events with
++ * seq in `[A, T)`; events appended after the marker (the re-asked turn) stay
++ * visible, and chained markers compose. Only the conversation view input is
++ * filtered — the raw window keeps every event so seq continuity, pagination
++ * cursors, and the live-append dedup guard keep operating on the untouched
++ * log.
++ *
++ * The literal below duplicates the core declaration
++ * (`packages/core/session/src/rewind.ts`) deliberately: importing the
++ * constant from the built `dsh-session` surface entry would couple this
++ * fold's resolution to that package's build freshness.
++ *
++ * @module @deepseek-ai/dsh-client-runtime/client/sessions/rewind
++ */
++
++import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
++
++/** The rewind tombstone event type. Namespaced to the desktop harness owner. */
++export const REWIND_EVENT_TYPE = 'dsh-desktop/session-rewind'
++
++/** One tombstone's withdrawn range: raw events with seq in [atSeq, markerSeq). */
++export interface RewindRange {
++  readonly atSeq: number
++  readonly markerSeq: number
++}
++
++/** Collect every tombstone range declared inside a raw event window. */
++export function rewindRangesOf(events: readonly SessionEvent[]): RewindRange[] {
++  const ranges: RewindRange[] = []
++  for (const event of events) {
++    if (event.type === REWIND_EVENT_TYPE) {
++      ranges.push({ atSeq: (event.data as { atSeq: number }).atSeq, markerSeq: event.seq })
++    }
++  }
++  return ranges
++}
++
++/**
++ * Whether one event stays in the conversation view input: tombstones always
++ * flow through (a definition may claim one to render a rewind marker;
++ * unclaimed they are dropped by the fallback), every other event is hidden
++ * exactly when a tombstone's range covers it.
++ */
++export function keepViewEvent(event: SessionEvent, ranges: readonly RewindRange[]): boolean {
++  if (event.type === REWIND_EVENT_TYPE) return true
++  for (const range of ranges) {
++    if (event.seq >= range.atSeq && event.seq < range.markerSeq) return false
++  }
++  return true
++}
+diff --git a/packages/client/runtime/src/client/sessions/session.ts b/packages/client/runtime/src/client/sessions/session.ts
+index 02939cf28f..410c3328af 100644
+--- a/packages/client/runtime/src/client/sessions/session.ts
++++ b/packages/client/runtime/src/client/sessions/session.ts
+@@ -27,6 +27,7 @@ import { ProjectionValueStore } from './projection-store.ts'
+ import type { ProjectionsBaseline } from './projection-store.ts'
+ import { resolvedClientTimeZone } from '../time-zone.ts'
+ import { SessionQueueMirror } from './queue-mirror.ts'
++import { keepViewEvent, REWIND_EVENT_TYPE, rewindRangesOf } from './rewind.ts'
+ 
+ /** Messages requested per history page. */
+ export const PAGE_MESSAGES = 50
+@@ -404,7 +405,10 @@ export class Session implements SessionFace {
+       /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
+       this.baseSeq = older[0]?.event.seq ?? this.baseSeq
+       this.hasMore = result.value.hasMore
+-      this.conversation.prepend(older.map(conversationInput), this.hasMore)
++      // Older pages can land inside a tombstone's withdrawn range; the ranges
++      // are recomputed over the full raw window (already prepended above).
++      const ranges = rewindRangesOf(this.events)
++      this.conversation.prepend(older.filter(entry => keepViewEvent(entry.event, ranges)).map(conversationInput), this.hasMore)
+     } catch (error) {
+       console.error('[web-runtime] loadOlder failed:', error)
+     } finally {
+@@ -660,7 +664,7 @@ export class Session implements SessionFace {
+     this.baseSeq = this.events[0]?.seq ?? 0
+     this.hasMore = hasMore
+     if (this.events.some(event => event.type === 'turn/start')) this.firstPromptPendingTurn = false
+-    this.conversation.replaceWindow(entries.map(conversationInput), hasMore)
++    this.conversation.replaceWindow(this.visibleWindowInputs(), hasMore)
+     if (projections !== undefined) this.projections.seed(projections)
+     const buffered = this.liveBuffer
+     this.liveBuffer = []
+@@ -668,6 +672,17 @@ export class Session implements SessionFace {
+     this.notifier.markDirty()
+   }
+ 
++  /** Raw-window conversation inputs with rewind tombstones applied: hidden
++   *  ranges are dropped, the markers themselves stay claimable. The raw
++   *  window is never filtered — see ./rewind.ts. */
++  private visibleWindowInputs(): ConversationEventInput[] {
++    const ranges = rewindRangesOf(this.events)
++    return this.events
++      .map((event, index) => ({ event, view: this.views[index] }))
++      .filter(({ event }) => keepViewEvent(event, ranges))
++      .map(({ event, view }) => conversationInput(view === undefined ? { event } : { event, view }))
++  }
++
+   /** Seq-guarded append shared by stitching and the open-state live path. */
+   private appendLive(event: SessionEvent, view?: ToolEventView): ConversationPublication {
+     const tailSeq = this.windowTailSeq()
+@@ -676,6 +691,13 @@ export class Session implements SessionFace {
+     this.views.push(view)
+     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
+     const queueChanged = this.queueMirror.acceptDurable(event)
++    if (event.type === REWIND_EVENT_TYPE) {
++      // A tombstone rewrites visibility across the window, not just its own
++      // tail: rebuild the view through replaceWindow (no withdraw check, keys
++      // stay stable) with the hidden ranges dropped from the input.
++      const publication = this.conversation.replaceWindow(this.visibleWindowInputs(), this.hasMore)
++      return queueChanged ? 'immediate' : publication
++    }
+     const publication = this.conversation.append({ event, view })
+     return queueChanged ? 'immediate' : publication
+   }
+diff --git a/packages/client/runtime/tests/rewind.client.spec.ts b/packages/client/runtime/tests/rewind.client.spec.ts
+new file mode 100644
+index 0000000000..bbe16919bb
+--- /dev/null
++++ b/packages/client/runtime/tests/rewind.client.spec.ts
+@@ -0,0 +1,218 @@
++/**
++ * Rewind tombstone visibility on the client ingest paths: initial history
++ * window, live marker arrival (view rebuild), and older-page prepend. The
++ * harness mirrors session.client.spec.ts's minimal conversation runtime.
++ */
++import { describe, expect, it } from 'vitest'
++import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
++import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
++import { Session } from '../src/client/sessions/session.ts'
++import type {
++  ChatConversationViewNode, ChatLocationNodeIndex, ChatNodeStore, ChatSnapshot,
++  ConversationEventInput, ConversationNode, ConversationNodeDefinition,
++  ConversationRuntime, ConversationSnapshot, ConversationTimelineSnapshot,
++  ConversationViewDefinition,
++} from '../src/client/index.ts'
++import { keepViewEvent, rewindRangesOf } from '../src/client/sessions/rewind.ts'
++import { FakeApiClient, fakeRemote, ok } from './fake-api.client.ts'
++import { entries, ev } from './event-script.client.ts'
++
++const SID = 'fk-rewind' as SessionId
++const EMPTY: readonly never[] = []
++
++interface TestEventState extends ConversationEventInput {}
++
++class TestNodeStore implements ChatNodeStore {
++  private readonly nodes = new Map<string, ChatConversationViewNode>()
++  private cache: readonly ChatConversationViewNode[] = EMPTY
++
++  get(key: string): ChatConversationViewNode | undefined {
++    return this.nodes.get(key)
++  }
++
++  values(): readonly ChatConversationViewNode[] {
++    return this.cache
++  }
++
++  replace(nodes: readonly ChatConversationViewNode[]): void {
++    this.nodes.clear()
++    for (const node of nodes) this.nodes.set(node.key, node)
++    this.cache = [...this.nodes.values()]
++  }
++
++  upsert(nodes: readonly ChatConversationViewNode[]): void {
++    if (nodes.length === 0) return
++    for (const node of nodes) this.nodes.set(node.key, node)
++    this.cache = [...this.nodes.values()]
++  }
++}
++
++const TEST_LOCATIONS: ChatLocationNodeIndex = {
++  getTurn: () => EMPTY,
++  getStep: () => EMPTY,
++}
++
++function testLegacy(
++  nodes: readonly ChatConversationViewNode[],
++  _timeline: ConversationTimelineSnapshot,
++): ChatSnapshot['legacy'] {
++  const legacyNodes = nodes.flatMap((node): ConversationNode[] => {
++    const event = (node.data as TestEventState).event
++    if (event.type === 'user/message') return [{ kind: 'user', seq: event.seq } as ConversationNode]
++    if (event.type === 'assistant/message') return [{ kind: 'assistant', seq: event.seq } as ConversationNode]
++    return []
++  })
++  return { nodes: legacyNodes, turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: EMPTY }
++}
++
++function testViewDefinition(): ConversationViewDefinition<ChatConversationViewNode, ChatSnapshot> {
++  return {
++    target: 'chat',
++    create: () => {
++      const store = new TestNodeStore()
++      let current: ChatSnapshot = {
++        order: EMPTY,
++        nodes: store,
++        locations: TEST_LOCATIONS,
++        timeline: { turnOrder: EMPTY, turns: new Map() },
++        legacy: testLegacy(EMPTY, { turnOrder: EMPTY, turns: new Map() }),
++      }
++      const build = (timeline: ConversationTimelineSnapshot): ChatSnapshot => {
++        const nodes = [...store.values()].sort((left, right) => left.anchorSeq - right.anchorSeq)
++        current = {
++          order: nodes.map(node => node.key),
++          nodes: store,
++          locations: TEST_LOCATIONS,
++          timeline,
++          legacy: testLegacy(nodes, timeline),
++        }
++        return current
++      }
++      return {
++        empty: current,
++        replace: ({ nodes, timeline }) => {
++          store.replace(nodes)
++          return build(timeline)
++        },
++        apply: ({ upserts, timeline }) => {
++          store.upsert(upserts)
++          return build(timeline)
++        },
++      }
++    },
++  }
++}
++
++const TEST_EVENT_DEFINITION: ConversationNodeDefinition<TestEventState> = {
++  kind: 'rewind-test-event',
++  target: 'chat',
++  match: event => ({ id: String(event.seq), role: 'start' }),
++  start: (_context, match) => ({ event: match.event, view: match.view }),
++  update: context => context.state,
++  buildViewNode: (context) => {
++    if (context.state === undefined || context.start === undefined) return null
++    return {
++      key: context.key,
++      kind: 'rewind-test-event',
++      id: context.id,
++      target: 'chat',
++      anchorSeq: context.start.event.seq,
++      location: context.start.location,
++      visibility: 'visible',
++      data: context.state,
++    }
++  },
++}
++
++const TEST_CONVERSATION: ConversationRuntime = {
++  events: {
++    entries: () => [TEST_EVENT_DEFINITION],
++    fallbackEntry: () => undefined,
++  } as unknown as ConversationRuntime['events'],
++  views: {
++    entries: () => [testViewDefinition()],
++  } as unknown as ConversationRuntime['views'],
++}
++
++function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: Session } {
++  return { api, session: new Session(SID, api, fakeRemote(), { conversation: TEST_CONVERSATION }) }
++}
++
++function chatSeqs(snapshot: ConversationSnapshot): number[] {
++  return snapshot.chat.order
++    .map(key => (snapshot.chat.nodes.get(key)?.data as TestEventState | undefined)?.event.seq)
++    .filter((seq): seq is number => seq !== undefined)
++}
++
++function tombstone(seq: number, atSeq: number): SessionEvent {
++  return { seq, time: 1_700_000_000_000 + seq, type: 'dsh-desktop/session-rewind', data: { atSeq } } as unknown as SessionEvent
++}
++
++function histResponse(events: SessionEvent[], hasMore = false) {
++  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
++}
++
++/** turn 1 = seq 0..3, turn 2 = seq 4..7 (user seq 5). */
++function twoTurns(): SessionEvent[] {
++  return [
++    ev.turnStart(0, 1), ev.user(1, 'first'), ev.assistant(2, 1, 'answer 1'), ev.turnEnd(3, 1),
++    ev.turnStart(4, 2), ev.user(5, 'second'), ev.assistant(6, 2, 'answer 2'), ev.turnEnd(7, 2),
++  ]
++}
++
++describe('rewind visibility helpers', () => {
++  it('hides exactly [atSeq, marker) and keeps markers and later events', () => {
++    const events = [...twoTurns(), tombstone(8, 5), ev.turnStart(9, 3), ev.user(10, 'retry')]
++    const ranges = rewindRangesOf(events)
++    expect(ranges).toEqual([{ atSeq: 5, markerSeq: 8 }])
++    expect(events.filter(event => keepViewEvent(event, ranges)).map(event => event.seq)).toEqual([0, 1, 2, 3, 4, 8, 9, 10])
++  })
++
++  it('composes chained markers reaching further back', () => {
++    const events = [...twoTurns(), tombstone(8, 5), tombstone(9, 1)]
++    const ranges = rewindRangesOf(events)
++    expect(events.filter(event => keepViewEvent(event, ranges)).map(event => event.seq)).toEqual([0, 8, 9])
++  })
++})
++
++describe('rewind visibility on ingest', () => {
++  it('drops withdrawn events from the initial history window', async () => {
++    const { api, session } = makeSession()
++    api.onHistory = () => histResponse([...twoTurns(), tombstone(8, 5)])
++    await session.open()
++    expect(chatSeqs(session.getSnapshot())).toEqual([0, 1, 2, 3, 4, 8])
++  })
++
++  it('rebuilds the view when a live marker arrives and keeps later appends visible', async () => {
++    const { api, session } = makeSession()
++    api.onHistory = () => histResponse(twoTurns())
++    await session.open()
++    expect(chatSeqs(session.getSnapshot())).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
++
++    const feed = (event: SessionEvent) => {
++      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
++    }
++    feed(tombstone(8, 5))
++    feed(ev.turnStart(9, 3))
++    feed(ev.user(10, 'retry'))
++    await Promise.resolve()
++    expect(chatSeqs(session.getSnapshot())).toEqual([0, 1, 2, 3, 4, 8, 9, 10])
++  })
++
++  it('filters an older page that lands inside a withdrawn range', async () => {
++    const { api, session } = makeSession()
++    // Initial window: marker (atSeq 1) + one fresh turn; older page carries seq 0..7.
++    api.onHistory = (payload) => {
++      if (payload.beforeSeq === undefined) {
++        return histResponse([tombstone(8, 1), ev.turnStart(9, 3), ev.user(10, 'retry'), ev.turnEnd(11, 3)], true)
++      }
++      return histResponse(twoTurns(), false)
++    }
++    await session.open()
++    expect(chatSeqs(session.getSnapshot())).toEqual([8, 9, 10, 11])
++
++    await session.loadOlder()
++    // seq 1..7 fell inside [1, 8): only seq 0 survives from the older page.
++    expect(chatSeqs(session.getSnapshot())).toEqual([0, 8, 9, 10, 11])
++  })
++})
