@@ -138,6 +138,11 @@
   opacity: 1;
 }
 
+/* × 自身悬停才浮出圆形高亮底，与 tab 主体 hover 的整条底色区分开。 */
+.tabClose:hover {
+  background: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, .2));
+}
+
 .plusWrap {
   flex: none;
   display: inline-flex;

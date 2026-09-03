@@ -306,7 +306,8 @@
   cursor: pointer;
 }
 
-.fileTab:hover {
+/* active tab 保留自己的实底色，不再叠加 hover（与 panel-shell .tab 同规则）。 */
+.fileTab:hover:not(.fileTabActive) {
   background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .12));
 }
 
@@ -329,6 +330,10 @@
   justify-content: center;
   width: 16px;
   height: 16px;
+  /* 无全局 border-box reset，button 的 UA 默认 padding 会把 16px 盒撑成
+     28×18 椭圆使 hover 圈偏移；line-height:0 消除文本行盒对垂直居中的干扰。 */
+  padding: 0;
+  line-height: 0;
   border: 0;
   border-radius: var(--dsh-radius-circle, 50%);
   background: transparent;

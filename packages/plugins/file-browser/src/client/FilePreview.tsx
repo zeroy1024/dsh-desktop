@@ -5,7 +5,7 @@
  */
 import { memo, useState } from 'react'
 import {
-  Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, MarkdownText, Menu,
+  Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, IconCloseFill14, MarkdownText, Menu,
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useHorizontalTabScroll } from '@dsh-desktop/panel-shell/client'
@@ -149,7 +149,7 @@ export const FilePreview = memo(function FilePreview({
                       onClose(path)
                     }}
                   >
-                    ×
+                    <IconCloseFill14 size={12} />
                   </button>
                 </span>
               )
