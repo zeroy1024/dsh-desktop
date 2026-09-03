@@ -126,6 +126,13 @@ importers:
         version: 4.1.11(@types/node@24.13.3)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
 
   packages/plugins/archive-manager:
+    dependencies:
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain
+      zod:
+        specifier: link:../../../vendor/dsh-cli/node_modules/zod
+        version: link:../../../vendor/dsh-cli/node_modules/zod
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis

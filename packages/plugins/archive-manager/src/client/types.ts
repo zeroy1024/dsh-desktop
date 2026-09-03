@@ -33,6 +33,15 @@ export interface SessionListState {
   byId: Readonly<Record<SessionId, SessionRow>>
 }
 
+/** 归档时间侧车快照：sessionId → 归档时刻（epoch 毫秒）。 */
+export type ArchiveTimestampMap = Readonly<Record<string, number>>
+
+/** 排序字段：归档时间或会话最后活跃时间。 */
+export type SortField = 'archivedAt' | 'updatedAt'
+
+/** 排序方向。 */
+export type SortDirection = 'asc' | 'desc'
+
 /** 官方快照 selector hook 座位的形态（uSES 风格）。 */
 export type SnapshotSelectorHook<T> = <S>(selector: (snapshot: T) => S) => S
 

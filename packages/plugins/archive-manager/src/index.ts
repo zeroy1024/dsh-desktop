@@ -12,20 +12,26 @@
  * 自动消化，侧边栏实时刷新。上游若重构该内部面，路由返回 501 降级（ADR-0005）。
  */
 
-// Type-only：引入路由契约类型，同时激活两个包对 cordis Context 的 merge
-// （ctx.webServer / ctx.workspaceRegistry）；不拉任何 Host 实现。
+// Type-only：引入路由契约类型，同时激活三个包对 cordis Context 的 merge
+// （ctx.webServer / ctx.workspaceRegistry / ctx.storageDomain）；不拉任何 Host 实现。
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
+import type { DomainChanged, DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { UNARCHIVE_PATH } from './shared.ts'
+import { TIMESTAMPS_PATH, UNARCHIVE_PATH } from './shared.ts'
+import { ArchiveTimestampTracker, archiveTimestampsDomainSpec } from './timestamps.ts'
 
-export { UNARCHIVE_PATH } from './shared.ts'
+export { TIMESTAMPS_PATH, UNARCHIVE_PATH } from './shared.ts'
+export {
+  ArchiveTimestampTracker, archivedIdsOf, archiveTimestampsDomainSpec, archiveTimestampRowSchema,
+} from './timestamps.ts'
+export type { TimestampTablePort } from './timestamps.ts'
 
 /** Loader-visible plugin identity. */
 export const name = 'archive-manager'
 
-/** 两个依赖服务未就绪时 fiber 保持 PENDING，就绪后自动补跑 apply。 */
-export const inject = ['webServer', 'workspaceRegistry']
+/** 三个依赖服务未就绪时 fiber 保持 PENDING，就绪后自动补跑 apply。 */
+export const inject = ['webServer', 'workspaceRegistry', 'storageDomain']
 
 /** 请求体上限：单条会话 ID 的请求远用不到这个量级。 */
 const MAX_BODY_BYTES = 4096
@@ -221,14 +227,91 @@ export function registerUnarchiveRoute(webServer: WebServer, registry: Workspace
   })
 }
 
-/** cordis 插件入口：依赖未就绪时本函数不会被调用（cordis 等待语义）。 */
-export function apply(ctx: {
-  effect: (factory: () => void | (() => void), name?: string) => unknown
+/**
+ * 归档时间查询路由：POST + 同源校验（与 unarchive 同一威胁模型——路由虽只读，
+ * 跨站探测本机归档集合同样不应得逞）。方法刻意用 POST 而非 GET：浏览器对
+ * 同源 GET fetch 不附带 Origin 头，isSameOrigin 会一律 403；POST 恒带 Origin，
+ * 判定面与 unarchive 完全同构。载荷是 `{ ok, timestamps }`，读取失败回 500。
+ */
+export async function handleTimestampsRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  tracker: { read(): Promise<Record<string, number>> },
+): Promise<void> {
+  try {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { ok: false, code: 'method-not-allowed' })
+      return
+    }
+    if (!isSameOrigin(req.headers.origin, req.headers.host)) {
+      sendJson(res, 403, { ok: false, code: 'cross-origin' })
+      return
+    }
+    const timestamps = await tracker.read()
+    sendJson(res, 200, { ok: true, timestamps })
+  } catch {
+    sendJson(res, 500, { ok: false, code: 'internal-error' })
+  }
+}
+
+/** 把时间戳路由注册进 webServer；返回 disposer。 */
+export function registerTimestampsRoute(
+  webServer: WebServer,
+  tracker: { read(): Promise<Record<string, number>> },
+): () => void {
+  return webServer.register({
+    kind: 'exact',
+    path: TIMESTAMPS_PATH,
+    handler: (req, res) => { void handleTimestampsRequest(req, res, tracker) },
+  })
+}
+
+/** apply 的 ctx 形状：三个注入服务 + effect/on（类型面取注入契约）。 */
+export interface ArchiveManagerHostContext {
+  effect: (factory: () => (() => void) | Promise<() => void>, name?: string) => unknown
+  on: (name: string, listener: (change: DomainChanged) => void) => unknown
   webServer: WebServer
   workspaceRegistry: WorkspaceRegistry
-}): void {
+  storageDomain: DomainFacility
+}
+
+/**
+ * cordis 插件入口：依赖未就绪时本函数不会被调用（cordis 等待语义）。
+ *
+ * 装配三件事：
+ * 1. unarchive 路由（原有）；
+ * 2. timestamps 查询路由（新增，读侧车快照）；
+ * 3. 时间侧车：`domain/changed` 监听器同步注册（observe 在 attach 前是空操作），
+ *    打开 `archive_timestamps` 域后 seed 并 attach。域打开失败（上游存储故障
+ *    等）只降级为「无归档时间」，不影响恢复路由——effect 工厂 catch 后返回
+ *    空 disposer。
+ */
+export function apply(ctx: ArchiveManagerHostContext): void {
   ctx.effect(
     () => registerUnarchiveRoute(ctx.webServer, ctx.workspaceRegistry),
     'archive-manager: unarchive route',
   )
+
+  const tracker = new ArchiveTimestampTracker()
+  ctx.effect(
+    () => registerTimestampsRoute(ctx.webServer, tracker),
+    'archive-manager: timestamps route',
+  )
+
+  ctx.on('domain/changed', change => tracker.observe(change))
+  ctx.effect(async () => {
+    try {
+      const domain = await ctx.storageDomain.open(archiveTimestampsDomainSpec)
+      tracker.attach(domain.table('sessions'), ctx.workspaceRegistry.archivedSessionIds)
+      return async () => {
+        // detach 后不再接受新 reconcile；在途写排空后才关域。
+        tracker.detach()
+        await tracker.flush()
+        await domain.close()
+      }
+    } catch (error) {
+      console.error('archive-manager: timestamps domain failed to open:', error)
+      return () => {}
+    }
+  }, 'archive-manager: timestamps domain')
 }

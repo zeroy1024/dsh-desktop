@@ -36,7 +36,13 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-host-webserver": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2"
+    "@deepseek-ai/dsh-storage-domain": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2",
+    "zod": "^4.4.3"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-storage-domain": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain",
+    "zod": "link:../../../vendor/dsh-cli/node_modules/zod"
   },
   "devDependencies": {
     "@dsh-desktop/plugin-kit": "workspace:*",
