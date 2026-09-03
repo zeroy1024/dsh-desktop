@@ -3,7 +3,7 @@
  * 主体（markdown 渲染 / 源码高亮切换 / 大文件与二进制降级 / 错误态）。
  * 所有数据态由页面层拉取后经 props 下发（本组件零异步）。
  */
-import { memo, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import {
   Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, IconCloseFill14, MarkdownText, Menu,
   writeClipboard,
@@ -49,12 +49,33 @@ function isMarkdown(name: string): boolean {
 
 /** Native text control for payloads that deliberately bypass rich parsing. */
 const PlainTextPreview = memo(function PlainTextPreview({ text, t }: { text: string; t: Translate }) {
+  // 复制反馈与 rewind CopyAction / 上游 HoverCard 同款：成功才交换文案，1s 还原；
+  // writeClipboard 返回 false（权限拒绝等）时保持原样，不做虚假反馈。
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current)
+  }, [])
   return (
     <div className={css.plainPreview}>
       <div className={css.plainPreviewHead}>
         <span>{t('status.plain')}</span>
-        <Button size="sm" variant="outline" onClick={() => { void writeClipboard(text) }}>
-          {t('preview.copy')}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (copied) return
+            void writeClipboard(text).then((ok) => {
+              if (!ok) return
+              setCopied(true)
+              timer.current = setTimeout(() => {
+                timer.current = null
+                setCopied(false)
+              }, 1000)
+            })
+          }}
+        >
+          {copied ? t('preview.copied') : t('preview.copy')}
         </Button>
       </div>
       <textarea
@@ -263,7 +284,7 @@ export const FilePreview = memo(function FilePreview({
               code={content.text}
               lang={langFromName(name)}
               copyLabel={t('preview.copy')}
-              copiedLabel={t('preview.copy')}
+              copiedLabel={t('preview.copied')}
             />
           )
         })()}
