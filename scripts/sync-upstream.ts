@@ -76,7 +76,7 @@ const args = process.argv.slice(2)
 const skipBuild = args.includes('--skip-build')
 const skipPack = args.includes('--skip-pack')
 const effectiveSkipPack = skipPack || skipBuild
-const unknownArgs = args.filter((arg) => arg !== '--skip-build' && arg !== '--skip-pack')
+const unknownArgs = args.filter((arg) => !['--', '--skip-build', '--skip-pack'].includes(arg))
 if (unknownArgs.length > 0) throw new Error(`未知参数：${unknownArgs.join(', ')}`)
 
 function run(cmd: string, cmdArgs: string[], cwd: string, env?: Record<string, string>): void {
@@ -267,29 +267,43 @@ function upstreamUntrackedFiles(): string[] {
   ).split('\n').filter(line => line.startsWith('?? '))
 }
 
-/** Build the exact tracked diff represented by the registered queue. */
-function registeredPatchDiff(patches: readonly PatchEntry[]): string {
-  const scratch = mkdtempSync(join(tmpdir(), 'dsh-patch-index-'))
-  const indexPath = join(scratch, 'index')
-  const indexEnv = { GIT_INDEX_FILE: indexPath }
+/** 在临时 Git index 上构造 diff，避免污染 upstream 的真实 index。 */
+function withScratchIndex<T>(prefix: string, fn: (indexEnv: Record<string, string>) => T): T {
+  const scratch = mkdtempSync(join(tmpdir(), prefix))
+  const indexEnv = { GIT_INDEX_FILE: join(scratch, 'index') }
   try {
     capture('git', ['read-tree', 'HEAD'], upstreamDir, indexEnv)
-    for (const entry of patches) {
-      capture('git', ['apply', '--cached', registeredPatchPath(entry.file)], upstreamDir, indexEnv)
-    }
-    return capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
+    return fn(indexEnv)
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }
 }
 
+/** Build the exact tracked diff represented by the registered queue. */
+function registeredPatchDiff(patches: readonly PatchEntry[]): string {
+  return withScratchIndex('dsh-patch-index-', (indexEnv) => {
+    for (const entry of patches) {
+      capture('git', ['apply', '--cached', registeredPatchPath(entry.file)], upstreamDir, indexEnv)
+    }
+    return capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
+  })
+}
+
+/**
+ * 补丁可以新建文件（如 0012/0013 的 rewind.ts），git apply 落到工作树后是
+ * 未跟踪文件，`git diff HEAD` 看不见它们。经临时 index `git add --all` 把
+ * 未跟踪内容一并纳入对比，「登记 diff === 实际 diff」的判定对新建文件才成立。
+ * 被 .gitignore 忽略的产物（lib/、node_modules）不进 index，行为与此前一致。
+ */
 function actualUpstreamDiff(): string {
-  return capture('git', ['diff', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir)
+  return withScratchIndex('dsh-worktree-index-', (indexEnv) => {
+    capture('git', ['add', '--all'], upstreamDir, indexEnv)
+    return capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
+  })
 }
 
 /** Return the exact registered prefix represented by the current worktree. */
 function appliedRegisteredPrefix(patches: readonly PatchEntry[]): number | null {
-  if (upstreamUntrackedFiles().length > 0) return null
   const actual = actualUpstreamDiff()
   for (let length = patches.length; length >= 0; length -= 1) {
     if (actual === registeredPatchDiff(patches.slice(0, length))) return length
@@ -338,15 +352,17 @@ function applyPatches(patches: readonly PatchEntry[]): void {
   }
 }
 
-/** 用临时 Git index 构造“只套登记补丁”的标准 diff，拒绝 upstream 里的私改。 */
+/**
+ * 用临时 Git index 构造“只套登记补丁”的标准 diff，拒绝 upstream 里的私改。
+ * 未跟踪文件已由 actualUpstreamDiff 纳入 diff 对比：与登记补丁新建的完全一致
+ * 则通过，否则 diff 不等即拒绝（报错时列出未跟踪文件便于定位）。
+ */
 function verifyOnlyRegisteredPatches(patches: readonly PatchEntry[]): void {
-  const untracked = upstreamUntrackedFiles()
-  if (untracked.length > 0) {
-    throw new Error(`[patches] upstream 存在未登记文件：\n${untracked.join('\n')}`)
-  }
   if (actualUpstreamDiff() !== registeredPatchDiff(patches)) {
+    const untracked = upstreamUntrackedFiles()
+    const hint = untracked.length > 0 ? `\n当前未跟踪文件：\n${untracked.join('\n')}` : ''
     throw new Error(
-      '[patches] upstream 工作树包含未登记修改，拒绝继续。请把变更制作成 patches/*.patch，或先恢复子模块。',
+      `[patches] upstream 工作树包含未登记修改，拒绝继续。请把变更制作成 patches/*.patch，或先恢复子模块。${hint}`,
     )
   }
 }
