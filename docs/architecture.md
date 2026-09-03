@@ -81,3 +81,5 @@ spawn: --profile desktop --no-open --port 0
 - [ADR-0002 MVP 走 HTTP 内嵌，P3 迁 IPC 桥](adr/0002-mvp-transport.md)
 - [ADR-0003 Node 运行时策略](adr/0003-node-runtime.md)
 - [ADR-0004 内置插件分发：app 托管 desktop profile + 闭包解析](adr/0004-bundled-plugins.md)
+- [ADR-0005 归档管理插件：webServer 注册路由 + registry 运行时 setState](adr/0005-archive-manager-plugin.md)
+- [ADR-0006 审查插件：会话事件流聚合的面板页 + 行级评论回灌](adr/0006-review-plugin.md)

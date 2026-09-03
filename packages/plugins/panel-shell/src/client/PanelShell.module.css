@@ -247,6 +247,9 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* 预留滚动条槽位：占位型（classic）滚动条出现/消失时页面不再整体左右
+     挤压；浮层式滚动条（macOS 默认）下此属性无任何效果。 */
+  scrollbar-gutter: stable;
 }
 
 .seatHidden {

@@ -1,0 +1,50 @@
+{
+  "name": "@dsh-desktop/review",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "审查面板（人审 agent 改动）：聚合当前会话 write/edit 的 hunk diff，按文件汇总成编辑时间线，行级评论草稿一键回灌会话。MVP 为纯 client 半（session.history RPC + mux 帧观察）；git 工作区改动源规划在 v1（届时 node 半挂只读路由）。",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@dsh-desktop/panel-shell"
+      ],
+      "external": [
+        "@dsh-desktop/panel-shell/client"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsx ./build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@dsh-desktop/panel-shell": "workspace:*",
+    "@dsh-desktop/plugin-kit": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/react": "~18.3.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
