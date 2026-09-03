@@ -266,16 +266,18 @@ function PlusIcon() {
   )
 }
 
-/** 右侧面板开关图标：矩形外壳 + 右列竖线（开态高亮竖线示意面板展开）。 */
+/** 右侧面板开关图标：与左侧 PanelIcon 同一设计语言——矩形外壳 + 恒定
+ * 1.2px 分隔线，开合态用线位左右镜像表达（关贴右缘 x=12、开内收
+ * x=9.5），不再用加粗线宽示意状态。 */
 function SidePanelIcon({ open }: { open: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <path
-        d="M10.5 2.5v11"
-        stroke="currentColor"
-        strokeWidth={open ? 2 : 1.2}
-      />
+      {open ? (
+        <path d="M9.5 2.5v11" stroke="currentColor" strokeWidth="1.2" />
+      ) : (
+        <path d="M12 2.5v11" stroke="currentColor" strokeWidth="1.2" />
+      )}
     </svg>
   )
 }
