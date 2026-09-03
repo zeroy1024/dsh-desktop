@@ -164,9 +164,14 @@ export function createGitGetHandler(deps: GitHandlerDeps): (req: IncomingMessage
       sendJson(res, 500, { ok: false, error: 'git-error' })
       return
     }
-    const parts: string[] = [tracked.stdout]
-    let totalBytes = tracked.stdout.length
+    let trackedText = tracked.stdout
     let truncated = false
+    if (trackedText.length > maxDiffBytes) {
+      trackedText = trackedText.slice(0, maxDiffBytes)
+      truncated = true
+    }
+    const parts: string[] = [trackedText]
+    let totalBytes = trackedText.length
     const untracked = status.filter(isUntracked)
     for (const entry of untracked.slice(0, maxUntracked)) {
       if (totalBytes >= maxDiffBytes) {
@@ -228,8 +233,8 @@ export function createRestoreHandler(deps: GitHandlerDeps): (req: IncomingMessag
       return
     }
     // 字符串沙箱：拒绝绝对路径 / .. / 反斜杠等一切越界形态，结果钉在 root 内。
-    const relPath = resolveWithinRoot(root, rawPath)
-    if (relPath === undefined) {
+    const absolutePath = resolveWithinRoot(root, rawPath)
+    if (absolutePath === undefined) {
       sendJson(res, 400, { ok: false, error: 'bad-path' })
       return
     }
@@ -244,9 +249,9 @@ export function createRestoreHandler(deps: GitHandlerDeps): (req: IncomingMessag
       return
     }
     if (isUntracked(entry)) {
-      // untracked 的「撤销」 = 删除该新文件；root 拼接已在沙箱内。
-      const absolute = `${root}/${relPath}`
-      await unlink(absolute).catch((error: unknown) => {
+      // untracked 的「撤销」 = 删除该新文件；resolveWithinRoot 沙箱返回的已
+      // 是 root 内绝对路径，直接 unlink，无需再拼 root。
+      await unlink(absolutePath).catch((error: unknown) => {
         if ((error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') throw error
       })
       sendJson(res, 200, { ok: true, reverted: 'deleted' })

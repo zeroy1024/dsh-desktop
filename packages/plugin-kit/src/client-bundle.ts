@@ -7,9 +7,11 @@
  * 本文件是精简镜像：只保留工厂包装 + 平台 external。不抄 workspace glob、
  * Host/Client face、purity gate 全文；bump submodule 时对照上游
  * `clientConfig()` 的 outputOptions 与 PLATFORM_MODULES。
+ * 包的 `dsh.client.external` 声明（上游 tsdown.client.ts 语义）自动并入
+ * external——声明词条走模块表共享 require，不进包。
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { build } from 'esbuild'
 
 /**
@@ -36,8 +38,28 @@ export interface BuildClientBundleOptions {
   entry: string
   /** 输出路径（通常 lib/client.js）。 */
   outfile: string
-  /** 包声明的 dsh.client.external，叠在平台基线之上。 */
+  /** 叠在包声明之上的额外 external（常规词条走 package.json 声明，此参数留作覆盖/测试）。 */
   extraExternals?: readonly string[]
+}
+
+/** 从入口向上找最近的 package.json，读取 dsh.client.external 声明（找不到/无声明 → []）。 */
+async function declaredExternals(entry: string): Promise<string[]> {
+  let dir = dirname(entry)
+  while (true) {
+    const manifestPath = join(dir, 'package.json')
+    try {
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        dsh?: { client?: { external?: unknown } }
+      }
+      const external = manifest.dsh?.client?.external
+      return Array.isArray(external) ? external.filter((x): x is string => typeof x === 'string') : []
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return []
+    dir = parent
+  }
 }
 
 function styleInjection(id: string, css: string): string {
@@ -70,10 +92,14 @@ export function wrapClientFactory(id: string, code: string, css = ''): string {
 }
 
 export async function buildClientBundle(options: BuildClientBundleOptions): Promise<void> {
+  const declared = await declaredExternals(options.entry)
   const external = [
-    ...PLATFORM_MODULES,
-    ...PRELOADED_CLIENT_EXTERNALS,
-    ...(options.extraExternals ?? []),
+    ...new Set([
+      ...PLATFORM_MODULES,
+      ...PRELOADED_CLIENT_EXTERNALS,
+      ...declared,
+      ...(options.extraExternals ?? []),
+    ]),
   ]
   const result = await build({
     absWorkingDir: process.cwd(),

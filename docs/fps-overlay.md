@@ -43,7 +43,7 @@ HUD 的测量含义要说清楚：页面 rAF 反映的是 **Chromium 对该 webC
    - 用约 **500ms 滑动窗口**：`fps = 1000 * n / sum(dt)`，每 100–200ms 刷新数字，观感是「实时」但稳
    - 用近期有效帧间隔的中位数估算刷新周期，单帧 `dt > 2 × refreshInterval` 记一次掉帧：60Hz 阈值约 33ms，120Hz 阈值约 16.7ms。这样高刷屏不会沿用错误的 60Hz 基线
    - `document.hidden` 事件立即停表并显示 `—`；恢复可见时清空旧窗口，避免把后台暂停算成卡顿
-3. 物化：`resolveBundledPlugins()` 已扫 `packages/plugins/*`，不用改 profile；`pnpm dev` 改成构建全部 `packages/plugins/*`
+3. 物化：`resolveBundledPlugins()` 扫描 staged 后的 CLI 闭包 `vendor/dsh-cli/node_modules/@dsh-desktop`（`apps/desktop/src/main/bundled-plugins.ts:21-47`；打包态为首启解压出的副本），不用改 profile；`package.json` 声明 `dshDesktop.enabled: false` 的插件保留在仓库但默认不装配；`pnpm dev` 已构建全部 `packages/plugins/*`
 4. 默认 **dev 开、打包关**（`dshDesktop.dev` 或构建 `define`）。正式版不常驻。
 
 不要做：

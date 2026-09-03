@@ -3,7 +3,8 @@
  *
  * dsh webui 只与当前这一代 agent 的 127.0.0.1:<port> 通信：权限默认全拒、
  * 仅按白名单放行剪贴板写入，禁止 window.open、导航只允许该 origin，
- * 其余一律交给系统浏览器。
+ * 其余一律交给系统浏览器。此外对 agent origin 的主文档钉一层 CSP，
+ * 收敛渲染进程被注入时的爆炸半径。
  */
 import {
   app,
@@ -16,6 +17,39 @@ import { isAgentRendererUrl } from '@dsh-desktop/bridge'
 import { isPermissionAllowed } from './permissions'
 
 let allowedPort: () => number | null = () => null
+
+/**
+ * 钉给 agent 主文档的 CSP。
+ *
+ * script-src 不得不放行 'unsafe-eval'：上游发布产物
+ * （apps/web/dist/assets/index-*.js）内嵌 cordis ModuleLoader 的 __jsExpr
+ * 求值路径（`new Function("ctx","expr", with(ctx){ return eval(expr) })`），
+ * 任何带 __jsExpr 的配置值都会走到它，无法证明是冷路径，只能保守放行。
+ * 其余指令按最小化收敛：禁 object/base/form/frame-ancestors，连接限同源
+ * （dsh webui 无 WebSocket，SSE/fetch 均走 127.0.0.1:<port> 同源）。
+ */
+export const AGENT_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+/**
+ * 该响应是否需要钉 CSP：仅当前 agent origin 的主文档，其余（静态资源、
+ * 非 agent 来源、agent 未就绪）一律不动。纯函数，便于单测。
+ */
+export function agentDocumentCsp(resourceType: string, url: string, port: number | null): string | null {
+  if (resourceType !== 'mainFrame' || port === null) return null
+  return isAgentRendererUrl(url, port) ? AGENT_CSP : null
+}
 
 function externalHttpUrl(value: string): string | null {
   try {
@@ -59,6 +93,16 @@ export function installSecurityHooks(getAllowedPort: () => number | null): void 
   })
   session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
     isPermissionAllowed(permission, requestingOrigin, getAllowedPort()))
+
+  // 只给 agent 主文档补 CSP 响应头；dsh 服务端自身不下发 CSP。
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = agentDocumentCsp(details.resourceType, details.url, getAllowedPort())
+    callback({
+      responseHeaders: csp === null
+        ? details.responseHeaders
+        : { ...details.responseHeaders, 'Content-Security-Policy': [csp] },
+    })
+  })
 
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(({ url }) => {

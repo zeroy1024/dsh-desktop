@@ -36,4 +36,9 @@ describe('parseReadyLine', () => {
       token: null,
     })
   })
+
+  it('正则命中但 URL 无法解析时返回 null', () => {
+    // 形如 ready 行但 new URL 抛错（空主机），按非 ready 行处理
+    expect(parseReadyLine('dsh web: http://:80')).toBeNull()
+  })
 })

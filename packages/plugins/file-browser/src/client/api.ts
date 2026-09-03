@@ -39,12 +39,6 @@ export type FsFileContent =
   | { kind: 'too-large'; size: number }
   | { kind: 'binary'; size: number }
 
-/** workspace.* 的视图切片（只声明用到的字段）。 */
-export interface WorkspaceViewLite {
-  path: string
-  sessionIds: string[]
-}
-
 /**
  * 一元 RPC。失败（HTTP 层或信封 ok:false）统一抛 FsApiError；网关的
  * 未知方法/坏载荷等也落在此路。
@@ -151,20 +145,6 @@ export function hostDescribe(): Promise<{ cwd: string; home: string; canOpenPath
 /** 系统默认应用打开绝对路径（特权动作，栅栏与平台由上游负责）。 */
 export function hostOpenPath(path: string): Promise<{ opened: true }> {
   return rpc('host.openPath', { path })
-}
-
-/** 工作区注册表（sessionId → 项目目录的解析源）。 */
-export function workspaceList(): Promise<{ items: WorkspaceViewLite[] }> {
-  return rpc('workspace.list', {})
-}
-
-/** 解析会话工作目录：workspace 注册表优先（canonical path），回落 host.describe.cwd。 */
-export async function resolveSessionRoot(sessionId: string): Promise<string> {
-  const { items } = await workspaceList()
-  const owner = items.find(item => item.sessionIds.includes(sessionId))
-  if (owner !== undefined) return owner.path
-  const host = await hostDescribe()
-  return host.cwd
 }
 
 /**

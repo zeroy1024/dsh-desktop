@@ -257,7 +257,7 @@ interface LlmService {
   /** Optional first-class seam supplied by newer LlmRuntime versions. */
   registerInputTransform?: (
     transform: (request: ImageInputTransformRequest) => ImageInputTransformResult | Promise<ImageInputTransformResult>,
-  ) => unknown
+  ) => () => void
 }
 
 interface GenerateOptions extends Record<string, unknown> {
@@ -671,7 +671,7 @@ interface RewriteState {
 }
 
 async function imageBlockResult(block: ImageBlock, state: RewriteState): Promise<EvidenceResult & { key: string }> {
-  const key = evidenceKey(block, state.opts, state.focus)
+  const key = evidenceKey(block, state.opts)
   const existing = state.cache.get(key)
   if (existing !== undefined) return { key, ...(await abortableWait(existing, state.signal)) }
   const pending = describeAttachment(state.opts, state.attachments, block, state.focus, state.signal).then(
@@ -829,10 +829,12 @@ export function installImageInputTransform(
   // is installed only when this seam is unavailable.
   const llm = ctx.get('llm') as LlmService | undefined
   if (typeof llm?.registerInputTransform !== 'function') return false
-  // The runtime owns registration lifetime through the calling traceable
-  // context. A present-but-broken seam is a programming error and must surface;
+  // A present-but-broken seam is a programming error and must surface;
   // only an absent method selects the legacy stream fallback.
-  llm.registerInputTransform.call(llm, service.transform)
+  const dispose = llm.registerInputTransform.call(llm, service.transform)
+  // 0011 的 fiber-owned 指 LlmRuntime 侧的注册簿记；返回的 disposer 是唯一
+  // 移除入口，挂回本插件 fiber 的 effect，卸载/重载时一并释放。
+  ctx.effect?.(() => () => { dispose() }, 'dsh-vision: input transform')
   return true
 }
 

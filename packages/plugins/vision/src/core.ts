@@ -39,13 +39,20 @@ export const MAX_PROMPT_CHARS = 16_000
 export const MAX_FOCUS_CHARS = 2_000
 export const MAX_EVIDENCE_CHARS = 50_000
 
+/**
+ * 上游附件持久化白名单（attachment-local 冻结的 png/jpeg/webp/gif）是先行
+ * 闸门，准入期就会拒绝其它类型；此处与之保持一致，不再保留永远走不到的
+ * heic/heif 死条目。
+ *
+ * The upstream attachment persistence allowlist is the first gate and already
+ * rejects anything outside png/jpeg/webp/gif at admission time, so this list
+ * mirrors it exactly.
+ */
 export const MEDIA_TYPES = {
   'image/png': true,
   'image/jpeg': true,
   'image/webp': true,
   'image/gif': true,
-  'image/heic': true,
-  'image/heif': true,
 } as const
 
 export type VisionProtocol = 'openai-responses' | 'openai-chat' | 'anthropic'
@@ -224,11 +231,21 @@ export function configFingerprint(opts: VisionOptions): string {
   }))
 }
 
-/** Return a content-addressed identity for the attachment plus operation focus. */
+/**
+ * Return a content-addressed identity for the attachment plus bridge config.
+ *
+ * focus 只进转写 prompt（见 `buildPrompt`），不进 key：focus 取自最新一条
+ * 用户消息，每条新用户消息都会改变它——若进 key，会话历史里所有图片的缓存
+ * 会每轮全部失效并重发视觉请求。
+ *
+ * The focus hint only enters the transcription prompt, never this key. It is
+ * derived from the latest user message, so every new user message changes it;
+ * folding it into the key would invalidate the evidence cache for every
+ * historical image on every turn.
+ */
 export function evidenceKey(
   block: ImageBlock,
   opts: VisionOptions,
-  focus: string,
 ): string {
   const attachment = block.attachment as Record<string, unknown> | null | undefined
   const attachmentIdentity = {
@@ -236,7 +253,7 @@ export function evidenceKey(
     mediaType: attachment?.mediaType,
     bytes: attachment?.bytes,
   }
-  return `dsh-vision:v1:${stableDigest(jsonForKey(attachmentIdentity))}:${configFingerprint(opts)}:${stableDigest(focus)}`
+  return `dsh-vision:v1:${stableDigest(jsonForKey(attachmentIdentity))}:${configFingerprint(opts)}`
 }
 
 /** Recursively detect images, including nested tool-result content. */

@@ -7,15 +7,24 @@
  * AgentSupervisor owns process-group termination on POSIX and the direct
  * child termination path on Windows.
  *
+ * The agent runs under the desktop profile, so the app's bundled plugins are
+ * loaded by dsh itself instead of being bypassed by the smoke. This requires
+ * `pnpm build` first: the staged plugin closure it produces is materialized
+ * into the temporary DSH_HOME as symlinks. Use `--no-profile` to fall back to
+ * the bare web profile (missing staged plugins fail otherwise).
+ *
  * Usage:
  *   pnpm exec tsx scripts/smoke-dsh.ts
  *   pnpm exec tsx scripts/smoke-dsh.ts --cli-entry <path/to/lib/bin.js>
+ *   pnpm exec tsx scripts/smoke-dsh.ts --no-profile
  */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { AgentSupervisor, type AgentReadyInfo } from '../packages/agent-host/src/supervisor'
+import type { BundledPlugin } from '../packages/agent-host/src/desktop-profile'
+import { materializeDesktopProfile } from '../packages/agent-host/src/desktop-profile'
 
 export interface WebSmokeResponse {
   status: number
@@ -39,6 +48,10 @@ export interface DshSmokeOptions {
   requestTimeoutMs?: number
   /** Additional environment values passed to dsh. */
   env?: Record<string, string>
+  /** 装配 desktop profile 的内置插件；缺省解析 staged 闭包（需先 pnpm build）。 */
+  plugins?: BundledPlugin[]
+  /** 跳过 desktop profile 装配（仅测试与最小复现用，不加 profile 版参数）。 */
+  noProfile?: boolean
 }
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -52,9 +65,51 @@ const defaultCliEntry = join(
   'lib',
   'bin.js',
 )
+/** build 的 stage:plugins 把 enabled 插件 staging 到 dsh CLI 闭包的 @dsh-desktop 作用域。 */
+const stagedPluginsDir = join(rootDir, 'vendor', 'dsh-cli', 'node_modules', '@dsh-desktop')
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 扫描一个目录里的内置插件包，镜像 apps/desktop/src/main/bundled-plugins.ts 的
+ * 判定（name 合法 + `dshDesktop.enabled: false` 跳过）；此副本独立于此地，因为
+ * bundled-plugins.ts 依赖 electron 的 `app` 不可在脚本进程复用。staged 闭包本身
+ * 已由 stage:plugins 排除 enabled:false 的插件，此判定是对手工拷贝的兜底。
+ */
+export function scanStagedPlugins(pluginsRoot: string): BundledPlugin[] {
+  const plugins: BundledPlugin[] = []
+  for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const dir = join(pluginsRoot, entry.name)
+    const manifestPath = join(dir, 'package.json')
+    if (!existsSync(manifestPath)) continue
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      name?: string
+      dshDesktop?: { enabled?: boolean }
+    }
+    if (typeof manifest.name !== 'string' || manifest.name === '') continue
+    if (manifest.dshDesktop?.enabled === false) continue
+    plugins.push({ name: manifest.name, dir })
+  }
+  plugins.sort((a, b) => a.name.localeCompare(b.name))
+  if (plugins.length === 0) {
+    throw new Error(`staged 插件为空（${pluginsRoot}），异常`)
+  }
+  return plugins
+}
+
+/**
+ * 解析 stage:plugins 产出的 staged 插件闭包，供 desktop profile 物化。
+ *
+ * @param pluginsDir 插件目录；缺省为 vendor/dsh-cli 闭包里的 @dsh-desktop 作用域。
+ */
+export function resolveStagedPlugins(pluginsDir: string = stagedPluginsDir): BundledPlugin[] {
+  if (!existsSync(pluginsDir)) {
+    throw new Error(`未找到 staged 插件闭包：${pluginsDir}；请先运行 pnpm build（stage:plugins 产出 staged 闭包）。`)
+  }
+  return scanStagedPlugins(pluginsDir)
 }
 
 /**
@@ -130,6 +185,15 @@ export async function runDshSmoke(options: DshSmokeOptions = {}): Promise<DshSmo
 
   const dshHome = mkdtempSync(join(tmpdir(), 'dsh-desktop-ci-'))
   const logDir = join(dshHome, 'logs')
+  // dsh 级 smoke 默认走 desktop profile：13 个内置插件在 dsh 子进程里同样装配，
+  // 避免 CI 只覆盖裸 web profile、把插件旁路。staged 闭包缺失时给出可操作错误。
+  if (options.noProfile !== true) {
+    materializeDesktopProfile({
+      dshHome,
+      plugins: options.plugins ?? resolveStagedPlugins(),
+      version: 'ci-smoke',
+    })
+  }
   const supervisor = new AgentSupervisor({
     cliEntry,
     dshHome,
@@ -137,7 +201,9 @@ export async function runDshSmoke(options: DshSmokeOptions = {}): Promise<DshSmo
     startupTimeoutMs: options.startupTimeoutMs ?? 60_000,
     // A smoke must never leave a server behind if the HTTP assertion fails.
     stopGraceMs: 5_000,
-    profileArgs: ['--profile', 'web', '--no-open', '--port', '0'],
+    profileArgs: options.noProfile === true
+      ? ['--profile', 'web', '--no-open', '--port', '0']
+      : ['--profile', 'desktop', '--no-open', '--port', '0'],
     env: {
       DSH_TELEMETRY_DISABLED: '1',
       ...options.env,
@@ -209,6 +275,7 @@ function parseCliOptions(argv: readonly string[]): CliOptions {
         index += 1
         break
       }
+      case '--no-profile': options.noProfile = true; break
       case '--startup-timeout-ms': {
         const value = argv[index + 1]
         if (value === undefined) throw new Error('--startup-timeout-ms 需要数值')
@@ -230,6 +297,7 @@ function parseCliOptions(argv: readonly string[]): CliOptions {
           'Usage: smoke-dsh [options]',
           '',
           '  --cli-entry <path>          dsh CLI lib/bin.js path',
+          '  --no-profile                bare web profile (no bundled plugins)',
           '  --startup-timeout-ms <ms>   ready-line timeout',
           '  --request-timeout-ms <ms>   HTTP GET timeout',
           '  --keep-home                 retain temporary DSH_HOME',

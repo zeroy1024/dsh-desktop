@@ -18,13 +18,13 @@ patches/            对上游的最小补丁队列 + patches.yml 登记
 apps/desktop/       Electron 壳（主进程 + preload）
 packages/agent-host/  dsh 子进程监管库（纯 Node，可单测）
 packages/bridge/    当前一代 agent 的 loopback HTTP origin 判定
-packages/webui/     自组 WebUI 构建（预留，真 IPC 时才需要）
 packages/plugin-kit/  客户端插件打包（ModuleLoader 工厂，镜像上游 tsdown.client 契约）
 packages/plugins/   我们的 dsh 插件群（功能大头；app 内置分发，ADR-0004，不走 dsh plugin add 装用户 profile）
-scripts/            sync-upstream / dev / bundle-node
+scripts/            sync-upstream / dev
 vendor/             上游包 tarball + dsh-cli 独立安装（gitignore，可重新生成）
 docs/               architecture.md + adr/
 ```
+注：`packages/webui`（自组 WebUI 构建）为预留，尚未创建；真 IPC 接入时才建（ADR-0002）。
 
 ## 常用命令
 

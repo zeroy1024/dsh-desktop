@@ -92,6 +92,22 @@ describe('materializeDesktopProfile', () => {
     ).toThrow(/不是本 app 托管/)
   })
 
+  it('戳文件是坏 JSON 时按无戳处理：读取不抛，目录按外来拒绝覆盖', () => {
+    const root = scratch()
+    const profileDir = join(root, 'home', 'profiles', 'desktop')
+    mkdirSync(profileDir, { recursive: true })
+    // 损坏的戳不能当作所有权证明：readStamp 吞掉解析错误当无戳，
+    // 目录非空又无法证明归属 → 走外来 profile 分支，拒绝覆盖而不是自愈清空。
+    writeFileSync(join(profileDir, STAMP_FILENAME), '{ not json\n')
+    expect(() =>
+      materializeDesktopProfile({
+        dshHome: join(root, 'home'),
+        version: '0.1.0',
+        plugins: [],
+      }),
+    ).toThrow(/不是本 app 托管/)
+  })
+
   it('在写入前拒绝路径穿越和 manifest 名不匹配', () => {
     const root = scratch()
     const pluginDir = pluginFixture(root, '@dsh-desktop/hello-panel')

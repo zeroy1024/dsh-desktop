@@ -1,8 +1,12 @@
 # 方案：原生标题栏与侧栏融为一体
 
-- 状态：v1 已实施；折叠 0 宽由 `patches/0006-ui-layout-panel-seam.patch`（原 0002 变量缝已并入）+ desktop-frame 覆盖 `--dsh-sidebar-collapsed-track`；会话 view tab 已由 desktop-frame 藏掉（0007 后 conversation.view 只剩 chat 一项，上游 tablist 本就不再渲染，CSS 规则转为兜底；轨迹 view 经 0007/0008 迁入右侧面板页，chat 的 Inspect 按钮走 panelShell 交接）；会话 header 上下 padding 清零、titleRow 撑 44px，标题垂直居中且与侧栏顶带同线（水平布局维持官方左对齐）；中栏 header 整行并入窗口拖动带（交互元素 no-drag 挖洞，details 列头部待 patch 0003 加锚点后跟进）；blank 态 header 隐藏时 titleband 检测后自动铺满整窗，拖动带常驻（标记缺失时保守回落侧栏宽）；折叠态中栏 header 让位 `padding-left: 168px`（与 padding 同曲线动画；1px 分隔线按视觉锚点光学居中于 + 图标右缘 144 与标题字形左缘 176 之间（159.5），仅折叠态淡入，参照项目 data-titleband-divider 同款；待 patch 0003 变量缝收编）；官方 Session log 下载胶囊已迁至会话行右键菜单（patch 0001 菜单项 + 同源 anchor 下载，插件 CSS 按 `data-slot` 锚藏起 header.utilities 槽）；侧栏默认宽 320 由 patch 0004 承担（layout 服务面不暴露宽度写入，插件不可达）
+- 状态：v1 已实施；折叠 0 宽由 `patches/0006-ui-layout-panel-seam.patch`（原 0002 变量缝已并入）+ desktop-frame 覆盖 `--dsh-sidebar-collapsed-track`；会话 view tab 已由 desktop-frame 藏掉（0007 后 conversation.view 只剩 chat 一项，上游 tablist 本就不再渲染，CSS 规则转为兜底；轨迹 view 经 0007/0008 迁入右侧面板页，chat 的 Inspect 按钮走 panelShell 交接）；会话 header 上下 padding 清零、titleRow 撑 44px，标题垂直居中且与侧栏顶带同线（水平布局维持官方左对齐）；中栏 header 整行并入窗口拖动带（交互元素 no-drag 挖洞，details 列头部待 --dsh-titleband-indent 变量缝补丁（编号未定）加锚点后跟进）；blank 态 header 隐藏时 titleband 检测后自动铺满整窗，拖动带常驻（标记缺失时保守回落侧栏宽）；折叠态中栏 header 让位 `padding-left: 168px`（与 padding 同曲线动画；1px 分隔线按视觉锚点光学居中于 + 图标右缘 144 与标题字形左缘 176 之间（159.5），仅折叠态淡入，参照项目 data-titleband-divider 同款；待 --dsh-titleband-indent 变量缝补丁（编号未定）落地后收编）；官方 Session log 下载胶囊已迁至会话行右键菜单（patch 0001 菜单项 + 同源 anchor 下载，插件 CSS 按 `data-slot` 锚藏起 header.utilities 槽）；侧栏默认宽 320 由 patch 0004 承担（layout 服务面不暴露宽度写入，插件不可达）
 - 日期：2026-08-30
 - 参照：`/Users/zeroy/Projects/dsh-desktop`（Tauri 桌面壳）运行时预览
+
+## 已知问题（2026-09 审查记录）
+
+**折叠态几何按 darwin 调优**：`FOLDED_CLUSTER_PX = 172`（`packages/plugins/desktop-frame/src/geometry.ts:8`）、折叠态 header `padding-left: 168px` 与分隔线 `left: 159.5px`（`src/client/chrome.css` 折叠态规则）都是含红绿灯区（trafficLightPosition x:16）的 **darwin 值**。win/linux 无原生红绿灯（titleband 按钮实为 12px 起排），折叠态存在约 100px 的视觉冗余（假灯区）。修正需要 win/linux 真机视觉验证——几何常量（`FOLDED_CLUSTER_PX`）、padding、分隔线位置三处需配套改；在拿到真机前不在盲改。
 
 目标视觉（用户截图）：去掉侧栏顶部 logo；折叠按钮与红绿灯同一行；「新会话」从胶囊按钮改成会话树同款整行 item；侧栏走 macOS 高斯模糊。本文记录已落地方案与维护边界。
 

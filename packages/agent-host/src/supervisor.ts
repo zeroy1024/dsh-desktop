@@ -4,6 +4,7 @@
  * 职责：以子进程方式启动 `dsh web`（127.0.0.1 随机端口 + 启动 token），
  * 从 stdout 解析 ready 行得到可用 URL；子进程意外退出时按指数退避重启；
  * stdout/stderr 落盘到日志目录。桌面主进程通过它拿到 loadURL 目标。
+ * 上游 0.1.1-rc.2 起 ready 行已不再携带 token；redactSecrets 保留是对旧格式的兼容防御。
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
@@ -18,6 +19,7 @@ import {
   type WriteStream,
 } from 'node:fs'
 import { join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 import { parseReadyLine, type ReadyLineInfo } from './ready-line'
 
 /** start() 成功时返回的信息。 */
@@ -144,6 +146,12 @@ export class AgentSupervisor extends EventEmitter {
 
   private spawnAndWaitReady(): Promise<AgentReadyInfo> {
     return new Promise((resolvePromise, rejectPromise) => {
+      // 兜底防御：restart 回调侧已检查 intentionalStop，此处再挡一层，stop 后绝不拉起新进程
+      if (this.intentionalStop) {
+        this.currentState = 'stopped'
+        rejectPromise(new Error('agent 已停止，放弃启动'))
+        return
+      }
       this.currentState = 'starting'
       const logStream = this.openLogStream()
       this.logStream = logStream
@@ -162,7 +170,9 @@ export class AgentSupervisor extends EventEmitter {
 
       const child = spawn(node, args, {
           env: { ...process.env, DSH_HOME: this.options.dshHome, ...this.options.env },
-          // POSIX 下独立进程组，stop() 才能整组 SIGTERM/SIGKILL
+          // POSIX 下独立进程组，stop() 才能整组 SIGTERM/SIGKILL；
+          // win32 无进程组信号，kill 即 TerminateProcess（无优雅期），
+          // dsh web 不派生孙进程，可接受
           detached: process.platform !== 'win32',
           stdio: ['ignore', 'pipe', 'pipe'],
         },
@@ -186,8 +196,12 @@ export class AgentSupervisor extends EventEmitter {
       let startupFailure: Error | null = null
       let stdoutBuf = ''
       let stderrBuf = ''
-      const writeCompleteLines = (chunk: Buffer, current: string, onLine?: (line: string) => void): string => {
-        let buffer = current + chunk.toString('utf8')
+      // 多字节 UTF-8 字符可能跨 chunk 边界，直接 toString 会截断成 replacement char；
+      // StringDecoder 扣留残缺的尾部字节，等后续 chunk 补全再输出
+      const stdoutDecoder = new StringDecoder('utf8')
+      const stderrDecoder = new StringDecoder('utf8')
+      const writeCompleteLines = (decoder: StringDecoder, chunk: Buffer, current: string, onLine?: (line: string) => void): string => {
+        let buffer = current + decoder.write(chunk)
         let newlineIndex = buffer.indexOf('\n')
         while (newlineIndex >= 0) {
           const line = buffer.slice(0, newlineIndex)
@@ -210,11 +224,15 @@ export class AgentSupervisor extends EventEmitter {
         startupFailure = new Error(`agent 启动超时（${this.options.startupTimeoutMs ?? 60_000}ms 内未等到 ready 行）`)
         this.currentState = 'stopping'
         // 等 close 后再拒绝，保证自动重试不会与尚在退出的旧进程重叠。
-        void this.terminate(child)
+        // SIGKILL 都收不掉尸的极端路径：记录并显式拒绝，start() 不能悬挂。
+        void this.terminate(child).catch((error: unknown) => {
+          console.error('[agent] 启动超时后终止失败', error)
+          rejectBeforeReady(error instanceof Error ? error : new Error(String(error)))
+        })
       }, this.options.startupTimeoutMs ?? 60_000)
 
       child.stdout!.on('data', (chunk: Buffer) => {
-        stdoutBuf = writeCompleteLines(chunk, stdoutBuf, (line) => {
+        stdoutBuf = writeCompleteLines(stdoutDecoder, chunk, stdoutBuf, (line) => {
           if (promiseSettled || startupFailure !== null) return
           const ready = parseReadyLine(line)
           if (ready) {
@@ -230,7 +248,7 @@ export class AgentSupervisor extends EventEmitter {
         })
       })
       child.stderr!.on('data', (chunk: Buffer) => {
-        stderrBuf = writeCompleteLines(chunk, stderrBuf)
+        stderrBuf = writeCompleteLines(stderrDecoder, chunk, stderrBuf)
       })
       child.on('error', (err) => {
         if (!reachedReady) startupFailure = err
@@ -239,8 +257,11 @@ export class AgentSupervisor extends EventEmitter {
         clearTimeout(timer)
         const isCurrentChild = this.child === child
         if (isCurrentChild) this.clearStableTimer()
-        if (stdoutBuf.length > 0) logStream.write(redactSecrets(stdoutBuf))
-        if (stderrBuf.length > 0) logStream.write(redactSecrets(stderrBuf))
+        // decoder.end() 吐出跨 chunk 扣留的尾部字节，拼在行缓冲之后一并落盘
+        const stdoutTail = stdoutBuf + stdoutDecoder.end()
+        const stderrTail = stderrBuf + stderrDecoder.end()
+        if (stdoutTail.length > 0) logStream.write(redactSecrets(stdoutTail))
+        if (stderrTail.length > 0) logStream.write(redactSecrets(stderrTail))
         logStream.end()
         if (this.logStream === logStream) this.logStream = null
         if (isCurrentChild) {
@@ -281,6 +302,9 @@ export class AgentSupervisor extends EventEmitter {
     this.emit('restarting', this.retryCount, delay)
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null
+      // stop() 与本回调的入队竞态：clearTimeout 对已入队的回调无效，
+      // 此时 stop 已把 intentionalStop 置位，直接放弃，不能再拉起新进程。
+      if (this.intentionalStop) return
       this.spawnAndWaitReady().catch((err: unknown) => {
         if (this.intentionalStop) return
         this.emit('restart-failed', err, this.retryCount)
@@ -330,7 +354,10 @@ export class AgentSupervisor extends EventEmitter {
     return stream
   }
 
-  /** 整组 SIGTERM，超时后 SIGKILL；stdio 已关闭并完成清场后 resolve。 */
+  /**
+   * 整组 SIGTERM，超时后 SIGKILL；stdio 已关闭并完成清场后 resolve。
+   * win32 下 SIGTERM/SIGKILL 均表现为立即 TerminateProcess（无优雅期）。
+   */
   private async terminate(child: ChildProcess): Promise<void> {
     const closed = child.exitCode !== null || child.signalCode !== null
       ? Promise.resolve()

@@ -5,6 +5,14 @@ correctness gate for the pinned upstream patch queue and for the desktop
 runtime on Linux, macOS, and Windows; release signing and installer publishing
 remain part of P4 and deliberately do not run in pull requests.
 
+## Toolchain
+
+Every workflow step installs pnpm with `pnpm/action-setup` (pinned SHA, v6)
+and no `version` input: the action defaults to the `packageManager` field of
+the root `package.json` when it is present. The version therefore tracks the
+root manifest (`packageManager: pnpm@11.24.0`) and is bumped there, not in the
+workflows.
+
 ## Pipeline
 
 ### `workflow-lint` (Linux)
@@ -38,13 +46,22 @@ Each runner downloads the upstream contract and then:
 3. Runs unit tests and builds the desktop shell and all bundled plugins.
 4. Loads and exercises `node-pty`, `koffi`, and `sharp` from the installed dsh
    closure.
-5. Starts the real dsh Web CLI with a temporary `DSH_HOME`, waits for its
-   loopback ready line, fetches the HTML shell, and stops it.
-6. Installs the Electron binary and launches the real unpackaged app. The
-   smoke succeeds only after dsh is ready, the WebUI mounts, and the desktop
-   preload/plugin platform markers agree with the host. Linux configures the
-   packaged Chromium SUID helper as `root:root` mode `4755` and runs under
-   Xvfb; it does not weaken production behavior with `--no-sandbox`.
+5. Starts the real dsh Web CLI with a temporary `DSH_HOME` and the desktop
+   profile, so the app's bundled plugins are loaded by dsh itself. The staged
+   plugin closure that the preceding `Build` step produced is materialized into
+   the temporary home; the smoke waits for the loopback ready line, fetches the
+   HTML shell, and stops the CLI. Running it locally therefore requires
+   `pnpm build` first.
+6. Installs the Electron binary, probes the patched `koffi.decode.string16`
+   copy-based read inside a real `ELECTRON_RUN_AS_NODE` Electron process (V8
+   Sandbox is force-enabled in every Electron process on every platform;
+   fake-koffi unit tests cannot cover the real host), and launches the real
+   unpackaged app. The startup smoke succeeds only after dsh is ready, the
+   WebUI mounts, and the desktop preload/plugin platform markers agree with the
+   host. Linux configures the unpackaged `node_modules` Electron
+   `chrome-sandbox` helper as `root:root` mode `4755` and runs under Xvfb; it
+   does not weaken production behavior with `--no-sandbox`. The packaged
+   distributables' SUID helper is asserted separately in the release workflow.
 
 Lint and TypeScript checking run once on Linux because their results are not
 OS-dependent. The matrix uses `fail-fast: false` so every platform reports its
@@ -65,10 +82,11 @@ With `vendor/dsh-cli` already generated:
 pnpm lint
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm build                 # stage:plugins 产出 ci:smoke:dsh 依赖的 staged 闭包
 pnpm ci:probe-native
 pnpm ci:smoke:dsh
 pnpm --filter @dsh-desktop/desktop exec install-electron
+pnpm ci:probe-electron-sandbox
 pnpm ci:smoke:electron
 ```
 

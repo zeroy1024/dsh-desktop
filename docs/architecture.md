@@ -29,7 +29,7 @@ Electron 主进程 ──spawn──▶ dsh --profile desktop --no-open --port 0
 
 - agent 与 Electron 主进程是**两个进程**，崩溃隔离、可独立升级；主进程通过 `@dsh-desktop/agent-host` 监管子进程（ready 解析、指数退避重启、稳定运行后才重置预算）。每次重启的随机端口都会更新导航锁并重载页面；日志写入 `userData/logs/dsh-agent.log`，launch token 脱敏、权限收紧并按 5 MiB 轮转。
 - 数据位置：`DSH_HOME` 默认与命令行共用 `~/.dsh`（API key/profiles/sessions 互通），设 `DSH_HOME` 环境变量可覆盖以隔离测试。
-- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航按解析后的 scheme/host/port 精确放行当前 `http://127.0.0.1:<port>`，IPC 只接受该 origin 的主 frame，其余 HTTP(S) 外链走系统浏览器。文档 URL 不含 token。
+- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航按解析后的 scheme/host/port 精确放行当前 `http://127.0.0.1:<port>`，IPC 只接受该 origin 的主 frame，其余 HTTP(S) 外链走系统浏览器。文档 URL 不含 token。主文档响应钉 CSP（`security.ts` 的 `AGENT_CSP`）：禁 object/base/form/frame-ancestors、连接限同源；`script-src` 含 `'unsafe-eval'` 是已知让步——上游发布产物内嵌 cordis ModuleLoader 的 `__jsExpr` 求值路径（`new Function` + `eval`），无法证明冷路径。
 
 ## 插件分发（P2 起，ADR-0004）
 
@@ -61,9 +61,8 @@ spawn: --profile desktop --no-open --port 0
 | `packages/plugin-kit/` | 客户端插件打包（ModuleLoader 工厂契约） | 我们的代码 |
 | `packages/plugins/` | dsh 插件（功能大头，app 内置分发，ADR-0004） | 我们的代码，P2 起 |
 | `packages/bridge/` | 当前一代 agent 的 loopback HTTP origin 判定 | 我们的代码 |
-| `packages/webui/` | 自组 WebUI 构建（预留，真 IPC 时才需要） | 我们的代码 |
 | `vendor/` | 上游包 tarball + `dsh-cli` 独立安装产物（`pnpm pack` + `pnpm install --prod`） | 生成物，可重建 |
-| `scripts/` | `sync-upstream.ts` / `dev.ts` / `bundle-node.ts`(P4) | 我们的代码 |
+| `scripts/` | `sync-upstream.ts` / `dev.ts` | 我们的代码 |
 
 跨 workspace 消费上游的关键：我们的包**不 import 上游 src**，只用 `vendor/` tarball。`sync-upstream.ts` 会从登记补丁自动推导受影响的 workspace package，逐一 pack，并在 `vendor/dsh-cli` 中同时设为本地依赖和 pnpm override；否则 pack 后的 CLI 会重新从 registry 安装官方包，导致补丁只在源码测试中生效、运行时失效。
 
@@ -73,7 +72,7 @@ spawn: --profile desktop --no-open --port 0
 - **P1 MVP 桌面壳**（已完成）：`dsh web` 子进程 + `loadURL`，零上游改动跑通全功能。
 - **P2 插件工作流**（已完成通道）：`@dsh-desktop/hello-panel` 走通「构建 → 物化 `~/.dsh/profiles/desktop` → `--profile desktop` 启动 → `shell.overlay` 出现徽章」（ADR-0004）；此后功能一律走 `packages/plugins/`。
 - **P3 传输**（自定义协议已撤销）：渲染进程直连 `http://127.0.0.1:<port>/`。`dsh://` + `net.fetch` 代理曾落地，因 Chromium 自定义协议（forbidden `Host`、流式 Response）把主 JS 弄丢，且隔离收益（token 不进 URL）配不上代理表面；上游当前 ready 行已无 launch token。真 IPC / `__DSH_TRANSPORT__` 仍等上游 webserver 有实现再做。
-- **P4 打包分发**：electron-builder + 捆绑 Node 24 运行时（`scripts/bundle-node.ts`）、签名/公证、自动更新。
+- **P4 打包分发**（部分实施）：electron-builder 打包 + `dsh-cli.tar` 随包携带、首启解压到 `userData/dsh-runtime/<version>/` 已落地；捆绑 Node 24 运行时（`scripts/bundle-node.ts`）、签名/公证、自动更新未做（运行时改用 `ELECTRON_RUN_AS_NODE` 复用 Electron 内嵌 Node，见 [ADR-0003 修订](adr/0003-node-runtime.md)）。
 
 ## 决策记录
 

@@ -1,7 +1,8 @@
 /**
  * index.ts — Electron 主进程入口。
  *
- * 启动顺序：单实例锁 → 安全钩子 → 建隐藏 BaseWindow → splash → 起 dsh agent
+ * 启动顺序：单实例锁 → 安全钩子 → 收割上一代残留 agent（pid 文件核身）
+ * → 建隐藏 BaseWindow → splash → 起 dsh agent
  * → 渲染进程 loadURL(http://127.0.0.1:<port>/) → 挂载检测 → 定格 → 揭幕。
  *
  * 用 BaseWindow 而不是 BrowserWindow：后者自带一块 default webContents，
@@ -13,6 +14,8 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentPageUrl } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
+import { defaultReapDeps, reapOrphanedAgent, removeAgentPidRecord, writeAgentPidRecord } from './orphan-reaper'
+import { resolveCliEntry } from './paths'
 import { ensureDshRuntime } from './runtime-archive'
 import { installSecurityHooks, isTrustedIpcSender } from './security'
 import {
@@ -198,12 +201,25 @@ function sendAgentStatus(status: 'running' | 'restarting' | 'stopped'): void {
   }
 }
 
+/** 上一代 agent 的 pid 记录文件（随 userData 隔离，CI 隔离 profile 时互不干扰）。 */
+function agentPidPath(): string {
+  return join(app.getPath('userData'), 'dsh-agent.pid.json')
+}
+
 /** 把监管器每一代的随机端口接到导航锁，并在恢复后重载失联页面。 */
 function wireSupervisor(candidate: AgentSupervisor): void {
   let recovering = false
+  // 最近一代 ready 的 agent pid：exit 时按它清 pid 文件，避免误删重启后新一代写入的记录
+  let lastReadyPid: number | null = null
+  // 与 createSupervisor 内部同源：record 的 cliEntry 必须等于实际启动入口，
+  // 下次启动收割时的命令行核身才能匹配
+  const cliEntry = resolveCliEntry()
   candidate.on('ready', (ready: AgentReadyInfo) => {
     if (supervisor !== candidate || quitRequested) return
     allowedPort = ready.port
+    lastReadyPid = ready.pid
+    // 主进程被强杀时 before-quit 不执行，pid 文件是下次启动收割残留 agent 的唯一线索
+    writeAgentPidRecord(agentPidPath(), { pid: ready.pid, cliEntry })
     sendAgentStatus('running')
     if (!recovering) return
     recovering = false
@@ -215,7 +231,12 @@ function wireSupervisor(candidate: AgentSupervisor): void {
     }
   })
   candidate.on('exit', () => {
-    if (supervisor === candidate) clearAgentTransport()
+    if (supervisor !== candidate) return
+    clearAgentTransport()
+    if (lastReadyPid !== null) {
+      removeAgentPidRecord(agentPidPath(), lastReadyPid)
+      lastReadyPid = null
+    }
   })
   candidate.on('restarting', (attempt: number, retryDelay: number) => {
     if (supervisor !== candidate || quitRequested) return
@@ -330,6 +351,14 @@ async function bootstrap(): Promise<void> {
   if (process.platform === 'darwin' && !app.isPackaged) {
     app.dock?.setIcon(nativeImage.createFromPath(appIconPath()))
   }
+  // 收割上一代残留 agent：主进程被 SIGKILL/崩溃时 before-quit 不执行，
+  // detached 子进程会独活并继续持有 ~/.dsh 与 API key。dev 态 vendor 未构建
+  // 时 resolveCliEntry 会抛，与收割异常一样只告警，不阻断启动。
+  try {
+    await reapOrphanedAgent(agentPidPath(), resolveCliEntry(), defaultReapDeps())
+  } catch (error) {
+    console.warn('[agent] 收割残留 agent 失败', error)
+  }
   mainWindow = createMainWindow()
   try {
     await startStartup()
@@ -416,6 +445,9 @@ if (!app.requestSingleInstanceLock()) {
     const current = supervisor
     event.preventDefault()
     clearAgentTransport()
-    void current.stop().finally(() => app.quit())
+    // stop 失败（如 SIGKILL 后 5s 未关闭）也必须放行退出，不能挂住 quit
+    void current.stop()
+      .catch((error: unknown) => { console.error('[agent] 退出前停止 agent 失败', error) })
+      .finally(() => app.quit())
   })
 }

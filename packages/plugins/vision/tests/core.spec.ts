@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   MAX_RESPONSE_BODY_BYTES,
   buildBody,
@@ -10,6 +10,7 @@ import {
   resolveImageCapability,
   stableDigest,
 } from '../src/core.ts'
+import { rewriteMessages } from '../src/index.ts'
 import type { ImageBlock, VisionOptions } from '../src/core.ts'
 
 const options = (overrides: Partial<VisionOptions> = {}): VisionOptions => ({
@@ -91,13 +92,12 @@ describe('vision capability routing and identity', () => {
     )).rejects.toMatchObject({ code: 'VISION_ABORTED' })
   })
 
-  it('includes image, config and focus identity so evidence is never cross-reused', () => {
-    const first = evidenceKey(image, options(), 'chart')
-    expect(first).not.toBe(evidenceKey(image, options(), 'table'))
-    expect(first).not.toBe(evidenceKey(image, options({ model: 'other-vision' }), 'chart'))
-    expect(first).not.toBe(evidenceKey(image, options({ focusHint: false }), 'chart'))
-    expect(first).not.toBe(evidenceKey(image, options({ maxImageBytes: 1024 }), 'chart'))
-    expect(first).not.toBe(evidenceKey({ ...image, attachment: { attachmentId: 'sha256:other' } }, options(), 'chart'))
+  it('includes image and config identity so evidence is never cross-reused', () => {
+    const first = evidenceKey(image, options())
+    expect(first).not.toBe(evidenceKey(image, options({ model: 'other-vision' })))
+    expect(first).not.toBe(evidenceKey(image, options({ focusHint: false })))
+    expect(first).not.toBe(evidenceKey(image, options({ maxImageBytes: 1024 })))
+    expect(first).not.toBe(evidenceKey({ ...image, attachment: { attachmentId: 'sha256:other' } }, options()))
     expect(configFingerprint(options())).toBe(configFingerprint(options()))
     expect(stableDigest('a')).not.toBe(stableDigest('b'))
   })
@@ -119,6 +119,29 @@ describe('evidence cache', () => {
     limit = 1
     cache.set('4', Promise.resolve({ ok: true, text: 'four' }))
     expect(cache.size()).toBe(1)
+  })
+
+  it('keeps focus out of the cache key so history images are not re-transcribed', async () => {
+    const readImage = vi.fn(async () => ({
+      data: new Uint8Array([1, 2, 3]),
+      ref: { mediaType: 'image/png' },
+    }))
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'detected text' }] }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const cache = makeEvidenceCache(() => 8)
+    const opts = options({ resolveApiKey: async () => 'sk-test' })
+    const messages = [{ role: 'user', content: [{ type: 'text', text: 'look' }, image] }]
+    const first = await rewriteMessages(opts, { readImage }, cache, messages, 'chart')
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    // 同一图片、不同 focus：缓存必须命中，第二轮零新增视觉请求。
+    const second = await rewriteMessages(opts, { readImage }, cache, messages, 'table')
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    expect(readImage).toHaveBeenCalledOnce()
+    expect(second).toEqual(first)
+    expect(second[0]?.content?.[1]).toEqual({ type: 'text', text: '[图片证据]\ndetected text' })
+    vi.unstubAllGlobals()
   })
 })
 

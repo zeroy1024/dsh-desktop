@@ -70,7 +70,7 @@
    计数是派生态）——agent 的新编辑天然未审，「已审后又有新改动」在模型上
    不会漏审，无需补偿逻辑；文件级 Viewed（GitHub 式）只适用于静态 diff。
 7. **测试**：聚合器/评论序列化纯函数单测 + 信封观察过滤单测（file-browser
-   的 api.spec 同款假源），19 例；UI 手测走 `pnpm dev`。
+   的 api.spec 同款假源），38 例（截至 2026-09 实际数）；UI 手测走 `pnpm dev`。
 8. **git 改动源（P1 增量）**：host 半挂两条 exact 路由——`GET
    /dsh-desktop/review/git`（只读：`status --porcelain=v1 -z` + `git diff
    HEAD` + untracked 逐个 `--no-index`，数量/字节有界、超限置 truncated）

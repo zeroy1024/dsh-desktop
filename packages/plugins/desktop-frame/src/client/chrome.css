@@ -148,7 +148,7 @@ html[data-dsh-desktop] [data-dsh-frame='center-col'] header {
    的明文属性 data-sidebar-collapsed 做锚点（Titleband.readCollapsed 同源，
    非 CSS module hash）。168 = + 按钮盒末端 148 + 光学分隔区，标题字形实际
    起于 176（面包屑按钮自带 padding 4px 8px）；几何改动时与 geometry.ts
-   互为镜像，patch 0003 落地后由 --dsh-titleband-indent 变量缝收编。
+   互为镜像，待 --dsh-titleband-indent 变量缝补丁（编号未定）落地后由该变量收编。
 
    padding 挂在瞬时翻转的属性上，而上游轨道动画走
    `transition: grid-template-columns slow ease-in-out`——需要 padding 与

@@ -108,7 +108,7 @@ jobs:
             vendor/dsh-cli/package.json
             vendor/dsh-cli/pnpm-workspace.yaml
             vendor/dsh-cli/pnpm-lock.yaml
-          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', '.nvmrc') }}
+          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', 'scripts/test-upstream-patches.ts', 'scripts/command.ts', '.nvmrc') }}
 
       - name: Install root tooling for synchronization
         run: pnpm install --filter . --frozen-lockfile --ignore-scripts
@@ -255,6 +255,14 @@ jobs:
 
       - name: Install Electron binary
         run: pnpm --filter @dsh-desktop/desktop exec install-electron
+
+      - name: Probe koffi decode under Electron sandbox
+        # patches/0015 switched the win32 picker to the copy-based
+        # koffi.decode.string16 read, which is safe under the V8 Sandbox that
+        # Electron forces in every process (koffi.view fatal-crashes there).
+        # The fake-koffi unit tests cannot cover a real host, so exercise the
+        # exact call shape inside an ELECTRON_RUN_AS_NODE Electron process.
+        run: pnpm ci:probe-electron-sandbox
 
       - name: Configure Electron Linux sandbox
         if: ${{ matrix.platform == 'linux' }}

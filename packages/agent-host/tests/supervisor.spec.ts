@@ -155,4 +155,62 @@ describe('AgentSupervisor', () => {
     await supervisor.stop()
     await rejected
   })
+
+  it('stop 时进程无视 SIGTERM 则 SIGKILL 兜底，stop 正常返回', { timeout: 10_000 }, async () => {
+    const supervisor = track(
+      new AgentSupervisor(makeOptions('fake-dsh-stubborn.mjs', { stopGraceMs: 100 })),
+    )
+
+    await supervisor.start()
+    expect(supervisor.state).toBe('running')
+
+    // 优雅期 100ms 内进程不退，terminate 必须升级到 SIGKILL 并等到 close
+    await supervisor.stop()
+    expect(supervisor.state).toBe('stopped')
+    expect(supervisor.readyInfo).toBeNull()
+  })
+
+  it('cliEntry 不存在时 start 拒绝且状态回 stopped，不悬挂', async () => {
+    const supervisor = track(
+      new AgentSupervisor(makeOptions('fake-dsh-ready.mjs', { cliEntry: '/definitely/missing/dsh-bin.js' })),
+    )
+
+    // node 自身能 spawn 成功，入口缺失表现为立即非零退出（close code=1），走 rejectBeforeReady
+    await expect(supervisor.start()).rejects.toThrow(/ready 前退出/)
+    expect(supervisor.state).toBe('stopped')
+  })
+
+  it('回归锁：stop 与已入队的 restart 回调竞态，stop 后绝不拉起新进程', async () => {
+    const supervisor = track(
+      new AgentSupervisor(
+        makeOptions('fake-dsh-crash.mjs', {
+          restart: { maxRetries: 3, baseDelayMs: 30, maxDelayMs: 30, stableRunMs: 60_000 },
+        }),
+      ),
+    )
+    let readyCount = 0
+    supervisor.on('ready', () => {
+      readyCount += 1
+    })
+
+    await supervisor.start()
+    expect(readyCount).toBe(1)
+    // crash fixture 在 ready 后 50ms 自退，等 close 触发的第一次 restarting（restartTimer 已挂 30ms）
+    await new Promise<void>((resolvePromise) => supervisor.once('restarting', resolvePromise))
+    // 立即 stop：与已入队/即将触发的 restartTimer 回调竞态
+    await supervisor.stop()
+    // 等 100ms（> 3×30ms 退避）：若竞态漏防，期间会再发出 ready 拉起第二个实例
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100))
+    expect(readyCount).toBe(1)
+    expect(supervisor.state).toBe('stopped')
+  })
+
+  it('启动超时后 terminate 收尸，start 以「未等到 ready」拒绝而非悬挂', async () => {
+    const supervisor = track(
+      new AgentSupervisor(makeOptions('fake-dsh-no-ready.mjs', { startupTimeoutMs: 200 })),
+    )
+
+    await expect(supervisor.start()).rejects.toThrow(/未等到 ready/)
+    expect(supervisor.state).toBe('stopped')
+  })
 })

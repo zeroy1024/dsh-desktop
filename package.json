@@ -14,6 +14,7 @@
     "test:scripts": "vitest run scripts/tests",
     "ci:verify-vendor-lock": "tsx scripts/verify-vendor-lock.ts",
     "ci:probe-native": "tsx scripts/ci-native-probe.ts",
+    "ci:probe-electron-sandbox": "tsx scripts/ci-electron-sandbox-probe.ts",
     "ci:smoke:dsh": "tsx scripts/smoke-dsh.ts",
     "ci:smoke:electron": "tsx scripts/smoke-electron.ts",
     "ci:smoke:packaged": "tsx scripts/smoke-packaged.ts",

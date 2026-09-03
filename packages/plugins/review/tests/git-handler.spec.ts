@@ -1,3 +1,4 @@
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -54,11 +55,12 @@ function happyScript(args: readonly string[]): GitRunResult {
 
 describe('parseStatusZ', () => {
   it('解析 XY 与路径；renamed 吞并第二个 NUL token', () => {
-    const entries = parseStatusZ(' M a.ts\0?? dir/b.txt\0R  old.ts\0new.ts\0')
+    // -z 下 R 条目的 field order 反转：path（新）在前，origPath（旧）在后。
+    const entries = parseStatusZ(' M a.ts\0?? dir/b.txt\0R  new.ts\0old.ts\0')
     expect(entries).toEqual([
       { x: ' ', y: 'M', path: 'a.ts' },
       { x: '?', y: '?', path: 'dir/b.txt' },
-      { x: 'R', y: ' ', path: 'old.ts', oldPath: 'new.ts' },
+      { x: 'R', y: ' ', path: 'new.ts', oldPath: 'old.ts' },
     ])
   })
 })
@@ -119,6 +121,26 @@ describe('git GET handler', () => {
       expect(body.truncated).toBe(true)
     })
   })
+
+  it('tracked diff 自身超 maxDiffBytes 也截断（无 untracked 触发时仍置 truncated）', async () => {
+    const trackedOnly = createGitGetHandler({
+      resolveRoot: async () => '/repo',
+      runGit: async (args) => {
+        if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return { code: 0, stdout: 'true\n' }
+        if (args[0] === 'status') return { code: 0, stdout: ' M a.ts\0' }
+        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return { code: 0, stdout: 'main\n' }
+        if (args[0] === 'diff') return { code: 0, stdout: TRACKED_DIFF }
+        return { code: 0, stdout: '' }
+      },
+      maxDiffBytes: 10,
+    })
+    await withServer(trackedOnly, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/dsh-desktop/review/git?sessionId=s1`)
+      const body = await res.json() as Record<string, unknown>
+      expect(body.truncated).toBe(true)
+      expect((body.diffText as string).length).toBeLessThanOrEqual(10)
+    })
+  })
 })
 
 describe('restore handler', () => {
@@ -167,6 +189,26 @@ describe('restore handler', () => {
         body: JSON.stringify({ sessionId: 's1', path: 'never-existed.txt' }),
       })
       expect(((await ghost.json()) as Record<string, unknown>).error).toBe('not-in-status')
+    })
+  })
+
+  it('untracked 撤销真正删除文件（resolveWithinRoot 已返回绝对路径，root 双拼回归）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'review-revert-real-'))
+    writeFileSync(join(root, 'new.txt'), 'draft')
+    const feed = fakeRunGit((args) => {
+      if (args[0] === 'status') return { code: 0, stdout: '?? new.txt\0' }
+      return { code: 0, stdout: '' }
+    })
+    const handler = createRestoreHandler({ resolveRoot: async () => root, runGit: feed.runGit })
+    await withServer(handler, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/dsh-desktop/review/restore`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 's1', path: 'new.txt' }),
+      })
+      expect(await res.json()).toEqual({ ok: true, reverted: 'deleted' })
+      // 关键断言：谎报成功时代码路径下文件仍会在（unlink 打到 /repo//repo/... 吞 ENOENT）。
+      expect(existsSync(join(root, 'new.txt'))).toBe(false)
     })
   })
 

@@ -92,8 +92,8 @@ host 半插件注册只读路由 `/dsh-desktop/review/git`（GET），服务端�
 **F11 live 增量更新**（P0）
 agent 运行中经 `events.mux` 订阅当前会话事件流，新工具结果到达即增量插入对应文件分组（activity-group 已有解析会话事件流的先例）。git 模式在 agent 运行结束后自动刷新一次。
 
-**F12 手动刷新与 asOf 标注**（P0）
-git 模式数据是易变快照：头部标注「生成于 HH:mm:ss」，提供手动刷新按钮；会话模式为事件回放，天然确定，无需 asOf。
+**F12 手动刷新与 asOf 标注**（P0，部分实现：手动刷新按钮已实现；git 模式头部「生成于 HH:mm:ss」时间戳**未实现**）
+git 模式数据是易变快照：头部标注「生成于 HH:mm:ss」**（未实现）**，提供手动刷新按钮；会话模式为事件回放，天然确定，无需 asOf。
 
 ### E. 审阅动作
 
@@ -117,11 +117,11 @@ diff 行 hover 出「+」→ 展开行内输入框（⌘/Ctrl+Enter 提交、Esc
 **F16 文件级快捷意见**（P1）
 文件列表每项附「追问」按钮：不选行，直接对整个文件提问（草稿条目行号为空，渲染为 `src/auth.ts —— <意见>`）。
 
-**F17 撤销文件改动**（P1，破坏性，已实现）
-仅 git 模式。文件头「撤销」按钮 **两步确认**（首次点击武装变红字「确认撤销？」，再点执行，3s 未点自动解除）：已跟踪文件 `git restore --source=HEAD --worktree --staged -- <path>`（撤销该文件全部未提交修改，含 staged）；**untracked 新文件 = 删除该文件**。服务端写路径三重防护：`resolveWithinRoot` 字符串沙箱 + 按实时 status 分类（status 外的 path 拒绝）+ 只操作单文件。会话模式不提供撤销（上游无 checkpoint 机制）。见 §4.3。
+**F17 撤销文件改动**（P1，破坏性，部分实现：两步确认 + restore/删除双路径已实现；**3s 未点自动解除武装未实现**）
+仅 git 模式。文件头「撤销」按钮 **两步确认**（首次点击武装变红字「确认撤销？」，再点执行，3s 未点自动解除**（未实现）**）：已跟踪文件 `git restore --source=HEAD --worktree --staged -- <path>`（撤销该文件全部未提交修改，含 staged）；**untracked 新文件 = 删除该文件**。服务端写路径三重防护：`resolveWithinRoot` 字符串沙箱 + 按实时 status 分类（status 外的 path 拒绝）+ 只操作单文件。会话模式不提供撤销（上游无 checkpoint 机制）。见 §4.3。
 
-**F18 复制 diff**（P0）
-单文件复制 + 全部复制（unified diff 文本，markdown 代码块包裹），供贴到 PR 描述/issue/聊天。
+**F18 复制 diff**（P0，部分实现：单文件复制已实现；**全部复制 + markdown 代码块包裹未实现**）
+单文件复制 + 全部复制（unified diff 文本，markdown 代码块包裹）**（全部复制与代码块包裹未实现）**，供贴到 PR 描述/issue/聊天。
 
 ### F. 衔接与联动
 
@@ -177,7 +177,7 @@ diff 行 hover 出「+」→ 展开行内输入框（⌘/Ctrl+Enter 提交、Esc
 
 ## 5. 分期验收
 
-### MVP（P0）——已实现（`packages/plugins/review/`，19 个单测全绿）
+### MVP（P0）——已实现（`packages/plugins/review/`，38 个单测全绿）
 
 - [x] `@dsh-desktop/review` 双面包插件骨架，注册 panel-shell「审查」页（order 30，sessionMode required）
 - [x] F1 会话绑定（面板页 session 槽位）；F2 FsDiffMeta/view 解析聚合（view 优先、meta 兜底、新建文件走宿主 args 兜底）；F10 编辑时间线（工具标签 · 序数 · 时间 · 计数）

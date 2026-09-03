@@ -27,7 +27,7 @@ export interface GitFileSectionProps {
   onToggleExpanded: () => void
   onToggleReviewed: () => void
   onRevert: () => void
-  /** 行评论提交（行号精确锚定；rowIndex 供同锚去重）。 */
+  /** 行评论提交（行号精确锚定；rowIndex 为 hunk 内全局行索引，折叠/展开一致，供同锚去重）。 */
   onLineComment: (hunkIndex: number, rowIndex: number, line: number | undefined, lineText: string, comment: string) => void
 }
 
@@ -176,9 +176,12 @@ function GitHunkCard({
   const head = capped ? hunk.rows.slice(0, headLines) : hunk.rows
   const tail = capped ? hunk.rows.slice(hunk.rows.length - tailLines) : []
 
-  const renderRows = (slice: typeof hunk.rows): JSX.Element[] =>
+  const renderRows = (slice: typeof hunk.rows, offset: number): JSX.Element[] =>
     slice.map((row, index) => {
-      const rowId = `${hunkIndex}-${index}`
+      // hunk 内全局行索引：折叠时 head/tail 两段同屏，不能用 slice 内索引
+      // （会撞 React key，且评论锚与展开态漂移）。
+      const rowIndex = offset + index
+      const rowId = `${hunkIndex}-${rowIndex}`
       const rowComposer = activeComposer !== null && activeComposer.rowId === rowId ? activeComposer : null
       return (
         <div key={rowId}>
@@ -232,7 +235,7 @@ function GitHunkCard({
     <div className={css.diffBlock}>
       <div className={css.diffBody}>
         <div className={css.diffRows}>
-          {renderRows(head)}
+          {renderRows(head, 0)}
           {capped && (
             <button type="button" className={css.diffExpand} onClick={() => { setExpanded(true); setComposer(null) }}>
               {t('diff.expand', { n: hidden })}
@@ -243,7 +246,7 @@ function GitHunkCard({
               {t('diff.collapse')}
             </button>
           )}
-          {renderRows(tail)}
+          {renderRows(tail, capped ? hunk.rows.length - tailLines : 0)}
         </div>
       </div>
     </div>

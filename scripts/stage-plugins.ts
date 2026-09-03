@@ -4,6 +4,9 @@
  * desktop profile 最终链接这些副本，而不是 workspace 源目录。Host 插件的
  * bare @deepseek-ai/* import 因而从 vendor/dsh-cli/node_modules 解析，与 dsh
  * 自身共享同一份 Cordis、HarnessError 和 service-definition identity。
+ *
+ * 声明 dshDesktop.enabled:false 的插件（默认不装配，如 hello-panel）不进
+ * staged 闭包：不随安装包分发。
  */
 import {
   cpSync,
@@ -27,6 +30,7 @@ const targetScopeDir = join(cliModulesDir, '@dsh-desktop')
 interface PluginManifest {
   name?: unknown
   files?: unknown
+  dshDesktop?: { enabled?: unknown }
 }
 
 const SAFE_SEGMENT = /^[a-z0-9][a-z0-9._~-]*$/u
@@ -73,6 +77,9 @@ export function stagePlugins(): string {
       const manifestPath = join(packageDir, 'package.json')
       if (!existsSync(manifestPath)) continue
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PluginManifest
+      // 默认不装配的插件（dshDesktop.enabled:false，如 hello-panel/panel-page-stub）
+      // 不进 staged 闭包：不随安装包分发；bundled-plugins 侧的 enabled 判定保持兜底。
+      if (manifest.dshDesktop?.enabled === false) continue
       const segment = pluginName(manifest.name, manifestPath)
       const destination = join(stagedScope, segment)
       mkdirSync(destination, { recursive: true })

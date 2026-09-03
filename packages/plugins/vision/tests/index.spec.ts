@@ -298,6 +298,28 @@ describe('vision host safety', () => {
     expect(registered).toBe((provided as ImageInputTransformService).transform)
   })
 
+  it('disposes the runtime registration through the plugin fiber effect', () => {
+    const dispose = vi.fn()
+    const llm = { registerInputTransform: vi.fn((_transform: unknown) => dispose) }
+    let cleanup: (() => void | Promise<void>) | undefined
+    let effectName: string | undefined
+    const ctx = {
+      get: (keyName: string) => keyName === 'llm' ? llm : undefined,
+      provide: (_key: string, _value: unknown) => {},
+      effect: (factory: () => void | (() => void | Promise<void>), name?: string) => {
+        effectName = name
+        const produced = factory()
+        cleanup = typeof produced === 'function' ? produced : undefined
+      },
+    }
+    expect(installImageInputTransform(ctx, () => options, makeEvidenceCache(() => 8), undefined)).toBe(true)
+    expect(llm.registerInputTransform).toHaveBeenCalledOnce()
+    expect(effectName).toBe('dsh-vision: input transform')
+    expect(dispose).not.toHaveBeenCalled()
+    cleanup?.()
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
   it('honors caller cancellation before capability lookup or image upload', async () => {
     const controller = new AbortController()
     controller.abort(new Error('cancelled'))

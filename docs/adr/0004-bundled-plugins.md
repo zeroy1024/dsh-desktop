@@ -29,7 +29,7 @@
 2. desktop 主进程启动 agent 前物化/自愈 `$DSH_HOME/profiles/desktop/`：
    - `package.json`：`dsh.profile.bundles = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", ...我们的插件]`；
    - `cordis.patch.yml`：`[]`（我们的配置层由各插件自带的 bundle patch 贡献）；
-   - `node_modules/<插件名>` → CLI 闭包内 staged 插件的符号链接（dev 位于 `vendor/dsh-cli`，打包态位于 `app resources/dsh-cli`）；
+   - `node_modules/<插件名>` → CLI 闭包内 staged 插件的符号链接（dev 位于 `vendor/dsh-cli` 的 `node_modules/@dsh-desktop`，打包态位于首启解压出的 `userData/dsh-runtime/<version>/node_modules/@dsh-desktop`——随包 `dsh-cli.tar` 在首启解压，见 `apps/desktop/src/main/runtime-archive.ts` 与 `paths.ts`）；
    - 版本戳自愈；`cordis.yml` 不预置（dsh 自己维护）；已存在的非本 app profile 不覆盖。
 3. 启动参数从 `--profile web` 切到 `--profile desktop`。用户的 web profile 与命令行 dsh 零接触。
 4. 客户端构建 preset（上游 `packages/client/tsdown.client.ts`，不在 npm tarball 内）在本仓库镜像复刻（banner/footer 工厂包装、externals 基线、CSS Modules），注明来源；bump submodule 时对照上游原文更新。

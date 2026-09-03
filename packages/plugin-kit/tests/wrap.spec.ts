@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,5 +38,40 @@ describe('wrapClientFactory', () => {
     expect(bundle).toContain('@dsh-desktop/css-fixture/client.css')
     expect(bundle).toContain('background: rebeccapurple')
     expect(bundle).toContain('font-weight: 700')
+  })
+
+  it('兑现包声明的 dsh.client.external：声明词条保持外部 require 不进包', async () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'plugin-kit-declared-ext-'))
+    scratchDirs.push(scratch)
+    writeFileSync(
+      join(scratch, 'package.json'),
+      JSON.stringify({
+        name: '@dsh-desktop/declared-ext-fixture',
+        version: '0.0.1',
+        dsh: { client: { external: ['@dsh-desktop/fake-shared/client'] } },
+      }),
+    )
+    writeFileSync(
+      join(scratch, 'entry.ts'),
+      [
+        "import { x } from '@dsh-desktop/fake-shared/client'",
+        "import { useEffect } from 'react'",
+        'console.log(x, useEffect)',
+      ].join('\n'),
+    )
+
+    const outfile = join(scratch, 'client.js')
+    await buildClientBundle({
+      id: '@dsh-desktop/declared-ext-fixture',
+      entry: join(scratch, 'entry.ts'),
+      outfile,
+    })
+
+    const bundle = readFileSync(outfile, 'utf8')
+    // 声明词条与平台基线词条都必须保持外部 require、不进包。
+    expect(bundle).toContain('require("@dsh-desktop/fake-shared/client")')
+    expect(bundle).toContain('require("react")')
+    // 产物只含工厂包装的引用，不含 react 源码特征串。
+    expect(bundle).not.toContain('__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED')
   })
 })

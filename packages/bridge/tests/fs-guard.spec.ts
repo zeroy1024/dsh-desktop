@@ -8,10 +8,17 @@ describe('isTrustedFsRequest', () => {
     expect(isTrustedFsRequest({ headers: { host: '[::1]:9' } })).toBe(true)
   })
 
+  it('放行 127/8 全段 loopback（与上游 127/8 语义对齐）', () => {
+    expect(isTrustedFsRequest({ headers: { host: '127.0.0.2:9' } })).toBe(true)
+  })
+
   it('拒绝非 loopback、缺失或畸形 Host（DNS rebinding 防线）', () => {
     expect(isTrustedFsRequest({ headers: {} })).toBe(false)
     expect(isTrustedFsRequest({ headers: { host: 'evil.example' } })).toBe(false)
     expect(isTrustedFsRequest({ headers: { host: '127.0.0.1.evil' } })).toBe(false)
+    // 任意 IPv4 字面量不得被误判为 loopback（首段必须为 127）。
+    expect(isTrustedFsRequest({ headers: { host: '192.168.1.1:3080' } })).toBe(false)
+    expect(isTrustedFsRequest({ headers: { host: '8.8.8.8' } })).toBe(false)
     expect(isTrustedFsRequest({ headers: { host: 'user@127.0.0.1:9' } })).toBe(false)
     // Host 含路径等不可解析形态。
     expect(isTrustedFsRequest({ headers: { host: '127.0.0.1:9/path' } })).toBe(false)
