@@ -10,6 +10,8 @@ export const NS = 'review'
 /** The review dictionary key set (the source of truth for both locales). */
 export type ReviewKey =
   | 'page.title'
+  | 'mode.session'
+  | 'mode.git'
   | 'summary.loading'
   | 'summary.fileCount'
   | 'summary.editCount'
@@ -20,12 +22,22 @@ export type ReviewKey =
   | 'summary.sortByPath'
   | 'action.refresh'
   | 'action.copyDiff'
+  | 'action.copyFailed'
   | 'action.copyPath'
   | 'action.markReviewed'
   | 'action.unmarkReviewed'
   | 'action.send'
   | 'action.clear'
   | 'action.remove'
+  | 'action.revert'
+  | 'action.revertConfirm'
+  | 'git.loading'
+  | 'git.error'
+  | 'git.unavailable'
+  | 'git.clean'
+  | 'git.truncated'
+  | 'git.revertFailed'
+  | 'git.binary'
   | 'notice.body'
   | 'notice.dismiss'
   | 'empty.title'
@@ -52,6 +64,8 @@ export type ReviewKey =
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh: Record<ReviewKey, string> = {
   'page.title': '审查',
+  'mode.session': '会话内改动',
+  'mode.git': '工作区改动',
   'summary.loading': '加载中…',
   'summary.fileCount': '{n} 个文件',
   'summary.editCount': '{n} 次编辑',
@@ -62,13 +76,23 @@ export const zh: Record<ReviewKey, string> = {
   'summary.sortByPath': '按路径排序',
   'action.refresh': '刷新',
   'action.copyDiff': '复制此文件 diff',
+  'action.copyFailed': '复制失败',
   'action.copyPath': '复制路径',
   'action.markReviewed': '标记已审',
   'action.unmarkReviewed': '取消已审',
   'action.send': '发送给 agent',
   'action.clear': '清空草稿',
   'action.remove': '删除此条',
-  'notice.body': '会话内改动仅覆盖 write/edit 文件写入工具；shell 命令产生的改动不在此列（git 工作区改动源规划在后续版本）。',
+  'action.revert': '撤销',
+  'action.revertConfirm': '确认',
+  'git.loading': '读取工作区改动…',
+  'git.error': '读取工作区改动失败',
+  'git.unavailable': '当前会话的工作目录不是 git 仓库',
+  'git.clean': '工作区没有待审改动',
+  'git.truncated': '改动过多，diff 已截断',
+  'git.revertFailed': '撤销失败，请重试',
+  'git.binary': '二进制文件，无行级 diff',
+  'notice.body': '会话内改动仅覆盖 write/edit 文件写入工具；shell 命令产生的改动请切换到「工作区改动」查看。',
   'notice.dismiss': '知道了',
   'empty.title': '暂无可审查的改动',
   'empty.guide': 'agent 在本会话中写入或编辑文件后，改动会按文件汇总在这里。',
@@ -95,6 +119,8 @@ export const zh: Record<ReviewKey, string> = {
 /** English dictionary. */
 export const en: Record<ReviewKey, string> = {
   'page.title': 'Review',
+  'mode.session': 'Session changes',
+  'mode.git': 'Workspace changes',
   'summary.loading': 'Loading…',
   'summary.fileCount': '{n} files',
   'summary.editCount': '{n} edits',
@@ -105,13 +131,23 @@ export const en: Record<ReviewKey, string> = {
   'summary.sortByPath': 'Sort by path',
   'action.refresh': 'Refresh',
   'action.copyDiff': 'Copy file diff',
+  'action.copyFailed': 'Copy failed',
   'action.copyPath': 'Copy path',
   'action.markReviewed': 'Mark reviewed',
   'action.unmarkReviewed': 'Unmark reviewed',
   'action.send': 'Send to agent',
   'action.clear': 'Clear drafts',
   'action.remove': 'Remove',
-  'notice.body': 'Session changes cover write/edit file tools only; changes made by shell commands are not included (a git workspace source is planned).',
+  'action.revert': 'Revert',
+  'action.revertConfirm': 'Confirm',
+  'git.loading': 'Reading workspace changes…',
+  'git.error': 'Failed to read workspace changes',
+  'git.unavailable': 'The working directory of this session is not a git repository',
+  'git.clean': 'No uncommitted changes in the workspace',
+  'git.truncated': 'Too many changes — diff truncated',
+  'git.revertFailed': 'Revert failed — try again',
+  'git.binary': 'Binary file — no line diff',
+  'notice.body': 'Session changes cover write/edit file tools only; switch to "Workspace changes" for shell-made modifications.',
   'notice.dismiss': 'Got it',
   'empty.title': 'No changes to review',
   'empty.guide': 'When the agent writes or edits files in this session, changes will be grouped here by file.',

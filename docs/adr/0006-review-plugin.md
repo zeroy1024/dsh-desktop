@@ -71,6 +71,16 @@
    不会漏审，无需补偿逻辑；文件级 Viewed（GitHub 式）只适用于静态 diff。
 7. **测试**：聚合器/评论序列化纯函数单测 + 信封观察过滤单测（file-browser
    的 api.spec 同款假源），19 例；UI 手测走 `pnpm dev`。
+8. **git 改动源（P1 增量）**：host 半挂两条 exact 路由——`GET
+   /dsh-desktop/review/git`（只读：`status --porcelain=v1 -z` + `git diff
+   HEAD` + untracked 逐个 `--no-index`，数量/字节有界、超限置 truncated）
+   与 `POST /dsh-desktop/review/restore`（tracked `git restore --source=HEAD
+   --worktree --staged`；untracked 删除；path 过 `resolveWithinRoot` 沙箱 +
+   实时 status 白名单，status 外拒绝）。信任栅栏用 bridge `isTrustedFsRequest`
+   （file-browser 同款）；git 全部 execFile 数组 argv 白名单，无 shell。
+   服务端只回 unified diff 原文，**解析在 client 半**（gitdiff.ts 纯函数），
+   精确行号锚定（`path:line` 评论）由此而来；git 文件的已审标记按 path
+   粒度（每文件一个 diff，无编辑事件序列）。
 
 ## 后果
 

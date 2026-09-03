@@ -53,13 +53,14 @@
 - 统计口径标注为「累计编辑量」（同一文件多次编辑会重叠求和，不代表净变更；净变更看 git 模式）。
 - 边界：shell 命令产生的文件改动（如 `sed -i`）**不可见**——面板在会话模式下固定显示一行提示。
 
-**F3 工作区 git 改动**（P1）
-host 半插件注册只读路由（如 `/dsh-desktop/review/git`，GET），服务端在工作区路径执行：
-- `git status --porcelain` + `git diff --numstat`：文件清单与增删行数；
-- `git diff -M --name-status`：重命名/删除/新增分类；
-- untracked 文件以「全绿新增」呈现（`git diff --no-index /dev/null <file>`，数量设上限）。
-- MVP 范围仅 **uncommitted**（staged + unstaged + untracked）；「相对 base branch」「指定 commit」两个 scope 列 P1/P2。
-- 安全：复用 archive-manager 的同源校验三重防线（method/Origin/载荷）；只读命令白名单，不接收任意参数拼接。
+**F3 工作区 git 改动**（P1，已实现）
+host 半插件注册只读路由 `/dsh-desktop/review/git`（GET），服务端在工作区路径执行：
+- `git status --porcelain=v1 -z`：文件清单与状态分类（NUL 分隔，含 rename 的双 token）；
+- `git diff HEAD`：staged + unstaged 的 tracked 改动 unified diff 原文；
+- untracked 文件以「全绿新增」呈现（逐个 `git diff --no-index -- /dev/null <file>`，数量 ≤50、字节上限 2MB，超限置 truncated）。
+- 实现取向：**服务端只回原文，解析在 client 半**（`gitdiff.ts` 纯函数，宽容窄化）——服务端保持薄；± 行数由解析结果统计，无需 numstat。
+- 安全：bridge `isTrustedFsRequest`（Host loopback + sec-fetch-site + Origin 同源）；git 命令白名单常量 argv（execFile 数组传参、无 shell、15s 超时），不接收任何客户端拼接参数。
+- scope 目前仅 **uncommitted**；「相对 base branch」「指定 commit」仍待做。
 
 ### B. 总览与导航
 
@@ -116,8 +117,8 @@ diff 行 hover 出「+」→ 展开行内输入框（⌘/Ctrl+Enter 提交、Esc
 **F16 文件级快捷意见**（P1）
 文件列表每项附「追问」按钮：不选行，直接对整个文件提问（草稿条目行号为空，渲染为 `src/auth.ts —— <意见>`）。
 
-**F17 撤销文件改动**（P1，破坏性）
-仅 git 模式。文件级菜单「撤销改动」：已跟踪文件执行 `git restore <file>`；**untracked 新文件 = 删除该文件**。必须弹类型化确认框，明确列出后果（「将丢弃该文件全部未提交修改，不可恢复」）。会话模式不提供撤销（上游无 checkpoint 机制）。见 §4.3。
+**F17 撤销文件改动**（P1，破坏性，已实现）
+仅 git 模式。文件头「撤销」按钮 **两步确认**（首次点击武装变红字「确认撤销？」，再点执行，3s 未点自动解除）：已跟踪文件 `git restore --source=HEAD --worktree --staged -- <path>`（撤销该文件全部未提交修改，含 staged）；**untracked 新文件 = 删除该文件**。服务端写路径三重防护：`resolveWithinRoot` 字符串沙箱 + 按实时 status 分类（status 外的 path 拒绝）+ 只操作单文件。会话模式不提供撤销（上游无 checkpoint 机制）。见 §4.3。
 
 **F18 复制 diff**（P0）
 单文件复制 + 全部复制（unified diff 文本，markdown 代码块包裹），供贴到 PR 描述/issue/聊天。
@@ -189,8 +190,8 @@ diff 行 hover 出「+」→ 展开行内输入框（⌘/Ctrl+Enter 提交、Esc
 
 ### v1（P1）
 
-- [ ] F3 host git 只读路由（同源校验 + 只读白名单）+ uncommitted 模式全量状态处理
-- [ ] F17 撤销文件（确认框）
+- [x] F3 host git 只读路由（同源校验 + 只读白名单）+ uncommitted 模式全量状态处理（服务端回原文、client 解析、带行号 hunk 卡）
+- [x] F17 撤销文件（两步确认 + restore/删除双路径）
 - [ ] F6 过滤/只看未审；F8 展示开关（词级高亮、空白符、git 上下文展开）
 - [ ] F16 文件级快捷意见；F19 文件浏览器联动（先验证 panelShell API）
 - [ ] git 模式 scope：相对 base branch

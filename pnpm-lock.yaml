@@ -376,6 +376,9 @@ importers:
 
   packages/plugins/review:
     devDependencies:
+      '@dsh-desktop/bridge':
+        specifier: workspace:*
+        version: link:../../bridge
       '@dsh-desktop/panel-shell':
         specifier: workspace:*
         version: link:../panel-shell

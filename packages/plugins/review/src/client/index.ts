@@ -5,8 +5,9 @@
  * （10）与文件页（20）之后。
  */
 import { createElement } from 'react'
-import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChecklistOutline14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext } from './types.ts'
+import { setHostWriteClipboard } from './copy.ts'
 import { ReviewPage } from './ReviewPage.tsx'
 import { en, NS, zh } from './locales.ts'
 
@@ -18,6 +19,10 @@ export const inject = ['slots', 'locale', 'panelShell', 'connection']
  * @param ctx - client root context。
  */
 export function apply(ctx: ClientContext): void {
+  // 剪贴板兜底链的宿主实例（与上游复制控件同一 writeClipboard）。
+  ctx.effect(() => {
+    setHostWriteClipboard((text) => writeClipboard(text))
+  }, 'review: host clipboard')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'review: dictionaries')
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('panel-shell.page', () => {

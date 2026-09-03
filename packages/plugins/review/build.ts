@@ -9,7 +9,6 @@ process.chdir(appDir)
 await build({
   absWorkingDir: appDir,
   bundle: true,
-  packages: 'external',
   entryPoints: ['src/index.ts'],
   outfile: 'lib/index.js',
   format: 'esm',

@@ -124,6 +124,61 @@ export function sendReviewMessage(sessionId: string, text: string): Promise<{ ac
 }
 
 // ---------------------------------------------------------------------------
+// git 改动源（P1）：/dsh-desktop/review/git 只读 + /dsh-desktop/review/restore
+// ---------------------------------------------------------------------------
+
+/** git status 的单文件条目（host 半 shared.ts 的 wire 镜像）。 */
+export interface GitStatusEntryLite {
+  x: string
+  y: string
+  path: string
+  oldPath?: string
+}
+
+/** GET /dsh-desktop/review/git 的信封。 */
+export type GitSnapshot =
+  | { ok: true; git: false }
+  | {
+    ok: true
+    git: true
+    branch?: string
+    status: GitStatusEntryLite[]
+    diffText: string
+    truncated: boolean
+  }
+
+/** 拉取工作区改动静照（uncommitted scope）。 */
+export async function fetchGitSnapshot(sessionId: string): Promise<GitSnapshot> {
+  let res: Response
+  try {
+    res = await fetch(`/dsh-desktop/review/git?sessionId=${encodeURIComponent(sessionId)}`)
+  } catch {
+    throw new ReviewApiError('network')
+  }
+  if (!res.ok) throw new ReviewApiError(res.status === 403 ? 'forbidden' : 'internal')
+  try {
+    return await res.json() as GitSnapshot
+  } catch {
+    throw new ReviewApiError('internal')
+  }
+}
+
+/** 撤销单个文件的未提交修改（tracked = restore 自 HEAD；untracked = 删除）。 */
+export async function restoreGitFile(sessionId: string, path: string): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch('/dsh-desktop/review/restore', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId, path }),
+    })
+  } catch {
+    throw new ReviewApiError('network')
+  }
+  if (!res.ok) throw new ReviewApiError(res.status === 403 ? 'forbidden' : 'internal')
+}
+
+// ---------------------------------------------------------------------------
 // mux 帧观察（共享连接的解码信封；绝不自开第二条 /api/events.mux）
 // ---------------------------------------------------------------------------
 

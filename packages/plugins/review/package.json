@@ -38,6 +38,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@dsh-desktop/bridge": "workspace:*",
     "@dsh-desktop/panel-shell": "workspace:*",
     "@dsh-desktop/plugin-kit": "workspace:*",
     "@types/node": "^24.0.0",

@@ -13,14 +13,14 @@ export type DraftSide = 'old' | 'new'
 /** 一条行级评论草稿（会话内存态，发送即成普通用户消息）。 */
 export interface CommentDraft {
   path: string
-  /** 锚定的编辑事件（EditEvent.seq）。 */
-  editSeq: number
+  /** 锚定的编辑事件 seq（会话模式）；git 模式无编辑事件，缺省。 */
+  editSeq?: number
   hunkIndex: number
   side: DraftSide
-  /** 该侧行序（0 起）。 */
   lineIndex: number
-  /** 引用行文本（消歧与回灌定位的双重用途）。 */
   lineText: string
+  /** git 模式的新侧行号（存在时回灌为 `path:line` 形态，锚定更精确）。 */
+  line?: number
   comment: string
 }
 
@@ -35,13 +35,16 @@ export interface DraftLineInput {
   path: string
   /** 同文件第几次编辑（1 起）；文件只被编辑一次时省略。 */
   ordinal?: number
+  /** git 模式的新侧行号（存在时用 path:line，比引用行更精确）。 */
+  line?: number
   /** 引用行文本；缺省 = 文件级意见。 */
   lineText?: string
   comment: string
 }
 
-/** 回灌消息的行模板：路径（第 N 次编辑）·「引用行」 —— 意见。 */
+/** 回灌消息的行模板：git 行号优先（path:line），否则路径（序数）·「引用行」。 */
 export function renderDraftLine(line: DraftLineInput): string {
+  if (line.line !== undefined) return `- ${line.path}:${line.line} —— ${line.comment}`
   const head = line.ordinal === undefined ? line.path : `${line.path}（第 ${line.ordinal} 次）`
   const anchor = line.lineText === undefined || line.lineText === '' ? '' : ` ·「${line.lineText}」`
   return `- ${head}${anchor} —— ${line.comment}`

@@ -98,6 +98,38 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* ---- 改动源 tabs ---- */
+
+.modeTabs {
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsh-radius-control, 8px);
+}
+
+.modeTab {
+  border: none;
+  background: transparent;
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.modeTab:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.modeTabActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
 .emptyState {
   flex: none;
   padding: 28px 12px;
@@ -288,6 +320,16 @@
   padding: 8px;
 }
 
+/* git 模式：语义底色覆盖整行（GitHub 式），行号格更深一档形成层次；
+   只作用于 git 分区（fileBodyGit 修饰），会话模式的观感不变 */
+.fileBodyGit .diffDel {
+  background: color-mix(in srgb, var(--dsw-static-red-600, rgb(236, 19, 19)) 6%, transparent);
+}
+
+.fileBodyGit .diffAdd {
+  background: color-mix(in srgb, var(--dsw-static-green-500, rgb(34, 197, 94)) 7%, transparent);
+}
+
 /* ---- 编辑时间线 ---- */
 
 .editSection {
@@ -345,7 +387,8 @@
 }
 
 .diffDel,
-.diffAdd {
+.diffAdd,
+.diffContext {
   display: flex;
   align-items: center;
   height: 22px;
@@ -355,6 +398,39 @@
 .diffText {
   white-space: pre;
   flex: none;
+}
+
+/* git 模式的 old/new 行号列（会话模式数据无行号，不渲染此列）。
+   行号格按行语义带极淡底色（GitHub 式）：信号保留、整行不吵——上游没有
+   成对的状态背景 token，用 static 色板 + color-mix 调 ~10% 透明度，
+   深浅主题都成立；token 缺失时声明整体失效，优雅降级为无底色。 */
+.diffNums {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-right: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.diffNums span {
+  min-width: 26px;
+  text-align: right;
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+}
+
+/* git 模式上下文行（有行号、无语义色） */
+.diffContext .diffText {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 行容器撑满横向滚动内容宽：块级行的背景只到视口宽，横向滚动后溢出区域
+   会「断色」；max-content 让所有行等宽于最宽行，底色全覆盖 */
+.diffRows {
+  width: max-content;
+  min-width: 100%;
 }
 
 .diffDel .diffText::before {
@@ -401,6 +477,17 @@
 .diffDel:hover .diffRowBtn,
 .diffAdd:hover .diffRowBtn,
 .diffRowBtn:focus-visible {
+  opacity: 1;
+}
+
+/* 复制失败的反馈图标色 */
+.iconBtnFail {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* 上下文行（未改动行）的评论按钮同样 hover 显现——git 模式上下文行
+   也可评论（GitHub 同款语义），此前漏了显现规则导致按钮透明但可点 */
+.diffContext:hover .diffRowBtn {
   opacity: 1;
 }
 
@@ -533,6 +620,41 @@
 }
 
 .ghostBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* git 模式撤销按钮：常态幽灵小钮，武装态转红字强提示 */
+.revertBtn {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.revertBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.revertBtnArmed {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.revertBtnArmed:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 

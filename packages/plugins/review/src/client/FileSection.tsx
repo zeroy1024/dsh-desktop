@@ -7,9 +7,10 @@
 import { useState } from 'react'
 import {
   IconCheckOutline14, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconCopyOutline16, writeClipboard,
+  IconCloseFill14, IconCopyOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EditEvent, FileReview } from './aggregate.ts'
+import { copyText } from './copy.ts'
 import { ReviewDiff, type LineAnchor } from './ReviewDiff.tsx'
 import type { Translate } from './types.ts'
 import css from './ReviewPage.module.css'
@@ -49,13 +50,13 @@ function diffLines(text: string): string[] {
 export function FileSection({
   file, reviewedEdits, expanded, draftsCount, t, onToggleExpanded, onToggleEditReviewed, onToggleFileReviewed, onLineComment,
 }: FileSectionProps) {
-  const [copied, setCopied] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'ok' | 'fail'>('idle')
   const reviewedCount = file.edits.filter(edit => reviewedEdits.has(edit.seq)).length
   const fileReviewed = reviewedCount === file.edits.length
   const filePartial = reviewedCount > 0 && !fileReviewed
 
   const copyDiff = (): void => {
-    if (copied) return
+    if (copyState !== 'idle') return
     // 与 DiffBlock.copyText 同格式的 `- `/`+ ` 行；多 hunk 按块空行分隔，
     // 不插任何路径行（路径已在分区标题）。
     const blocks: string[] = []
@@ -67,10 +68,9 @@ export function FileSection({
         if (rows.length > 0) blocks.push(rows.join('\n'))
       }
     }
-    void writeClipboard(blocks.join('\n\n')).then((ok) => {
-      if (!ok) return
-      setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1000)
+    void copyText(blocks.join('\n\n')).then((ok) => {
+      setCopyState(ok ? 'ok' : 'fail')
+      window.setTimeout(() => { setCopyState('idle') }, ok ? 1000 : 2000)
     })
   }
 
@@ -113,12 +113,14 @@ export function FileSection({
         </button>
         <button
           type="button"
-          className={css.iconBtn}
-          title={t('action.copyDiff')}
-          aria-label={t('action.copyDiff')}
+          className={`${css.iconBtn}${copyState === 'ok' ? ` ${css.iconBtnReviewed}` : ''}${copyState === 'fail' ? ` ${css.iconBtnFail}` : ''}`}
+          title={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
+          aria-label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
           onClick={copyDiff}
         >
-          <IconCopyOutline16 size={14} />
+          {copyState === 'ok' && <IconCheckOutline14 size={14} />}
+          {copyState === 'fail' && <IconCloseFill14 size={14} />}
+          {copyState === 'idle' && <IconCopyOutline16 size={14} />}
         </button>
       </div>
       {expanded && (
