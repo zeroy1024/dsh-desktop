@@ -207,6 +207,11 @@
 .effortSegments {
   box-sizing: border-box;
   display: flex;
+  /* 思考等级栏是固定高度的底部行，禁止被列向 flex 压缩：卡片高度被
+     max-height 钳制时，默认 shrink:1 会把它压到内容最小高以下；又因
+     overflow-x:auto 按规范将 overflow-y 的 used 值带成 auto，挤矮后
+     就多出一条垂直滚动条。收缩预算全部留给可滚动的 .groups 吸收。 */
+  flex: none;
   min-width: 0;
   width: 100%;
   gap: 1px;
