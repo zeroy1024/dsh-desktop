@@ -140,16 +140,23 @@
 
 .row {
   position: absolute;
-  left: 0;
-  right: 0;
+  /* 行两侧各留 4px，hover/active 背景不贴树面板边缘（圆角才有呼吸感）。 */
+  left: 4px;
+  right: 4px;
   display: flex;
   align-items: center;
   gap: 3px;
+  /* 虚拟列表按 22px 行距定位，盒高不能动；上沿 1px 透明边框 +
+     padding-box 背景裁剪让相邻行的 hover/active 背景之间留 1px 缝。 */
+  box-sizing: border-box;
   height: 22px;
   padding-inline-end: 6px;
-  border: 0;
+  background-clip: padding-box;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 1px 0 0;
   border-radius: var(--dsh-radius-micro, 4px);
-  background: transparent;
+  background-color: transparent;
   color: inherit;
   font: inherit;
   text-align: start;
@@ -157,14 +164,17 @@
   user-select: none;
 }
 
-.row:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .1));
+/* 选中/激活行保留自己的实底色，不再叠加 hover（与标签条 .tab 同规则）。 */
+.row:hover:not(.rowSelected):not(.rowPicked) {
+  background-color: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .1));
 }
 
-/* 当前预览文件与显式选区使用同一背景；文件/目录不再分叉。 */
+/* 当前预览文件与显式选区使用同一背景；文件/目录不再分叉。
+   必须用 background-color 而非 background 简写，避免重置 .row 的
+   background-clip: padding-box 上下内衬裁剪。 */
 .rowSelected,
 .rowPicked {
-  background: var(--dsw-alias-interactive-bg-active, rgba(64, 120, 255, .16));
+  background-color: var(--dsw-alias-interactive-bg-active, rgba(64, 120, 255, .16));
 }
 
 .rowFocused {
