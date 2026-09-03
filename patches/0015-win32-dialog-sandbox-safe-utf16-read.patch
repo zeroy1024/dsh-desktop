@@ -1,0 +1,95 @@
+diff --git a/packages/host/directory-picker-native/src/win32-dialog-bindings.ts b/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
+index 654bbc5a74..c56b229e15 100644
+--- a/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
++++ b/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
+@@ -16,29 +16,33 @@ import type { Win32DialogBindings, Win32FolderDialog } from './win32-dialog-logi
+ 
+ interface KoffiFunction { (...args: unknown[]): unknown }
+ interface KoffiLibrary { func(convention: string, name: string, result: string, args: string[]): KoffiFunction }
++interface KoffiDecode {
++  (value: unknown, offsetOrType: unknown, type?: unknown): unknown
++  string16(ptr: unknown, length?: number | bigint): string
++}
++
+ interface Koffi {
+   load(path: string): KoffiLibrary
+   proto(declaration: string): unknown
+   pointer(type: unknown): unknown
+   call(pointer: unknown, proto: unknown, ...args: unknown[]): unknown
+-  decode(value: unknown, offsetOrType: unknown, type?: unknown): unknown
++  decode: KoffiDecode
+   register(fn: (...args: unknown[]) => unknown, type: unknown): unknown
+   unregister(callback: unknown): void
+   sizeof(type: string): number
+-  view(ref: unknown, len: number): ArrayBuffer
+ }
+ 
+ /**
+- * Read a NUL-terminated UTF-16 string at a native address. koffi's
+- * `_Out_ void **` out-params surface a raw address, and
+- * `koffi.decode(addr, 'str16')` would dereference it as a pointer — crash
+- * on real Windows — so view the memory directly instead.
++ * Read a NUL-terminated UTF-16 string at a native address. The obvious
++ * `koffi.decode(addr, 'str16')` dereferences addr as a `char16_t **` — a
++ * pointer-to-pointer read of the string's own address, crashing on real
++ * Windows — and `koffi.view` wraps foreign memory in an external ArrayBuffer,
++ * which fatal-crashes under the V8 Sandbox that Electron (unlike stock Node)
++ * force-enables in every process. `koffi.decode.string16` is the copy-based
++ * reader: it builds a fresh V8 string from the bytes, safe in both runtimes.
+  */
+ function readUtf16(koffi: Koffi, address: unknown): string {
+-  const bytes = Buffer.from(koffi.view(address, 32768))
+-  let end = 0
+-  while (end + 1 < bytes.length && bytes[end] !== 0) end += 2
+-  return bytes.toString('utf16le', 0, end)
++  return koffi.decode.string16(address)
+ }
+ 
+ const COINIT_APARTMENTTHREADED = 0x2
+diff --git a/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts b/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
+index b8ff4c3f1a..3a76fd8a3a 100644
+--- a/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
++++ b/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
+@@ -127,25 +127,25 @@ function installFakeKoffi(world: ComWorld): void {
+       proto: (declaration: string) => ({ declaration }),
+       pointer: (type: unknown) => type,
+       sizeof: (type: string) => { void type; return FAKE_POINTER_SIZE },
+-      view: (value: unknown, len: number): ArrayBuffer => {
+-        const bytes = Buffer.alloc(len)
+-        bytes.write((value as FakePtr).text as string, 'utf16le')
+-        return bytes.buffer
+-      },
+       register: (fn: (hwnd: unknown, lparam: unknown) => number) => { world.registered += 1; return { fn } },
+       unregister: () => { world.unregistered += 1 },
+-      decode: (value: unknown, offsetOrType: unknown): unknown => {
+-        if (offsetOrType === 'str16') return (value as FakePtr).text
+-        if (typeof offsetOrType === 'number') {
+-          // Vtable slot read: offsets must be multiples of the fake width.
+-          if (offsetOrType % FAKE_POINTER_SIZE !== 0) throw new Error(`vtable offset ${offsetOrType} is not pointer-aligned`)
+-          const owner = (value as { owner: FakePtr }).owner
+-          return { call: (args: unknown[]) => dispatch(owner, offsetOrType / FAKE_POINTER_SIZE, args) }
+-        }
+-        // decode(x, 'void *'): out-buffer read or vtable read.
+-        if (outBuffers.has(value)) return outBuffers.get(value)
+-        return { owner: value as FakePtr }
+-      },
++      // No `view` fake on purpose: readUtf16 must use the copy-based
++      // decode.string16 reader — view wraps foreign memory in an external
++      // ArrayBuffer, which fatals under Electron's V8 Sandbox.
++      decode: Object.assign(
++        (value: unknown, offsetOrType: unknown): unknown => {
++          if (typeof offsetOrType === 'number') {
++            // Vtable slot read: offsets must be multiples of the fake width.
++            if (offsetOrType % FAKE_POINTER_SIZE !== 0) throw new Error(`vtable offset ${offsetOrType} is not pointer-aligned`)
++            const owner = (value as { owner: FakePtr }).owner
++            return { call: (args: unknown[]) => dispatch(owner, offsetOrType / FAKE_POINTER_SIZE, args) }
++          }
++          // decode(x, 'void *'): out-buffer read or vtable read.
++          if (outBuffers.has(value)) return outBuffers.get(value)
++          return { owner: value as FakePtr }
++        },
++        { string16: (ptr: unknown): string => (ptr as FakePtr).text as string },
++      ),
+       call: (fn: { call: (args: unknown[]) => number }, _proto: unknown, _self: unknown, ...args: unknown[]) => fn.call(args),
+     },
+   }))
