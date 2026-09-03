@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
+  IconCheckOutline16, IconCopyOutline16, JsonBlock, MessageText, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { REWIND_EXECUTE_PATH } from '../shared.ts'
 import styles from './RewindUserMessage.module.css'
@@ -39,18 +39,87 @@ function IconUndo16({ size = 16, className }: { size?: number; className?: strin
   )
 }
 
-/** text 块 join；非文本块（json/附件元数据）不参与回填，保持官方 contentParts 语义近似。 */
-function textOf(content: readonly ContentBlock[]): { text: string; images: readonly unknown[] } {
+/** 官方 contentParts 的触及子集：text 拼接、image 分离、其余块降级渲染。 */
+function contentParts(content: readonly ContentBlock[]): {
+  text: string
+  images: readonly unknown[]
+  rest: readonly ContentBlock[]
+} {
   let text = ''
   const images: unknown[] = []
+  const rest: ContentBlock[] = []
   for (const block of content) {
     if (block.type === 'text' && typeof (block as { text?: unknown }).text === 'string') {
       text += (block as { text: string }).text
     } else if (block.type === 'image') {
       images.push(block)
+    } else {
+      rest.push(block)
     }
   }
-  return { text, images }
+  return { text, images, rest }
+}
+
+/**
+ * 官方 projectUserText 的复刻：`/name`、`@name`、`@"quoted"` 词边界 token 装饰
+ * 为引用 chip（会话引用优先），其余保持纯文本。logged 文本仍是唯一事实，这里
+ * 仅呈现。与官方的差异：chip 不带 ReferenceIcon（该图标是 ui-conversation 内部
+ * 组件，primitives 未导出），见 ADR-0007 差异清单。
+ */
+function projectUserText(text: string, sessionLabels: readonly string[]): ReactNode {
+  const ranges: { start: number; end: number; label: string; kind: 'session' | 'plain' }[] = []
+  for (const rawLabel of [...new Set(sessionLabels)].toSorted((a, b) => b.length - a.length)) {
+    const label = `@${rawLabel}`
+    let start = text.indexOf(label)
+    while (start >= 0) {
+      ranges.push({ start, end: start + label.length, label, kind: 'session' })
+      start = text.indexOf(label, start + label.length)
+    }
+  }
+  const re = /(^|\s)(\/[\w-]+|@"[^"\n]+"|@[^\s]+)/gu
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const tokenStart = m.index + (m[1]?.length ?? 0)
+    const rawLabel = m[2] ?? ''
+    const label = rawLabel.startsWith('@"')
+      ? rawLabel
+      : rawLabel.replace(/[.,;:!?，。；：！？]+$/gu, '')
+    if (label.length <= 1) continue
+    ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
+  }
+  ranges.sort((a, b) => a.start - b.start
+    || (a.kind === b.kind ? b.end - a.end : a.kind === 'session' ? -1 : 1))
+  const parts: ReactNode[] = []
+  let cursor = 0
+  for (const range of ranges) {
+    if (range.start < cursor) continue
+    const { start: tokenStart, end, label, kind } = range
+    if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
+    const referenceKind = kind === 'session'
+      ? 'session'
+      : label.startsWith('@')
+        ? label.endsWith('/') ? 'folder' : 'file'
+        : undefined
+    const displayLabel = referenceKind === undefined
+      ? label
+      : referenceKind === 'session'
+        ? label.slice(1)
+        : label.slice(1).replace(/^"|"$/gu, '').split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1)
+    parts.push(
+      <span
+        key={tokenStart}
+        className={styles.refChip}
+        data-ref-chip={referenceKind ?? 'skill'}
+        title={label}
+      >
+        {displayLabel}
+      </span>,
+    )
+    cursor = end
+  }
+  if (parts.length === 0) return <MessageText text={text} />
+  if (cursor < text.length) parts.push(<MessageText key={cursor} text={text.slice(cursor)} />)
+  return <>{parts}</>
 }
 
 const pad2 = (n: number): string => String(n).padStart(2, '0')
@@ -109,7 +178,7 @@ function CopyAction({ text, t }: { text: string; t: RewindUserMessageProps['t'] 
 /**
  * shadow 官方 key='user' 渲染器（priority 更低者胜出，官方为 fallback）：
  * 气泡与动作行镜像官方 MessageItem/MessageIconActions（主题 CSS 变量 +
- * primitives 图标同一份），动作行在官方「时间 · 复制」基础上于复制左侧
+ * primitives 组件同一份），动作行在官方「时间 · 复制」基础上于复制左侧
  * 增加「撤回编辑」；确认后原文回输入框并经同源路由追加墓碑——视图收缩
  * 由事件回推自动完成。
  */
@@ -121,7 +190,8 @@ export function RewindUserMessage(props: RewindUserMessageProps) {
   const [error, setError] = useState('')
 
   const data = node.data
-  const { text, images } = textOf(data.content)
+  const { text, images, rest } = contentParts(data.content)
+  const referenceLabels = data.referenceLabels ?? []
 
   async function execute(): Promise<void> {
     setPending(true)
@@ -134,7 +204,8 @@ export function RewindUserMessage(props: RewindUserMessageProps) {
       })
       const body = await response.json() as { ok?: boolean; code?: string; message?: string }
       if (response.ok && body.ok === true) {
-        // 成功：先回填输入框（当前会话视图随 session/event 回推自动收缩）。
+        // 成功：收起确认并回填输入框（视图随 session/event 回推自动收缩）。
+        setConfirming(false)
         inputActions.setDraft(text)
         return
       }
@@ -155,7 +226,24 @@ export function RewindUserMessage(props: RewindUserMessageProps) {
         {renderMessageImages !== undefined && images.length > 0
           ? renderMessageImages({ images, align: 'end' })
           : null}
-        {text !== '' && <div className={styles.bubble}>{text}</div>}
+        {text !== '' && (
+          <div className={styles.bubble}>
+            {projectUserText(text, referenceLabels)}
+            {rest.map((block, index) => (
+              <JsonBlock
+                key={index}
+                label={t('extraBlock')}
+                payload={block}
+                truncatedLabel={total => t('jsonTruncated', { total })}
+              />
+            ))}
+          </div>
+        )}
+        {referenceLabels.length > 0 && (
+          <div className={styles.referenceSummary}>
+            {t('referenceSummary', { labels: referenceLabels.join(t('referenceSeparator')) })}
+          </div>
+        )}
       </div>
       {/*
         确认 / 错误 / 常态动作行共用同一个 28px 行槽位（原位替换，不新增行），

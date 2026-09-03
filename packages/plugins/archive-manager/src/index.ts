@@ -101,8 +101,17 @@ function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
   return run
 }
 
+/** Host 头的主机部分必须是 loopback 字面量（webServer 只绑 loopback 的镜像校验）。 */
+function isLoopbackHostHeader(hostHeader: string): boolean {
+  const portMatch = hostHeader.match(/^(.*):\d+$/u)
+  const hostname = portMatch?.[1] ?? hostHeader
+  return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]'
+}
+
 /**
- * 同源判定：Origin 与 Host 头必须指向同一 http(s) 主机与端口。
+ * 同源判定：Origin 与 Host 头必须指向同一 http(s) 主机与端口，且 Host 的
+ * 主机部分是 loopback（防 DNS rebinding：攻击域解析到 127.0.0.1 时 Origin
+ * 与 Host 同为攻击域，单纯相等比对放行，loopback 白名单把它拒掉）。
  * 逻辑镜像 packages/bridge/src/origin.ts 的判定思路；不 import 是因为
  * staged 插件闭包解析不到 workspace 内部包，十几行内联不值得引入装配复杂度。
  */
@@ -116,7 +125,7 @@ export function isSameOrigin(originHeader: string | undefined, hostHeader: strin
   }
   if (origin.protocol !== 'http:' && origin.protocol !== 'https:') return false
   if (origin.username !== '' || origin.password !== '') return false
-  // URL.host 含非默认端口；浏览器 Origin 头无尾斜杠，与 Host 头同形可直接比对。
+  if (!isLoopbackHostHeader(hostHeader)) return false
   return origin.host === hostHeader
 }
 

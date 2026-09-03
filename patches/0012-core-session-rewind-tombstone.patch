@@ -146,10 +146,10 @@ index ba6c2dda80..eff47baef0 100644
    return {
 diff --git a/packages/core/session/tests/rewind.spec.ts b/packages/core/session/tests/rewind.spec.ts
 new file mode 100644
-index 0000000000..8d3bae72bd
+index 0000000000..743c2816fe
 --- /dev/null
 +++ b/packages/core/session/tests/rewind.spec.ts
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,213 @@
 +import { describe, expect, it } from 'vitest'
 +import type { SessionEvent } from '@deepseek-ai/dsh-session'
 +import { Session, SessionId, foldSurface } from '@deepseek-ai/dsh-session'
@@ -177,6 +177,33 @@ index 0000000000..8d3bae72bd
 +  session.append('turn/end', { turn, reason: { kind: 'completed' } })
 +  return user.seq
 +}
++
++/** Bare log-event builders for direct foldSurface/SurfaceManager assertions. */
++const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
++  ({ seq, time: 1_700_000_000_000 + seq, ...event }) as unknown as SessionEvent
++
++const turnStart = (seq: number, turn: number): SessionEvent =>
++  at(seq, { type: 'turn/start', data: { turn } })
++
++const turnEnd = (seq: number, turn: number): SessionEvent =>
++  at(seq, { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
++
++const userEvent = (seq: number): SessionEvent =>
++  at(seq, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
++    content: [{ type: 'text', text: `q${seq}` }],
++    source: { kind: 'user' },
++  }) })
++
++const assistantEvent = (seq: number): SessionEvent =>
++  at(seq, { type: 'assistant/message', surfaceOp: 'append', data: {
++    turn: 1,
++    step: 1,
++    message: createMessage({
++      role: 'assistant',
++      content: [{ type: 'text', text: `a${seq}` }],
++      source: { kind: 'model', ...{ provider: 'mock', model: 'mock' } },
++    }),
++  } })
 +
 +/** A session with two completed turns; the rewind targets land inside turn 2. */
 +function twoTurnSession(): { session: Session; firstUserSeq: number; secondUserSeq: number } {
@@ -269,5 +296,70 @@ index 0000000000..8d3bae72bd
 +
 +  it('catalogues the tombstone type so persistence reads accept it', () => {
 +    expect(KNOWN_SESSION_EVENT_TYPES.has(REWIND_EVENT_TYPE)).toBe(true)
++  })
++
++  it('keeps the incremental fold equal to the full fold across a compaction replacement', () => {
++    // Layout: turn1 user 1 / assistant 2, turn2 user 5 / assistant 6, compaction
++    // checkpoint at seq 8 replaces [5, 6], post-checkpoint user 10 / assistant 11,
++    // rewind marker at seq 12 withdraws [10, 12) — the checkpoint itself survives.
++    const events = [
++      turnStart(0, 1), userEvent(1), assistantEvent(2), turnEnd(3, 1),
++      turnStart(4, 2), userEvent(5), assistantEvent(6), turnEnd(7, 2),
++      {
++        seq: 8,
++        time: 1_700_000_000_008,
++        type: 'user/message',
++        surfaceOp: { op: 'replace', start: 5, end: 6 },
++        sourceEventSeqs: [5, 6],
++        data: { content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'user' } },
++      } as unknown as SessionEvent,
++      turnStart(9, 3), userEvent(10), assistantEvent(11), turnEnd(12, 3),
++      { seq: 13, time: 1_700_000_000_013, type: REWIND_EVENT_TYPE, data: { atSeq: 10 } } as unknown as SessionEvent,
++    ]
++    const full = foldSurface(events)
++    expect(full.nodes).toEqual([1, 2, 8])
++    expect(new SurfaceManager(events).nodes).toEqual(full.nodes)
++    expect(new SurfaceManager(events).replaceGeneration).toBe(2)
++  })
++
++  it('folds by log seq when the marker lands inside a replaced (shadowed) range', () => {
++    // The host precheck refuses this shape; the fold documents what would happen
++    // if it slipped through: the checkpoint node (seq 8 >= atSeq 6) is withdrawn
++    // together with the shadowed range — the "over-rewind" the precheck exists for.
++    const events = [
++      turnStart(0, 1), userEvent(1), assistantEvent(2), turnEnd(3, 1),
++      turnStart(4, 2), userEvent(5), assistantEvent(6), turnEnd(7, 2),
++      {
++        seq: 8,
++        time: 1_700_000_000_008,
++        type: 'user/message',
++        surfaceOp: { op: 'replace', start: 5, end: 6 },
++        sourceEventSeqs: [5, 6],
++        data: { content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'user' } },
++      } as unknown as SessionEvent,
++      { seq: 9, time: 1_700_000_000_009, type: REWIND_EVENT_TYPE, data: { atSeq: 6 } } as unknown as SessionEvent,
++    ]
++    // nodes [1, 2, 8] truncated at 6 drops the checkpoint: [1, 2] remain.
++    expect(foldSurface(events).nodes).toEqual([1, 2])
++    expect(new SurfaceManager(events).nodes).toEqual([1, 2])
++  })
++
++  it('withdraws everything down to the start with chained markers around a replacement', () => {
++    const events = [
++      turnStart(0, 1), userEvent(1), assistantEvent(2), turnEnd(3, 1),
++      turnStart(4, 2), userEvent(5), assistantEvent(6), turnEnd(7, 2),
++      {
++        seq: 8,
++        time: 1_700_000_000_008,
++        type: 'user/message',
++        surfaceOp: { op: 'replace', start: 5, end: 6 },
++        sourceEventSeqs: [5, 6],
++        data: { content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'user' } },
++      } as unknown as SessionEvent,
++      { seq: 9, time: 1_700_000_000_009, type: REWIND_EVENT_TYPE, data: { atSeq: 5 } } as unknown as SessionEvent,
++      { seq: 10, time: 1_700_000_000_010, type: REWIND_EVENT_TYPE, data: { atSeq: 0 } } as unknown as SessionEvent,
++    ]
++    expect(foldSurface(events).nodes).toEqual([])
++    expect(new SurfaceManager(events).nodes).toEqual([])
 +  })
 +})

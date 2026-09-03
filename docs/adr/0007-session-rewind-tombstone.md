@@ -69,8 +69,16 @@ Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓�
   为 false），撤回后其上下文用量显示与 compaction 规划面按旧表面估算——读侧
   显示偏差，不影响模型真实上下文；完整对齐需 token-meter 消费墓碑，列为后续。
   搜索索引同样仍含被撤回消息。
+- **撤回后 fork 的语义**：`session.fork` 按事件前缀切片复制，不感知墓碑——
+  fork 边界落在墓碑之前（即被撤回区间之后段被完整复制）时，子会话不含墓碑、
+  被撤回的消息在子会话"复活"。这是可辩护的语义（fork = 从该时点的原始转录
+  分叉），桌面 UI 的 forkAt 目标多不可见（视图已折叠）故日常不可达，但
+  Inspect/子代理路径可触达；行为由 real-package 测试锁定。
 - patch 维护：surface.ts / session.ts 是上游活跃文件，submodule bump 时按既有
   patch 队列流程（sync-upstream CI 演练）重放校验；两个 patch 独立登记、可独立修复。
 - 官方 CLI 拒读含墓碑会话（见决定 5）；上游落地原生 rewind 原语后两 patch 退役、
   插件仅换事件类型，UI 层不动。
-- shadow 用户消息渲染器镜像官方气泡样式，列入升级 checklist。
+- shadow 用户消息渲染器镜像官方气泡与动作行，与官方的已知差异（升级 checklist
+  对齐项）：引用 chip 不带 ReferenceIcon（ui-conversation 内部件未导出）、
+  formatClock 为 formatMessageClock 的近似、steering 消息不 shadow（撤回语义
+  限定在 turn 边界的 user 消息）。

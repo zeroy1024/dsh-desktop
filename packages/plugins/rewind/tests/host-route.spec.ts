@@ -48,8 +48,15 @@ afterAll(async () => {
 describe('isSameOrigin', () => {
   it('accepts matching origin/host and rejects everything else', () => {
     expect(isSameOrigin('http://127.0.0.1:49152', '127.0.0.1:49152')).toBe(true)
+    expect(isSameOrigin('http://localhost:49152', 'localhost:49152')).toBe(true)
+    expect(isSameOrigin('http://[::1]:49152', '[::1]:49152')).toBe(true)
     expect(isSameOrigin(undefined, '127.0.0.1:1')).toBe(false)
     expect(isSameOrigin('http://127.0.0.1:9999', '127.0.0.1:1')).toBe(false)
+  })
+
+  it('rejects a rebinding-shaped request where Origin equals a non-loopback Host', () => {
+    // DNS rebinding：攻击域解析到 127.0.0.1，Origin 与 Host 同为攻击域。
+    expect(isSameOrigin('http://evil.example:8080', 'evil.example:8080')).toBe(false)
   })
 })
 

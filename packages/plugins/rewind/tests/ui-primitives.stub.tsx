@@ -17,6 +17,14 @@ export function Tooltip({ label, children }: { label: string; children: ReactEle
   )
 }
 
+export function MessageText({ text }: { text: string }): ReactElement {
+  return <span data-message-text={text.length}>{text}</span>
+}
+
+export function JsonBlock({ label }: { label: string; payload?: unknown }): ReactElement {
+  return <div data-json-block={label} />
+}
+
 export async function writeClipboard(_text: string): Promise<boolean> {
   return true
 }

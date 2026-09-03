@@ -4,12 +4,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RewindUserMessage } from '../src/client/RewindUserMessage.tsx'
 import type { RewindUserMessageProps } from '../src/client/types.ts'
 
-const t = (key: string, params?: Record<string, string | number>) => {
+const t = (key: string, params?: Record<string, string | number>): string => {
+  const replace = (raw: string): string =>
+    raw.replace(/\{(\w+)\}/gu, (_, name: string) => String(params?.[name] ?? ''))
   const dict: Record<string, string> = {
     action: '撤回编辑',
     actionAria: '撤回并编辑该消息',
     copy: '复制',
     copied: '已复制',
+    extraBlock: '附加内容块',
+    referenceSummary: '引用会话 · {labels}',
+    referenceSeparator: '、',
     confirmTitle: '撤回该消息及其后的所有回复？',
     confirmHint: '消息内容将回到输入框，可编辑后重新发送。',
     confirm: '撤回',
@@ -22,7 +27,7 @@ const t = (key: string, params?: Record<string, string | number>) => {
     errorHttp: `撤回失败（HTTP ${String(params?.status ?? '')}）`,
     errorGeneric: `撤回失败：${String(params?.message ?? '')}`,
   }
-  return dict[key] ?? key
+  return replace(dict[key] ?? key)
 }
 
 const node = {
@@ -64,6 +69,38 @@ describe('RewindUserMessage', () => {
     expect(screen.getByRole('button', { name: '撤回并编辑该消息' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
     expect(document.querySelector('[data-time-hover-root] [class*="timeStart"]')).toBeTruthy()
+  })
+
+  it('decorates reference tokens and degrades extra blocks like the official bubble', () => {
+    render(
+      <RewindUserMessage
+        sessionId="session-1"
+        t={t}
+        inputActions={{ setDraft: vi.fn() }}
+        useSession={useIdleSession}
+        renderMessageImages={undefined}
+        node={{
+          key: 'user:2',
+          data: {
+            kind: 'user',
+            seq: 3,
+            time: 1_700_000_000_000,
+            content: [
+              { type: 'text', text: '问问 @faq 再 /review 一下' },
+              { type: 'json', value: { k: 1 } },
+            ],
+            referenceLabels: ['faq'],
+          },
+        }}
+      />,
+    )
+    // @token 装饰为引用 chip（session 引用显示去 @ 的标签）。
+    expect(document.querySelector('[data-ref-chip="session"]')?.textContent).toBe('faq')
+    expect(document.querySelector('[data-ref-chip="skill"]')?.textContent).toBe('/review')
+    // 非 text/image 块以 JsonBlock 降级。
+    expect(document.querySelector('[data-json-block="附加内容块"]')).toBeTruthy()
+    // 会话引用摘要行。
+    expect(screen.getByText('引用会话 · faq')).toBeTruthy()
   })
 
   it('asks for confirmation, then refills the draft and posts the tombstone', async () => {

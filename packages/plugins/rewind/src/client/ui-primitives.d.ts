@@ -21,5 +21,14 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     children: ReactElement
   }): ReactElement
 
+  export function MessageText(props: { text: string }): ReactElement
+
+  export function JsonBlock(props: {
+    label: string
+    payload: unknown
+    defaultOpen?: boolean
+    truncatedLabel?: ((total: number) => string) | undefined
+  }): ReactElement
+
   export function writeClipboard(text: string): Promise<boolean>
 }

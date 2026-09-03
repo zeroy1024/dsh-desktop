@@ -66,8 +66,17 @@ export function precheckRewind(
   return undefined
 }
 
+/** Host 头的主机部分必须是 loopback 字面量（webServer 只绑 loopback 的镜像校验）。 */
+function isLoopbackHostHeader(hostHeader: string): boolean {
+  const portMatch = hostHeader.match(/^(.*):\d+$/u)
+  const hostname = portMatch?.[1] ?? hostHeader
+  return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]'
+}
+
 /**
- * 同源判定：Origin 与 Host 头必须指向同一 http(s) 主机与端口。
+ * 同源判定：Origin 与 Host 头必须指向同一 http(s) 主机与端口，且 Host 的
+ * 主机部分是 loopback（防 DNS rebinding：攻击域解析到 127.0.0.1 时 Origin
+ * 与 Host 同为攻击域，单纯相等比对放行，loopback 白名单把它拒掉）。
  * 逻辑镜像 packages/bridge/src/origin.ts（staged 闭包解析不到 workspace 包，内联）。
  */
 export function isSameOrigin(originHeader: string | undefined, hostHeader: string | undefined): boolean {
@@ -80,6 +89,7 @@ export function isSameOrigin(originHeader: string | undefined, hostHeader: strin
   }
   if (origin.protocol !== 'http:' && origin.protocol !== 'https:') return false
   if (origin.username !== '' || origin.password !== '') return false
+  if (!isLoopbackHostHeader(hostHeader)) return false
   return origin.host === hostHeader
 }
 
@@ -157,8 +167,8 @@ export async function handleRewindRequest(
 
     session.append(REWIND_EVENT_TYPE, { atSeq: atSeq as number })
     sendJson(res, 200, { ok: true, atSeq: atSeq as number })
-  } catch (error) {
-    sendJson(res, 500, { ok: false, code: 'internal-error', message: error instanceof Error ? error.message : String(error) })
+  } catch {
+    sendJson(res, 500, { ok: false, code: 'internal-error' })
   }
 }
 

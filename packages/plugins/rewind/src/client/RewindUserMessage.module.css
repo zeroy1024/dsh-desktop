@@ -28,6 +28,24 @@
   overflow-wrap: anywhere;
 }
 
+/* 用户文本里的 /命令 与 @引用 token 装饰（官方 refChip 同款）。 */
+.refChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.referenceSummary {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 /* —— 动作行（官方 MessageIconActions 布局：时间 · 撤回 · 复制） —— */
 
 .actions {

@@ -51,7 +51,8 @@ API、无删除会话 API。上游 README 明文承认（`upstream/packages/clie
   退役，client 半数据通路不变。
 - as-any 依赖的是运行时事实而非类型承诺：submodule bump 时须检查 `WorkspaceRegistry` 的
   `state`/`setState` 是否仍存在（列入升级 checklist；探测失败即 501，不会损坏数据）。
-- 路由仅挂在 dsh 的 loopback web 服务上，与官方 RPC 同信任级别；同源校验拒绝跨源与 DNS
-  rebinding 形态的伪造请求。
+- 路由仅挂在 dsh 的 loopback web 服务上，与官方 RPC 同信任级别；同源校验（Origin↔Host 相等
+  + Host 主机部分 loopback 白名单）拒绝跨源与 DNS rebinding 形态的伪造请求——后者依赖
+  webServer 只绑 loopback 的事实，纯 Origin/Host 相等比对无法单独防住 rebinding。
 - 恢复操作绕过 `enqueueOperation` 串行链：与用户并发点「归档」存在理论上的写交错窗口，靠
   插件内互斥 + 人工低频操作兜底。registry 的 `validateStoredState` 仍会兜住不一致并 fail loud。

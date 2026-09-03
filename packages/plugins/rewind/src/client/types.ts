@@ -22,6 +22,8 @@ export interface UserNodeData {
   seq: number
   time: number
   content: readonly ContentBlock[]
+  /** 相邻召回节点关联的会话引用标签（官方同名可选字段）。 */
+  referenceLabels?: readonly string[]
 }
 
 /** conversation.chat.node 的 owner props 触及子集。 */
