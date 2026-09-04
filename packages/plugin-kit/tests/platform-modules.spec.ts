@@ -28,6 +28,7 @@ function expectMirror(ours: readonly string[], upstream: string[], table: string
   } catch (error) {
     throw new Error(
       `上游 platform.ts 已漂移，同步更新 client-bundle.ts 镜像（${table}）\n${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     )
   }
 }
