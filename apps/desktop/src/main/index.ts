@@ -487,7 +487,7 @@ async function startAgentWithPreReadySelfHeal(candidate: AgentSupervisor): Promi
  * dispose；成功路径（reveal 完成）也保留控制器——resize 监听需要活到
  * 窗口关闭（仅监听，无视图；dispose 幂等）。
  */
-async function runStartup(
+export async function runStartup(
   generation: number,
   preparedController: SplashController | null = null,
 ): Promise<void> {
@@ -636,7 +636,7 @@ async function runCiSmokeRestartStage(): Promise<void> {
   )
 }
 
-async function bootstrap(): Promise<void> {
+export async function bootstrap(): Promise<void> {
   installSecurityHooks(() => allowedPort)
   // dev 态 dock 图标（打包态由 app bundle 的 icns 提供，无需设置）
   if (process.platform === 'darwin' && !app.isPackaged) {
@@ -661,7 +661,7 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-async function restartAgent(): Promise<void> {
+export async function restartAgent(): Promise<void> {
   if (!restartThrottle.allowRestart()) {
     // 冷却期内到达：拒绝并记录（决策本身在 restart-throttle 已单测，
     // 这里只补日志）。拒绝以 invoke rejection 浮给渲染进程，调用方会看到；
@@ -762,9 +762,16 @@ ipcMain.handle('dsh-desktop:menu-popup', (event, payload: unknown) => {
   })
 })
 
-if (!app.requestSingleInstanceLock()) {
-  app.quit()
-} else {
+/**
+ * 主进程入口：单实例锁 → 应用生命周期接线（second-instance / activate /
+ * window-all-closed / before-quit）→ whenReady 后 bootstrap。
+ * 测试（vitest）下不自动执行，由测试显式调用以驱动上述事件。
+ */
+export function startMainProcess(): void {
+  if (!app.requestSingleInstanceLock()) {
+    app.quit()
+    return
+  }
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -824,4 +831,45 @@ if (!app.requestSingleInstanceLock()) {
       .catch((error: unknown) => { console.error('[agent] 退出前停止 agent 失败', error) })
       .finally(() => app.quit())
   })
+}
+
+// 真实启动：import 即接线。vitest 下由测试显式调用 startMainProcess()，
+// 避免测试挂载时拉起完整生命周期。
+if (process.env.VITEST !== 'true') startMainProcess()
+
+/**
+ * 以下探针仅供测试（tests/main-harness.spec.ts）断言模块级状态机，
+ * 生产打包（esbuild main.mjs）不引用。导出把模块生命周期完整暴露给
+ * 行为测试，避免通过 IPC 间接观察中间态。
+ */
+export interface MainStateProbe {
+  allowedPort: number | null
+  quitRequested: boolean
+  startupGeneration: number
+  runtimeSelfHealUsed: boolean
+  hasSupervisor: boolean
+  supervisorState: string | null
+  hasMainWindow: boolean
+  mainWindowId: number | null
+  hasSplash: boolean
+  hasWebui: boolean
+  ciSmoke: boolean
+  restartThrottleLastAccepted: number | null
+}
+
+export function getMainState(): MainStateProbe {
+  return {
+    allowedPort,
+    quitRequested,
+    startupGeneration,
+    runtimeSelfHealUsed,
+    hasSupervisor: supervisor !== null,
+    supervisorState: supervisor?.state ?? null,
+    hasMainWindow: mainWindow !== null,
+    mainWindowId: mainWindow?.id ?? null,
+    hasSplash: splash !== null,
+    hasWebui: webuiContents !== null,
+    ciSmoke,
+    restartThrottleLastAccepted: restartThrottle.lastAcceptedAt(),
+  }
 }
