@@ -71,6 +71,54 @@ describe('runDshSmoke', () => {
     expect(result.bodyBytes).toBeGreaterThan(0)
     expect(readFileSync(pidFile, 'utf8')).toMatch(/^\d+$/u)
   }, 15_000)
+
+  it('exchanges the 0.1.2 launch token (303 + cookie) before asserting the page', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-smoke-token-'))
+    scratch.push(root)
+    const pidFile = join(root, 'pid')
+    const cliEntry = join(root, 'fake-cli-token.mjs')
+    mkdirSync(root, { recursive: true })
+    // 0.1.2 authorizeIndex 形态：GET /?token=… → 303 到 / + 签名 cookie；
+    // 无 cookie 的裸 / → 401；带 cookie → 200 HTML。
+    writeFileSync(cliEntry, [
+      "import { createServer } from 'node:http'",
+      "import { writeFileSync } from 'node:fs'",
+      'const server = createServer((request, response) => {',
+      "  const url = new URL(request.url ?? '/', 'http://127.0.0.1')",
+      "  if (url.searchParams.has('token')) {",
+      "    response.writeHead(303, { location: '/', 'set-cookie': 'dsh-auth-test=ok; Path=/; HttpOnly' })",
+      "    response.end()",
+      "    return",
+      '  }',
+      "  if (request.headers.cookie !== 'dsh-auth-test=ok') {",
+      "    response.writeHead(401, { 'content-type': 'text/plain' })",
+      "    response.end('dsh web authentication required')",
+      "    return",
+      '  }',
+      "  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })",
+      "  response.end('<!doctype html><html><body><div id=\"root\"></div></body></html>')",
+      '})',
+      "writeFileSync(process.env.SMOKE_PID_FILE, String(process.pid))",
+      "server.listen(0, '127.0.0.1', () => {",
+      "  const address = server.address()",
+      "  if (typeof address !== 'object' || address === null) throw new Error('missing address')",
+      "  console.log(`dsh web: http://127.0.0.1:${address.port}/?token=abc_DEF-123`)",
+      '})',
+      "process.once('SIGTERM', () => { server.close(() => process.exit(0)); server.closeAllConnections?.() })",
+      "process.once('SIGINT', () => { server.close(() => process.exit(0)); server.closeAllConnections?.() })",
+    ].join('\n'))
+
+    const result = await runDshSmoke({
+      cliEntry,
+      startupTimeoutMs: 5_000,
+      requestTimeoutMs: 5_000,
+      noProfile: true,
+      env: { SMOKE_PID_FILE: pidFile },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.url).toMatch(/\?token=abc_DEF-123$/u)
+  }, 15_000)
 })
 
 describe('staged plugins resolution', () => {

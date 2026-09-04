@@ -4,7 +4,8 @@
  * 职责：以子进程方式启动 `dsh web`（127.0.0.1 随机端口 + 启动 token），
  * 从 stdout 解析 ready 行得到可用 URL；子进程意外退出时按指数退避重启；
  * stdout/stderr 落盘到日志目录。桌面主进程通过它拿到 loadURL 目标。
- * 上游 0.1.1-rc.2 起 ready 行已不再携带 token；redactSecrets 保留是对旧格式的兼容防御。
+ * 上游 0.1.2 起 ready 行重新携带 ?token=（首载 303 换签名 cookie）；
+ * redactSecrets 对日志中的 token 做统一脱敏，ready.url 原样透传给主进程。
  */
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'

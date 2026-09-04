@@ -22,7 +22,6 @@ import {
 } from 'electron'
 import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { agentPageUrl } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
 import {
   isApplicationMenuId,
@@ -62,6 +61,12 @@ let webuiContents: WebContents | null = null
 let windowsAppearance: WindowsAppearanceController | null = null
 /** 当前这一代 agent 的监听端口；未 ready 时为 null，导航与 IPC 一律拒绝。 */
 let allowedPort: number | null = null
+/**
+ * 当前这一代 agent ready 行携带的完整文档 URL（0.1.2 起含 ?token=，首载 303
+ * 换签名 cookie）。loadURL 必须透传它——从端口重建的裸地址会被 401 拒绝。
+ * 生命周期与 allowedPort 同步：exit 清空，新一代 ready 覆盖。
+ */
+let agentReadyUrl: string | null = null
 let quitRequested = false
 let startupTask: Promise<void> | null = null
 let restartTask: Promise<void> | null = null
@@ -284,8 +289,8 @@ function writeCiSmokeReadyMarker(): void {
 }
 
 function webuiUrl(): string {
-  if (allowedPort === null) throw new Error('agent not ready')
-  return agentPageUrl(allowedPort)
+  if (agentReadyUrl === null || allowedPort === null) throw new Error('agent not ready')
+  return agentReadyUrl
 }
 
 function createMainWindow(): BaseWindow {
@@ -377,6 +382,7 @@ function broadcastAppearance(snapshot: WindowsAppearanceSnapshot): void {
 
 function clearAgentTransport(): void {
   allowedPort = null
+  agentReadyUrl = null
 }
 
 function sendAgentStatus(status: 'running' | 'restarting' | 'stopped'): void {
@@ -402,6 +408,7 @@ function wireSupervisor(candidate: AgentSupervisor): void {
   candidate.on('ready', (ready: AgentReadyInfo) => {
     if (supervisor !== candidate || quitRequested) return
     allowedPort = ready.port
+    agentReadyUrl = ready.url
     lastReadyPid = ready.pid
     // 主进程被强杀时 before-quit 不执行，pid 文件是下次启动收割残留 agent 的唯一线索
     writeAgentPidRecord(agentPidPath(), { pid: ready.pid, cliEntry })
@@ -410,7 +417,7 @@ function wireSupervisor(candidate: AgentSupervisor): void {
     recovering = false
     const contents = webuiContents
     if (contents !== null && !contents.isDestroyed()) {
-      void contents.loadURL(agentPageUrl(ready.port)).catch((error: unknown) => {
+      void contents.loadURL(ready.url).catch((error: unknown) => {
         console.warn('[agent] 恢复后重载 WebUI 失败', error)
       })
     }
@@ -532,13 +539,16 @@ export async function runStartup(
     return
   }
   allowedPort = ready.port
+  agentReadyUrl = ready.url
   controller.sendProgress(70)
   controller.sendPhase('loading')
 
   const target = controller.attachWebui({ visible: false })
   const contents = target.contents
   webuiContents = contents
-  await contents.loadURL(agentPageUrl(ready.port))
+  // ready 行的完整 URL（含 ?token=）：首载由上游 303 换取签名 cookie，
+  // 之后同源 /api、WS 与 anchor 下载自动携带。裸地址在 0.1.2 会被 401 拒绝。
+  await contents.loadURL(ready.url)
   const mounted = await controller.waitForMount(contents, MOUNT_TIMEOUT_MS)
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) return
   if (!mounted) {

@@ -35,7 +35,8 @@ describe('agentDocumentCsp', () => {
     expect(AGENT_CSP).toContain("default-src 'self'")
     expect(AGENT_CSP).toContain("connect-src 'self'")
     expect(AGENT_CSP).toContain("object-src 'none'")
-    expect(AGENT_CSP).toContain("base-uri 'none'")
+    // 0.1.2 起上游主文档自带 <base href="/">，放宽为 'self'（仍禁外站 base 劫持）
+    expect(AGENT_CSP).toContain("base-uri 'self'")
     expect(AGENT_CSP).toContain("form-action 'none'")
     expect(AGENT_CSP).toContain("frame-ancestors 'none'")
   })
