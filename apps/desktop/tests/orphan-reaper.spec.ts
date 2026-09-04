@@ -129,9 +129,9 @@ describe('reapOrphanedAgent', () => {
     // 与 supervisor.signal 共用同一 taskkill 构造（win32 分支），非 Windows 主机也能
     // 精确断言 argv——单 pid 的 TerminateProcess 会漏掉 dsh 的孙进程（工具执行/终端）
     expect(killProcessTreeCommand(4321, 'SIGTERM'))
-      .toEqual(['taskkill', '/pid', '4321', '/T', '/windowless'])
+      .toEqual(['taskkill', '/pid', '4321', '/T'])
     expect(killProcessTreeCommand(4321, 'SIGKILL'))
-      .toEqual(['taskkill', '/F', '/pid', '4321', '/T', '/windowless'])
+      .toEqual(['taskkill', '/F', '/pid', '4321', '/T'])
   })
 })
 

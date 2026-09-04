@@ -314,12 +314,13 @@ describe('AgentSupervisor', () => {
 
     await supervisor.start()
     expect(supervisor.state).toBe('running')
-    // 等 160 KiB 巨型输出全部落盘后再 stop（写日志通道关闭前不吞数据）
+    // 等第一个超限分段落盘即可 stop：残缓冲只在 close 收尾时写回，
+    // 粗管道分片（如 Linux 64 KiB）下等全量 160 KiB 会死等
     const logPath = join(options.logDir, 'dsh-agent.log')
     await new Promise<void>((resolvePromise) => {
       const check = (): void => {
         try {
-          if (statSync(logPath).size >= 160 * 1024) resolvePromise()
+          if (statSync(logPath).size > 64 * 1024) resolvePromise()
           else setTimeout(check, 20)
         } catch {
           setTimeout(check, 20)

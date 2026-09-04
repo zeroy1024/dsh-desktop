@@ -375,6 +375,11 @@ jobs:
       - name: Install Electron binary
         run: pnpm --filter @dsh-desktop/desktop exec install-electron
 
+      # stage-runtime-archive 需要已 staging 的插件产物（pnpm build = 构建插件
+      # + stage:plugins + desktop 壳）；job 间不共享状态，这里必须自己构建
+      - name: Build plugins and desktop shell
+        run: pnpm build
+
       - name: Build desktop installer and archives
         working-directory: apps/desktop
         # 只出 dir + tar.gz（跳过 AppImage/installer 等重型产物），打包配置见

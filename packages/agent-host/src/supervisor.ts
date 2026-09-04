@@ -84,12 +84,13 @@ export interface AgentSupervisorOptions {
 
 /**
  * win32 进程树 `taskkill` 命令构造：纯函数，便于非 Windows 主机精确单测 argv。
- * /pid /T 常规树杀，SIGKILL 升级 /T /F；windowless 避免杀进程时闪现控制台窗口。
+ * /pid /T 常规树杀，SIGKILL 升级 /T /F；控制台窗口闪现由 execFile 的
+ * windowsHide 抑制（taskkill 自身没有此类参数）。
  * Job Object 是更彻底的长期方案（subtree 全杀 + 防逃逸），留作 backlog。
  */
 export function killProcessTreeCommand(pid: number, sig: NodeJS.Signals): string[] {
   const force = sig === 'SIGKILL' ? ['/F'] : []
-  return ['taskkill', ...force, '/pid', String(pid), '/T', '/windowless']
+  return ['taskkill', ...force, '/pid', String(pid), '/T']
 }
 
 /**
@@ -98,7 +99,7 @@ export function killProcessTreeCommand(pid: number, sig: NodeJS.Signals): string
  */
 export function killProcessTree(pid: number, sig: NodeJS.Signals): void {
   if (process.platform !== 'win32') return
-  execFile('taskkill', killProcessTreeCommand(pid, sig), { timeout: 10_000 }, () => {
+  execFile('taskkill', killProcessTreeCommand(pid, sig), { timeout: 10_000, windowsHide: true }, () => {
     // taskkill 失败（如进程刚退出）由调用方的 close/探活等待兜底，这里只记日志
   })
 }
