@@ -1,51 +1,3 @@
-diff --git a/packages/core/session/tests/rewind.spec.ts b/packages/core/session/tests/rewind.spec.ts
-index 743c2816fe..3a6cd6c075 100644
---- a/packages/core/session/tests/rewind.spec.ts
-+++ b/packages/core/session/tests/rewind.spec.ts
-@@ -72,7 +72,7 @@ describe('rewind tombstone surface fold', () => {
- 
-     // [5, 8) withdrawn: turn 2's messages leave the surface, turn 3 (seq 9..12
-     // rebuilt from the marker) stays visible alongside the turn 1 prefix.
--    expect(foldSurface(session.events).nodes).toEqual([1, 2, 10, 11])
-+    expect(foldSurface(session.snapshotEvents()).nodes).toEqual([1, 2, 10, 11])
-   })
- 
-   it('keeps the incremental SurfaceManager replay equal to the full fold', () => {
-@@ -81,8 +81,8 @@ describe('rewind tombstone surface fold', () => {
-     appendTurn(session, 3, 'retry')
-     session.append(REWIND_EVENT_TYPE, { atSeq: 0 })
- 
--    const full = foldSurface(session.events)
--    const incremental = new SurfaceManager(session.events)
-+    const full = foldSurface(session.snapshotEvents())
-+    const incremental = new SurfaceManager(session.snapshotEvents())
-     expect(incremental.nodes).toEqual(full.nodes)
-     expect(incremental.nodes).toEqual([])
-     expect(incremental.replaceGeneration).toBe(2)
-@@ -127,19 +127,19 @@ describe('rewind tombstone surface fold', () => {
-     const marker = good.session.append(REWIND_EVENT_TYPE, { atSeq: good.secondUserSeq })
-     // Contiguous seq but an atSeq beyond the marker: the seed's surface
-     // validation must reject the malformed marker itself.
--    const seed = [...good.session.events, { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
-+    const seed = [...good.session.snapshotEvents(), { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
-     expect(() => Session.create(SessionId('rewind-seed'), seed)).toThrow(/invalid seed event/)
-   })
- 
-   it('reconstructs the truncated surface from a seed replay', () => {
-     const { session, secondUserSeq } = twoTurnSession()
-     session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
--    const markerSeq = session.events.at(-1)!.seq
-+    const markerSeq = session.snapshotEvents().at(-1)!.seq
-     appendTurn(session, 3, 'retry')
- 
--    const replayed = Session.create(SessionId('rewind-replay'), session.events)
-+    const replayed = Session.create(SessionId('rewind-replay'), session.snapshotEvents())
-     expect(replayed.deriveMessages()).toHaveLength(4)
--    expect(replayed.events.at(-1)!.seq).toBeGreaterThan(markerSeq)
-+    expect(replayed.snapshotEvents().at(-1)!.seq).toBeGreaterThan(markerSeq)
-   })
- 
-   it('catalogues the tombstone type so persistence reads accept it', () => {
 diff --git a/docs/persistence-catalog.md b/docs/persistence-catalog.md
 index 2fb2b02084..c317412f5c 100644
 --- a/docs/persistence-catalog.md
@@ -199,7 +151,7 @@ index bfb331eb22..25ea012ab8 100644
    return {
 diff --git a/packages/core/session/tests/rewind.spec.ts b/packages/core/session/tests/rewind.spec.ts
 new file mode 100644
-index 0000000000..743c2816fe
+index 0000000000..3a6cd6c075
 --- /dev/null
 +++ b/packages/core/session/tests/rewind.spec.ts
 @@ -0,0 +1,213 @@
@@ -277,7 +229,7 @@ index 0000000000..743c2816fe
 +
 +    // [5, 8) withdrawn: turn 2's messages leave the surface, turn 3 (seq 9..12
 +    // rebuilt from the marker) stays visible alongside the turn 1 prefix.
-+    expect(foldSurface(session.events).nodes).toEqual([1, 2, 10, 11])
++    expect(foldSurface(session.snapshotEvents()).nodes).toEqual([1, 2, 10, 11])
 +  })
 +
 +  it('keeps the incremental SurfaceManager replay equal to the full fold', () => {
@@ -286,8 +238,8 @@ index 0000000000..743c2816fe
 +    appendTurn(session, 3, 'retry')
 +    session.append(REWIND_EVENT_TYPE, { atSeq: 0 })
 +
-+    const full = foldSurface(session.events)
-+    const incremental = new SurfaceManager(session.events)
++    const full = foldSurface(session.snapshotEvents())
++    const incremental = new SurfaceManager(session.snapshotEvents())
 +    expect(incremental.nodes).toEqual(full.nodes)
 +    expect(incremental.nodes).toEqual([])
 +    expect(incremental.replaceGeneration).toBe(2)
@@ -332,19 +284,19 @@ index 0000000000..743c2816fe
 +    const marker = good.session.append(REWIND_EVENT_TYPE, { atSeq: good.secondUserSeq })
 +    // Contiguous seq but an atSeq beyond the marker: the seed's surface
 +    // validation must reject the malformed marker itself.
-+    const seed = [...good.session.events, { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
++    const seed = [...good.session.snapshotEvents(), { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
 +    expect(() => Session.create(SessionId('rewind-seed'), seed)).toThrow(/invalid seed event/)
 +  })
 +
 +  it('reconstructs the truncated surface from a seed replay', () => {
 +    const { session, secondUserSeq } = twoTurnSession()
 +    session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
-+    const markerSeq = session.events.at(-1)!.seq
++    const markerSeq = session.snapshotEvents().at(-1)!.seq
 +    appendTurn(session, 3, 'retry')
 +
-+    const replayed = Session.create(SessionId('rewind-replay'), session.events)
++    const replayed = Session.create(SessionId('rewind-replay'), session.snapshotEvents())
 +    expect(replayed.deriveMessages()).toHaveLength(4)
-+    expect(replayed.events.at(-1)!.seq).toBeGreaterThan(markerSeq)
++    expect(replayed.snapshotEvents().at(-1)!.seq).toBeGreaterThan(markerSeq)
 +  })
 +
 +  it('catalogues the tombstone type so persistence reads accept it', () => {
