@@ -3,14 +3,26 @@
 # 边界铁律：能做成 dsh 插件的不动配置，能写成 cordis.patch.yml 配置叠层的不动源码。
 # 只有当前两条路都走不通时才允许新增补丁，且必须写明理由。
 #
-# ⚠️ 0.1.2 迁移期临时状态（upgrade/dsh-v0.1.2-rc.1 分支）：
-#   除 0004 外的全部补丁已暂摘，等待按 docs/upgrade-dsh-0.1.2-rc.1-phases.md
-#   的阶段计划在新版宿主上重做后逐个回归登记。原登记见 git 历史。
+# ⚠️ 0.1.2 迁移期（upgrade/dsh-v0.1.2-rc.1 分支）：其余补丁按
+#    docs/upgrade-dsh-0.1.2-rc.1-phases.md 逐个重做后回归登记。
 #
 # 每条记录：
 #   file:     补丁文件名（相对本目录，建议 NNNN-描述.patch 命名）
 #   reason:   为什么必须改源码（而不是插件/配置）
 #   upstream: 对应的上游 issue/PR（有则填，上游修复后应移除本补丁）
 patches:
-  - file: 0004-sidebar-default-width.patch
-    reason: 桌面侧栏默认宽度取 320；columns.ts 是契约常量且 layout 服务面刻意不暴露宽度写入（ILayout 仅 toggle/open/close），插件与配置层均不可达。两版上游 columns.ts 逐字未变（仍 SIDEBAR_DEFAULT=280），是 0.1.2 实测唯一可原样套用的补丁；0006 重做回归后按新四列版重排，届时随 0006 一并更新本条
+  - file: 0006-ui-layout-panel-seam.patch
+    reason: |
+      右侧面板列缝（承载 @dsh-desktop/panel-shell 插件）：ui-layout 四列化
+      （panel 让位步骤 3-5 + panel/panelExpanded store 状态 + ctx.layout panel
+      动作 + panel 槽声明与渲染点/拖拽手柄/全屏 overlay 接管）。panel 默认宽
+      480、最小 320、无固定偏好上限（viewport 余量为动态上限）；CENTER_MIN
+      640→360 以在四列下留出中栏空间；SIDEBAR_DEFAULT 280→320（吸收原 0004，
+      其补丁撤销——columns 是契约常量且 layout 服务面刻意不暴露宽度写入，
+      插件与配置层均不可达，两个修改点同文件已合并）。0.1.2 适配：store 绑定
+      改 dsh-client-store（defineStore/EngineStoreHandle）、panel 槽按
+      declaring-is-claiming 在同一 register() children 声明、details 槽保留
+      SessionProvider 内 eager 调用（上游契约：无会话时槽注册仍发生）、
+      --dsh-sidebar-collapsed-track 折叠轨变量缝与 100cqi 全屏 pin 语义保留。
+      撤 0006 无连带（原 0004 已并入）；上游未来自带 panel 列应整体撤补丁，
+      插件改指上游契约
