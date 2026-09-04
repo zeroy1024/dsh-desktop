@@ -18,16 +18,24 @@ import {
 
 let h: Harness
 
+// 自愈编排是平台无关逻辑；钉死 darwin 与 main-process.spec.ts 一致——
+// 宿主机为 win32 时（Windows CI）真实 win32 分支会调 Electron 注入的
+// process.getSystemVersion，纯 Node 测试进程不存在。win32 分支行为由
+// main-process-win32.spec.ts 专门覆盖。
+const originalPlatform = process.platform
+
 beforeEach(() => {
   delete process.env.DSH_DESKTOP_CI_SMOKE
   delete process.env.DSH_DESKTOP_CI_SMOKE_STAGE
   vi.useFakeTimers()
+  Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
   h = buildHarness()
   // 自愈路径的 console.warn 带整段 Error stack，测试输出只留断言，不刷屏
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 afterEach(() => {
+  Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
   h.cleanup()
   vi.useRealTimers()
   vi.restoreAllMocks()
