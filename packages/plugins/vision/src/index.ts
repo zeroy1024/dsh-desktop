@@ -15,7 +15,6 @@
 import z from '@deepseek-ai/schemastery'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { createRequire } from 'node:module'
 import {
   DEFAULT_ANTHROPIC_API_VERSION,
@@ -131,7 +130,7 @@ export type {
 
 export const name = '@dsh-desktop/vision'
 export const inject = ['llm'] as const
-export const NS = settingsNamespace('vision')
+export const NS = 'vision'
 export const MARKER = '__dshVisionBridged'
 const CORDIS_ORIGINAL = Symbol.for('cordis.original')
 const VERSION = createRequire(import.meta.url)('../package.json').version as string
@@ -890,13 +889,32 @@ export function installBridge(
   })
 }
 
+/** 0.1.2 SettingsProvider.installSection 的最小结构面（仅本插件触碰的部分）。 */
+interface SettingsHost {
+  installSection(
+    owner: unknown,
+    ns: typeof NS,
+    schema: typeof Config,
+    entry: VisionConfig,
+    hooks: {
+      validate?: (value: VisionConfig) => void
+      setSource: (source: () => VisionConfig) => void
+      onChange: () => void
+    },
+  ): void
+}
+
 /** Main Host-side plugin. */
 export function apply(ctx: VisionContext, config?: VisionConfig): void {
   const base: VisionConfig = { ...DEFAULT_CONFIG, ...config }
   validateConfig(base)
   let current: () => VisionConfig = () => base
   const cache = makeEvidenceCache(() => resolveOptions(ctx, current()).cacheSize)
-  installSettingsSection(ctx as never, NS, Config, base, {
+  // 0.1.2 迁移：installSettingsSection 模块函数已移除，等价改用
+  // SettingsProvider 实例方法 installSection；settings 为可选服务，
+  // 缺席时保持组合配置（与旧 API 的回退语义一致）。
+  const settings = ctx.get('settings') as SettingsHost | undefined
+  settings?.installSection(ctx, NS, Config, base, {
     setSource: source => { current = source as () => VisionConfig },
     validate: value => { validateConfig(value) },
     onChange: () => {

@@ -10,7 +10,7 @@
  * 同文件还承载跨缝 inspect 交接 store（createInspectHandoff）：0008 缝
  * 手势的状态半，容器订阅后经 owner props 下发（PanelShell.tsx）。
  */
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 /** Panel container tab-ledger state, persisted as a whole value. */
 type PanelLedgerState = {

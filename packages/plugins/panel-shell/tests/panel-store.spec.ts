@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore: <T,>(init: T) => {
     let state = init
     const listeners = new Set<() => void>()
