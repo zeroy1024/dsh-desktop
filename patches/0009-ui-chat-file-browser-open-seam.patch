@@ -1,0 +1,19 @@
+diff --git a/packages/client/ui-chat/src/client/apply.ts b/packages/client/ui-chat/src/client/apply.ts
+index 77739e8593..a15ae661fd 100644
+--- a/packages/client/ui-chat/src/client/apply.ts
++++ b/packages/client/ui-chat/src/client/apply.ts
+@@ -120,6 +120,14 @@ export function apply(ctx: Context): void {
+           },
+           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
+           openFile: async (path) => {
++            // patches/0009: the desktop file-browser seam gets the first look
++            // (tree/preview opens inside the panel). Directories and paths the
++            // browser does not handle fall through to the system opener, and
++            // the service being absent keeps the upstream behavior unchanged.
++            const fileBrowser = ctx.get('fileBrowser') as
++              | { tryOpen?: (path: string, cwd?: string) => boolean | Promise<boolean> }
++              | undefined
++            if (await fileBrowser?.tryOpen?.(path, ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd) === true) return
+             const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
+             const result = await ctx.remote.session.openWorkspacePath({
+               path: resolveWorkspacePath(cwd, path),
