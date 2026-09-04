@@ -2,14 +2,15 @@
  * security.ts — 渲染进程安全基线。
  *
  * dsh webui 只与当前这一代 agent 的 127.0.0.1:<port> 通信：权限默认全拒、
- * 仅按白名单放行剪贴板写入，禁止 window.open、导航只允许该 origin，
- * 其余一律交给系统浏览器。此外对 agent origin 的主文档钉一层 CSP，
- * 收敛渲染进程被注入时的爆炸半径。
+ * 仅按白名单放行剪贴板写入，禁止 window.open、导航只允许该 origin
+ * （含服务端 3xx 重定向，见 will-redirect），其余一律交给系统浏览器。
+ * 此外对 agent origin 的主文档钉一层 CSP，收敛渲染进程被注入时的爆炸半径。
  */
 import {
   app,
   session,
   shell,
+  type Event,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron'
@@ -57,6 +58,15 @@ export const AGENT_CSP = [
 export function agentDocumentCsp(resourceType: string, url: string, port: number | null): string | null {
   if (resourceType !== 'mainFrame' || port === null) return null
   return isAgentRendererUrl(url, port) ? AGENT_CSP : null
+}
+
+/**
+ * 主文档导航/重定向放行判定：仅当前 agent origin，且 agent 已就绪
+ * （port 非 null）。will-navigate 与 will-redirect 共用本判定，两路
+ * 逻辑不许各自演化。纯函数，便于单测。
+ */
+export function isAllowedAgentNavigation(url: string, port: number | null): boolean {
+  return port !== null && isAgentRendererUrl(url, port)
 }
 
 function externalHttpUrl(value: string): string | null {
@@ -117,11 +127,15 @@ export function installSecurityHooks(getAllowedPort: () => number | null): void 
       openExternal(url)
       return { action: 'deny' }
     })
-    contents.on('will-navigate', (event, url) => {
-      const port = getAllowedPort()
-      if (port !== null && isAgentRendererUrl(url, port)) return
+    // 仅放行 agent origin 的导航。will-redirect 必须与 will-navigate 同一判定：
+    // Chromium 对服务端 3xx 重定向只派发 will-redirect 而不派发 will-navigate，
+    // 漏挂会把主 frame 放到外部站点上。
+    const blockNavigation = (event: Event, url: string): void => {
+      if (isAllowedAgentNavigation(url, getAllowedPort())) return
       event.preventDefault()
       openExternal(url)
-    })
+    }
+    contents.on('will-navigate', blockNavigation)
+    contents.on('will-redirect', blockNavigation)
   })
 }
