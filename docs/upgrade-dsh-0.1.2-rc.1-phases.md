@@ -33,6 +33,7 @@
 - ✅ **阶段 8 大部完成**：0014（冲突=上游新增 ConnectionIndicator 导入合并）、0015（上游仍未修 koffi.view；string16 拷贝式读取重放并吸收上游双字节 NUL 语义；fake koffi 移除 view mock）已 commit（7e65522）。0001 已试套：冲突多（Rows.tsx 右键菜单/hover 结构 + WorkspaceBrowser 迁移 rows/），需完整手工移植，**未完成**。
 - 🔧 **剩余项**：0001（Rows.tsx 导出菜单+右键菜单完整移植 + locales/CSS/3 测试文件）、0013（架构重设计：eventSource→装配管线插可见性过滤）、0005（活动分组缝迁 ui-chat）、阶段 9/10。
 - 🔍 **阶段 8 收尾时发现的 P0 回归（未解，最高优先）**：装上 @dsh-desktop/panel-shell（单独即触发）后，desktop profile 下上游 ui-trajectory 的 cordis `apply(ctx)` 收到 **undefined ctx**（报错 `Cannot read properties of undefined (reading 'effect')`，WebUI 挂载超时 → smoke-electron 红）。二分已排除：fps-overlay/desktop-frame 无辜；panel 列注册动作（slots.inject('panel') 禁用后仍破坏）与 renderer inject（去掉后仍破坏）都不是原因。已知：web profile（无我方插件）下正常；panel-shell require 的模块表模块=store/primitives/react（seed 表成员）。下一步排查方向：① panel-shell/src/client/types.ts（或 runtime.d.ts）对 'panel'/'panel-shell.page' 的本地 SlotMap 声明与 0006 声明的 merge 冲突；② panel-shell cordis.patch.yml 的 node 半自激活对 client fiber 的影响；③ 在 Electron 里抓完整 error.cause（loader 把真因放在 cause.errors）。中间态已全部回滚（工作树 = 全插件装配的原状）。
+- 🔍 **P0 补充诊断（新窗口从这里继续）**：报错是 trajectory entry 的**第一条** console 消息（早于 panel-shell 任何动作打印）；loader 的 group.update 用 `Promise.allSettled(config.map(create))` **并发** create 各 entry（upstream/vendor/loader/src/config/group.ts:71）——panel-shell 的 create/apply 与 trajectory 并发竞态（非顺序因果，panel-shell 在 graph 序上晚于 trajectory 却能影响它）。下一个实验建议：读 vendor/loader 的 create → cordis 插件装配链，找 apply(ctx) 传 undefined 的路径；或给 trajectory bundle 的 apply 开头注入 `if (ctx === undefined) debugger` 用 devtools 断点抓调用栈。
 
 ## 阶段总览
 
