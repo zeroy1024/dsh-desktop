@@ -3,8 +3,10 @@ import type { BaseWindow, WebContents } from 'electron'
 import {
   ApplicationMenuPopupController,
   buildApplicationMenuTemplate,
+  buildDarwinMenuTemplate,
   isApplicationMenuId,
   isValidPopupAnchor,
+  minimalNativeMenuAction,
   popupPointFor,
   type MenuLike,
 } from '../src/main/application-menu'
@@ -37,6 +39,27 @@ describe('buildApplicationMenuTemplate', () => {
       expect(prodRoles).not.toContain(role)
       expect(devRoles).toContain(role)
     }
+  })
+})
+
+describe('buildDarwinMenuTemplate', () => {
+  it('macOS 最小菜单：只有 app 菜单与 edit 菜单，绝无 reload/devtools', () => {
+    const template = buildDarwinMenuTemplate()
+    expect(template.map(item => item.role)).toEqual(['appMenu', 'editMenu'])
+    const roles = collectRoles(template)
+    // app/edit 角色菜单自身会带 about/quit/复制粘贴等系统项；这里断言的是
+    // 视图类调试项与 win32 模板的显式 dev 项都不应出现
+    for (const role of ['reload', 'forceReload', 'toggleDevTools', 'viewMenu']) {
+      expect(roles).not.toContain(role)
+    }
+  })
+})
+
+describe('minimalNativeMenuAction', () => {
+  it('macOS → darwin 最小模板；Linux → 菜单置空；win32 → 走既有自绘体系', () => {
+    expect(minimalNativeMenuAction('darwin')).toEqual({ kind: 'darwin-template' })
+    expect(minimalNativeMenuAction('linux')).toEqual({ kind: 'null-menu' })
+    expect(minimalNativeMenuAction('win32')).toBeNull()
   })
 })
 

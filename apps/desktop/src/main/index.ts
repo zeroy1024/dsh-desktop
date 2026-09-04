@@ -28,12 +28,14 @@ import {
   isApplicationMenuId,
   isValidPopupAnchor,
   installApplicationMenu,
+  installMinimalNativeMenu,
   applicationMenuState,
   popupApplicationMenu,
 } from './application-menu'
 import { defaultReapDeps, reapOrphanedAgent, removeAgentPidRecord, writeAgentPidRecord } from './orphan-reaper'
 import { resolveCliEntry } from './paths'
 import { canSelfHealRuntime, ensureDshRuntime, invalidateDshRuntime } from './runtime-archive'
+import { RestartThrottle } from './restart-throttle'
 import { installSecurityHooks, isTrustedIpcSender } from './security'
 import {
   MOUNT_TIMEOUT_MS,
@@ -67,7 +69,11 @@ let startupGeneration = 0
 /** 打包态 ready 前自愈预算：整个 app 生命周期最多一次，restart-agent 复用同一预算。 */
 let runtimeSelfHealUsed = false
 const ciSmoke = process.env.DSH_DESKTOP_CI_SMOKE === '1'
+/** CI smoke 阶段：'restart' = 首启就绪后经 restart-agent 路径重启 agent 一次再退出。 */
+const ciSmokeStage = process.env.DSH_DESKTOP_CI_SMOKE_STAGE ?? ''
 const ciSmokeReadyMarker = '.dsh-desktop-ci-ready.json'
+/** restart-agent 冷却：与上一被接受 restart 间隔不足 3s 的请求拒绝（本地 DoS 防护）。 */
+const restartThrottle = new RestartThrottle()
 
 // dev 态 macOS 菜单栏应用名取的是 Electron 二进制的 CFBundleName，productName
 // 管不到它，必须显式 setName（值与 productName 一致，userData 路径不变）
@@ -546,9 +552,31 @@ async function runStartup(
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) return
   await controller.reveal()
   if (ciSmoke) {
-    await waitForCiSmokeState(contents, win)
-    writeCiSmokeReadyMarker()
-    console.log(`[ci-smoke] DSH_DESKTOP_READY platform=${process.platform}`)
+    // 首启就绪：普通冒烟在这里等探测、写 marker 后退出。restart 阶段的首启
+    // 探测跟在 gen1 走同一分支（上面条件的 generation === 1）；重启冒烟与
+    // 最终退出交由 runCiSmokeRestartStage 编排——重启后的新一轮 runStartup
+    // （generation > 1）不重复探测/写 marker（'wx' 会 EEXIST），也不在这里
+    // quit（否则会打断在途的重启探测）。
+    if (ciSmokeStage !== 'restart' || generation === 1) {
+      await waitForCiSmokeState(contents, win)
+      writeCiSmokeReadyMarker()
+      console.log(`[ci-smoke] DSH_DESKTOP_READY platform=${process.platform}`)
+    }
+    if (ciSmokeStage === 'restart') {
+      if (generation === 1) {
+        setImmediate(() => {
+          void runCiSmokeRestartStage()
+            .catch((error: unknown) => {
+              // 失败必须让退出码非零，CI 才能发现重启回归
+              const message = error instanceof Error ? error.message : String(error)
+              console.error(`[ci-smoke] restart stage failed: ${message}`)
+              process.exitCode = 1
+            })
+            .finally(() => app.quit())
+        })
+      }
+      return
+    }
     setImmediate(() => app.quit())
   }
 }
@@ -574,6 +602,40 @@ function reportStartupFailure(err: unknown): void {
   app.quit()
 }
 
+/**
+ * CI smoke 重启阶段（DSH_DESKTOP_CI_SMOKE_STAGE=restart）：runStartup 首启
+ * 探测通过后，由应用自己触发一次 restart-agent 路径（不是重新 spawn 壳的
+ * 捷径），覆盖 allowedPort 清空、splash 重铺、pid 记录重写、渲染进程重载
+ * 到新随机端口；然后重跑与首启相同的就绪探测，通过后由 runStartup 编排
+ * 统一退出。
+ *
+ * 两个一次性预算与本阶段的关系（读码确认，非运行假设）：
+ *   - restart 冷却（restartThrottle，3s）：冒烟重启发生在首启就绪之后——
+ *     就绪前光是首启解压（打包态）+ agent 冷启动 + WebUI 挂载 + 首启探测
+ *     就远超 3s，必然放行；且冷却语义是「首次请求无条件放行，只拦窗口内
+ *     第二次」，冒烟全场也只请求一次。
+ *   - 自愈预算（runtimeSelfHealUsed，每 app 生命周期一次）：只在
+ *     start() 在 ready 前失败时才占用；首启走到这里已成功，预算必然未用，
+ *     重启一代即使失败（start 拒绝/未 ready）也走不进自愈分支。
+ */
+async function runCiSmokeRestartStage(): Promise<void> {
+  const firstPort = allowedPort
+  console.log('[ci-smoke] restart stage: 触发 restart-agent')
+  await restartAgent()
+  // restartAgent 的返回只代表新一代 start() 成功（ready 后 reveal 完成）；
+  // 冷却命中会以被拒错误抛出（决策在 restartAgent 内统一判定）；
+  // 再等渲染进程标记回到就绪，证明页面真的重载到新随机端口
+  const secondContents = webuiContents
+  if (secondContents === null || secondContents.isDestroyed()) {
+    throw new Error('CI smoke restart: 重启后 webuiContents 缺失')
+  }
+  await waitForCiSmokeState(secondContents)
+  console.log(
+    `[ci-smoke] DSH_DESKTOP_READY_AFTER_RESTART platform=${process.platform} `
+    + `port=${String(allowedPort)} (first=${String(firstPort)})`,
+  )
+}
+
 async function bootstrap(): Promise<void> {
   installSecurityHooks(() => allowedPort)
   // dev 态 dock 图标（打包态由 app bundle 的 icns 提供，无需设置）
@@ -588,6 +650,9 @@ async function bootstrap(): Promise<void> {
   } catch (error) {
     console.warn('[agent] 收割残留 agent 失败', error)
   }
+  // win32 在 createMainWindow 里装自绘菜单体系；macOS/Linux 打包态不能裸露
+  // Electron 默认菜单的 reload/devtools，这里装最小菜单（见 application-menu.ts）
+  installMinimalNativeMenu()
   mainWindow = createMainWindow()
   try {
     await startStartup()
@@ -596,9 +661,13 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-ipcMain.handle('dsh-desktop:restart-agent', async (event) => {
-  if (!isTrustedIpcSender(event) || event.sender !== webuiContents) {
-    throw new Error('unauthorized IPC sender')
+async function restartAgent(): Promise<void> {
+  if (!restartThrottle.allowRestart()) {
+    // 冷却期内到达：拒绝并记录（决策本身在 restart-throttle 已单测，
+    // 这里只补日志）。拒绝以 invoke rejection 浮给渲染进程，调用方会看到；
+    // 不静默吞掉，冒烟阶段也能借它暴露时序回归。
+    console.warn('[agent] restart-agent 被冷却拒绝：距上次接受不足 3s')
+    throw new Error('restart-agent 冷却中，请稍后再试')
   }
   if (mainWindow === null || quitRequested) return
   if (restartTask !== null) return restartTask
@@ -642,6 +711,13 @@ ipcMain.handle('dsh-desktop:restart-agent', async (event) => {
     // invoke 的返回 Promise 保留错误；消费 finally 链的镜像拒绝。
   })
   return task
+}
+
+ipcMain.handle('dsh-desktop:restart-agent', async (event) => {
+  if (!isTrustedIpcSender(event) || event.sender !== webuiContents) {
+    throw new Error('unauthorized IPC sender')
+  }
+  return restartAgent()
 })
 
 const APPEARANCE_CHANNEL = 'dsh-desktop:appearance-get'

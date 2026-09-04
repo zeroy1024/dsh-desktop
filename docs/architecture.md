@@ -42,7 +42,9 @@ BrowserWindow                BaseWindow
 - **macOS/Linux**：维持 `BaseWindow` + child view；macOS `hiddenInset` +
   vibrancy，Linux `hidden` 无 overlay。两种模式共用 `splash.ts` 的
   `WebuiResource` 所有权模型：Windows 借用 primary（不创建/不关闭），其他
-  平台拥有 child view（dispose 时关闭）。
+  平台拥有 child view（dispose 时关闭）。非 win32 不暴露 Electron 默认菜单
+  （含 reload/devtools）：macOS 装最小菜单（app + edit role），Linux
+  置空 application menu（`application-menu.ts` 的 `installMinimalNativeMenu`）。
 
 ## 数据流
 

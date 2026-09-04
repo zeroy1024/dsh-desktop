@@ -1,12 +1,18 @@
 /**
- * application-menu.ts — 主进程拥有的应用菜单（仅 win32 装配）。
+ * application-menu.ts — 主进程拥有的应用菜单。
  *
- * 结构：固定模板 + Electron roles，主进程安装为 application menu 以注册
+ * win32：固定模板 + Electron roles，主进程安装为 application menu 以注册
  * accelerator（Ctrl+C/V/A 等），但原生菜单栏强制不可见（setMenuBarVisibility
  * false + autoHide false），禁止 Alt 再弹出第二条系统菜单栏。渲染进程只画
  * 顶级标签（desktop-frame 的 ApplicationMenuBar），弹出时只传 menu id +
  * anchor 矩形；本模块校验闭合 id、按 zoom 把 CSS px 换算成窗口 DIP、
  * clamp 到内容区，然后调用对应 submenu 的 Menu.popup。
+ *
+ * darwin/linux：Electron 默认菜单带 View → Reload / Toggle Developer Tools
+ * （默认 accelerator、不受 isPackaged 门控），打包态不能裸露这些项。macOS
+ * 装最小菜单（app 菜单保 about/quit 等 role，edit 菜单保复制粘贴快捷键；
+ * view/window 菜单按需缩减，不设 reload/devtools）；Linux
+ * Menu.setApplicationMenu(null) 用系统无菜单行为。
  *
  * 同一时刻只允许一个 popup：切换菜单先 closePopup 前一个，避免多 popup
  * 竞态；popup 关闭（callback）后通知渲染进程取消 active 高亮。
@@ -73,6 +79,46 @@ export function buildApplicationMenuTemplate(isDev: boolean): MenuItemConstructo
       ],
     },
   ]
+}
+
+/**
+ * macOS 最小菜单模板：只保留 app 菜单（about/quit 等 role 的宿主）与
+ * edit 菜单（复制粘贴 accelerator 必须存活）；无 view 顶级菜单，因此
+ * 不会有 reload/devtools 项（打包态与 dev 态一致，不复用
+ * buildApplicationMenuTemplate 的 dev 门控——该门控只属于 win32 的
+ * 自绘菜单语义）。菜单项全部走 Electron roles，跨语言环境自动本地化。
+ */
+export function buildDarwinMenuTemplate(): MenuItemConstructorOptions[] {
+  return [
+    { role: 'appMenu' },
+    { role: 'editMenu' },
+  ]
+}
+
+/** 非 win32 平台的最小菜单决策（纯函数，便于单测）。 */
+export type MinimalNativeMenuAction =
+  | { kind: 'darwin-template' }
+  | { kind: 'null-menu' }
+
+export function minimalNativeMenuAction(platform: NodeJS.Platform): MinimalNativeMenuAction | null {
+  if (platform === 'darwin') return { kind: 'darwin-template' }
+  if (platform === 'linux') return { kind: 'null-menu' }
+  return null
+}
+
+/**
+ * 安装 macOS/Linux 的最小应用菜单（决策见 minimalNativeMenuAction）。
+ * 仅启动时调用一次：application menu 是 app 级状态，窗口重建不需要重装。
+ * win32 的自绘菜单体系由 installApplicationMenu 负责，不在此列。
+ */
+export function installMinimalNativeMenu(): void {
+  const action = minimalNativeMenuAction(process.platform)
+  if (action === null) return
+  if (action.kind === 'darwin-template') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(buildDarwinMenuTemplate()))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
 }
 
 /** renderer 传来的 anchor 矩形（页面 CSS px）。 */
