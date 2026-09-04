@@ -392,8 +392,14 @@ function installCli(packages: readonly PackedPackage[]): void {
       nodeLinker: 'hoisted',
     }, { lineWidth: -1, noRefs: true }),
   )
-  // 本地 tarball 每次同步都会以相同版本号重建。--force 让 pnpm 重新导入，
-  // --no-frozen-lockfile 只更新 tarball integrity，同时复用其余锁定解析。
+  // 本地 tarball 每次同步都会以相同版本号重建，而 pnpm 对同版本 file: 依赖
+  // 即使 --force 也可能沿用已安装实体（补丁迭代期间 pack 产物已变、版本未变）。
+  // 先移除本地包实体再安装，保证闭包始终反映最新 pack 产物。
+  for (const pkg of packages) {
+    rmSync(join(cliInstallDir, 'node_modules', ...pkg.name.split('/')), { recursive: true, force: true })
+  }
+  // --force 让 pnpm 重新导入，--no-frozen-lockfile 只更新 tarball integrity，
+  // 同时复用其余锁定解析。
   run('pnpm', ['install', '--prod', '--force', '--no-frozen-lockfile'], cliInstallDir, { CI: 'true' })
   const lockfile = readFileSync(join(cliInstallDir, 'pnpm-lock.yaml'), 'utf8')
   for (const pkg of packages) {

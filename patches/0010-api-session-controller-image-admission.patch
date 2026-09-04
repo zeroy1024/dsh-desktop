@@ -1,0 +1,138 @@
+diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
+index 0e8015f79c..97050841b9 100644
+--- a/packages/api/session-controller/src/commands.ts
++++ b/packages/api/session-controller/src/commands.ts
+@@ -53,6 +53,66 @@ interface SessionReadState {
+ }
+ 
+ /** Implements Session business commands delegated by the Session Controller Remote service. */
++
++// ---------------------------------------------------------------------------
++// patches/0010 — optional image-prompt admission seam.
++//
++// The Web prompt's image admission lives inside the session controller, where
++// a plugin cannot express "bridged" before attachments persist. The seam asks
++// an optional `imageInputAdmission` service without disguising the bridge as
++// a Provider-native image capability: `inputModalities` keeps reporting the
++// native facts, and an absent service (or an abstain verdict) leaves the
++// upstream text-only rejection untouched.
++//
++
++/** Image input capability as resolved from the exact model metadata. */
++export type ImageAdmissionCapability = 'native' | 'text-only' | 'unknown'
++
++/** Admission ask: identity, resolved capability, and whether resolution succeeded. */
++export interface ImageAdmissionRequest {
++  provider: string
++  model: string
++  capability: ImageAdmissionCapability
++  resolution: 'resolved' | 'failed'
++}
++
++/** Optional plugin-side service; 'bridge' admits the image, anything else abstains. */
++export interface ImageInputAdmissionService {
++  admit: (request: ImageAdmissionRequest) => 'bridge' | 'abstain' | Promise<'bridge' | 'abstain'>
++}
++
++/** Minimal model-info face the resolver must return. */
++export interface ResolvedModelInfoLike {
++  inputModalities?: readonly string[] | undefined
++}
++
++/**
++ * Decide whether an image-bearing prompt may proceed.
++ * @returns true when the image is admitted (native capability or a bridge verdict).
++ * @throws whatever `resolveModelInfo` throws when resolution fails un-bridged.
++ */
++export async function imagePromptAdmission(
++  service: unknown,
++  resolveModelInfo: (provider: string, model: string) => Promise<ResolvedModelInfoLike>,
++  provider: string,
++  model: string,
++): Promise<boolean> {
++  const admission = service as ImageInputAdmissionService | undefined
++  const ask = async (capability: ImageAdmissionCapability, resolution: 'resolved' | 'failed'): Promise<boolean> =>
++    (await admission?.admit?.({ provider, model, capability, resolution })) === 'bridge'
++  let capability: ImageAdmissionCapability
++  try {
++    const inputModalities = (await resolveModelInfo(provider, model)).inputModalities
++    capability = inputModalities === undefined
++      ? 'unknown'
++      : inputModalities.includes('image') ? 'native' : 'text-only'
++  } catch (error: unknown) {
++    if (await ask('unknown', 'failed')) return true
++    throw error
++  }
++  if (capability === 'native') return true
++  return ask(capability, 'resolved')
++}
+ export class SessionCommandController {
+   /**
+    * @param ctx - Host context carrying Agent, model, attachment, title, and Workspace services.
+@@ -315,8 +375,17 @@ export class SessionCommandController {
+       try {
+         if (hasImage) {
+           const current = this.agents.selectionFor(agent).current
+-          const model = await this.ctx.llm.resolveModelInfo(current.provider, current.model)
+-          if (model.inputModalities !== undefined && !model.inputModalities.includes('image')) {
++          // patches/0010: optional admission seam — a plugin may bridge the
++          // image (e.g. transcribe to text evidence) while inputModalities
++          // keeps reporting the native facts; no service means the upstream
++          // text-only rejection.
++          const admitted = await imagePromptAdmission(
++            this.ctx.get('imageInputAdmission'),
++            (provider, model) => this.ctx.llm.resolveModelInfo(provider, model),
++            current.provider,
++            current.model,
++          )
++          if (!admitted) {
+             throw new RemoteError(
+               'session/attachment-invalid',
+               `Model "${current.model}" does not support image input.`,
+diff --git a/packages/api/session-controller/tests/image-admission.spec.ts b/packages/api/session-controller/tests/image-admission.spec.ts
+new file mode 100644
+index 0000000000..f5483edb1f
+--- /dev/null
++++ b/packages/api/session-controller/tests/image-admission.spec.ts
+@@ -0,0 +1,41 @@
++import { describe, expect, it, vi } from 'vitest'
++import { imagePromptAdmission } from '../src/commands.ts'
++
++const provider = 'p'
++const model = 'm'
++const resolver = (inputModalities?: readonly string[]) => async () => ({ inputModalities })
++
++describe('imagePromptAdmission (patches/0010)', () => {
++  it('admits natively without consulting the service', async () => {
++    const service = { admit: vi.fn() }
++    await expect(imagePromptAdmission(service, resolver(['image']), provider, model)).resolves.toBe(true)
++    expect(service.admit).not.toHaveBeenCalled()
++  })
++
++  it('lets an absent service keep the text-only rejection', async () => {
++    await expect(imagePromptAdmission(undefined, resolver(['text']), provider, model)).resolves.toBe(false)
++  })
++
++  it('admits a text-only model when the service bridges it, and rejects on abstain', async () => {
++    const bridging = { admit: vi.fn(async () => 'bridge' as const) }
++    await expect(imagePromptAdmission(bridging, resolver(['text']), provider, model)).resolves.toBe(true)
++    expect(bridging.admit).toHaveBeenCalledWith({ provider, model, capability: 'text-only', resolution: 'resolved' })
++    const abstaining = { admit: vi.fn(async () => 'abstain' as const) }
++    await expect(imagePromptAdmission(abstaining, resolver(['text']), provider, model)).resolves.toBe(false)
++  })
++
++  it('treats unknown metadata as non-native and consults the service once resolved', async () => {
++    const service = { admit: vi.fn(async () => 'bridge' as const) }
++    await expect(imagePromptAdmission(service, resolver(undefined), provider, model)).resolves.toBe(true)
++    expect(service.admit).toHaveBeenCalledWith({ provider, model, capability: 'unknown', resolution: 'resolved' })
++  })
++
++  it('bridges a failed model resolution, else rethrows the resolver error', async () => {
++    const failing = async () => { throw new Error('endpoint down') }
++    const bridging = { admit: vi.fn(async () => 'bridge' as const) }
++    await expect(imagePromptAdmission(bridging, failing, provider, model)).resolves.toBe(true)
++    expect(bridging.admit).toHaveBeenCalledWith({ provider, model, capability: 'unknown', resolution: 'failed' })
++    const abstaining = { admit: vi.fn(async () => 'abstain' as const) }
++    await expect(imagePromptAdmission(abstaining, failing, provider, model)).rejects.toThrow('endpoint down')
++  })
++})
