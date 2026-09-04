@@ -46,6 +46,35 @@ body {
     background-color 0.4s ease;
 }
 
+/*
+ * Windows 顶带拖动区：WebUI 直挂窗口 primary（无系统标题栏），启动期间
+ * 窗口仍要能拖动。44px 与 WCO caption 区/titleband 同高；交互元素挖
+ * no-drag 洞，错误态整层让出（错误文案可选中复制）。macOS 保持原样——
+ * 透明 vibrancy 启动层无拖动带，也不存在会被 drag 吞掉的控件。
+ */
+html[data-dsh-platform='win32'] #splash::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
+}
+
+html[data-dsh-platform='win32'] #splash button,
+html[data-dsh-platform='win32'] #splash input,
+html[data-dsh-platform='win32'] #splash select,
+html[data-dsh-platform='win32'] #splash textarea,
+html[data-dsh-platform='win32'] #splash a,
+html[data-dsh-platform='win32'] #splash [role='button'] {
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-platform='win32'] #splash.phase-error::after {
+  display: none;
+}
+
 /* 非 darwin 无系统模糊材质：tint 会直接透到未模糊的桌面，整层回到不透明白底 */
 html[data-dsh-platform]:not([data-dsh-platform='darwin']) #splash {
   background: rgb(248, 248, 250);

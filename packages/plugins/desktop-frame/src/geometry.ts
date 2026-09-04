@@ -1,11 +1,21 @@
+/**
+ * geometry.ts — 单行 titleband 几何纯函数。
+ *
+ * 单一事实源：Titleband 用 ResizeObserver 测量左簇（菜单栏/折叠钮/新会话）
+ * 真实右缘，同时写入 `--dsh-titleband-content-end`（CSS 变量，折叠态 header
+ * padding 与分隔线位置从它推导）——TS 与 CSS 不再各自维护 172/168/159.5
+ * 三份 darwin 常量，Windows/Linux 也不再落入约 100px 假灯区。
+ */
+
 /** 单行 titleband 高度（灯 + 折叠钮）。 */
 export const TITLEBAND_HEIGHT = 44
 /** macOS 红绿灯右侧空隙后的控件起点。 */
 export const DARWIN_LEADING_PX = 92
 /** 无原生灯时的控件起点。 */
 export const FALLBACK_LEADING_PX = 12
-/** 折叠态：灯区 + 两枚 24px 按钮与间隙（折叠、新会话）。 */
-export const FOLDED_CLUSTER_PX = 172
+
+/** 测量缺失时的保守左簇宽：起点 + 两枚 24px 按钮 + 8px 间隙 + 光学余量。 */
+export const FALLBACK_CLUSTER_PX = 80
 
 export function titlebandLeadingPx(platform: string): number {
   return platform === 'darwin' ? DARWIN_LEADING_PX : FALLBACK_LEADING_PX
@@ -13,6 +23,14 @@ export function titlebandLeadingPx(platform: string): number {
 
 /** 顶带宽度：展开时跟侧栏，折叠时至少盖住灯行控件，blank 态铺满整窗但让出面板列。 */
 export type TitlebandWidth = number | string
+
+/**
+ * 左簇宽度：优先真实测量（含菜单栏）；未测量时按平台回落
+ * （darwin 红绿灯 92px 或 12px 起点 + 按钮簇）。
+ */
+export function clusterWidthPx(contentEnd: number, platform: string): number {
+  return contentEnd > 0 ? contentEnd : titlebandLeadingPx(platform) + FALLBACK_CLUSTER_PX
+}
 
 /**
  * 全宽判定：仅当中栏列已被 markDesktopFrame 标记（皮肤生效）且 header 不可见
@@ -32,11 +50,8 @@ export function shouldStretchTitleband(centerColMarked: boolean, headerHeight: n
  * 纯 100%（现状）。极端窄视口下让位链会自动关闭面板（panelWidth 归零），
  * 拖动带随之恢复全宽。
  *
- * fullBleed 分支刻意不加 FOLDED_CLUSTER_PX 下限：面板全屏接管时让位结果
- * 可窄到侧栏轨道宽（折叠态 + 放大 = 约 56px），若再兜 172px 下限，多出的
- * 宽度是一条盖在面板 tab 条上的 drag 带，会吞掉 tab 点击——比"拖动带短
- * 一截"更糟。宽度内缩时折叠/新会话两钮只是溢出父盒（overflow 默认可见、
- * 各自 pointer-events:auto），绘制与点击都不受影响，属优雅降级。
+ * 非 fullBleed（会话态）展开时跟侧栏宽、折叠时盖住左簇；contentEnd 是
+ * 测量的真实左簇右缘，Windows/Linux 不再落入 darwin 假灯区。
  */
 export function titlebandWidthPx(
   sidebarWidth: number,
@@ -44,9 +59,10 @@ export function titlebandWidthPx(
   platform: string,
   fullBleed: boolean,
   panelWidth = 0,
+  contentEnd = 0,
 ): TitlebandWidth {
   if (fullBleed) return panelWidth > 0 ? `calc(100% - ${panelWidth}px)` : '100%'
-  const cluster = titlebandLeadingPx(platform) + 80
-  if (collapsed) return Math.max(cluster, FOLDED_CLUSTER_PX)
+  const cluster = clusterWidthPx(contentEnd, platform)
+  if (collapsed) return cluster
   return Math.max(sidebarWidth, cluster)
 }

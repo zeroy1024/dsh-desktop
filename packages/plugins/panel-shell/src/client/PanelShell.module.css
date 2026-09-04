@@ -20,14 +20,16 @@
    trailing padding reserves the frame toolbar's right-edge button cluster
    (放大/恢复 + 开关，2×40px + 呼吸 8px = 88px；桌面壳的两枚按钮骑在
    full-width toolbar 之上), so the tab strip and the "+" menu anchor never
-   sit under them. Windows 现使用原生标题栏，页面右缘无系统按钮占位。 */
+   sit under them. Windows 的捕获按钮区是系统 WCO（页面上无 DOM），由
+   desktop-frame 的 --dsh-titlebar-right-inset（env(titlebar-area-*) 推导）
+   追加让位——tab/+ 不会落入 caption 按钮。 */
 .header {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
   height: var(--dsh-titleband-height, 44px);
-  padding: 0 88px 0 12px;
+  padding: 0 calc(88px + var(--dsh-titlebar-right-inset, 0px)) 0 12px;
   box-sizing: border-box;
 }
 

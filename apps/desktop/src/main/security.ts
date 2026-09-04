@@ -25,12 +25,20 @@ let allowedPort: () => number | null = () => null
  * （apps/web/dist/assets/index-*.js）内嵌 cordis ModuleLoader 的 __jsExpr
  * 求值路径（`new Function("ctx","expr", with(ctx){ return eval(expr) })`），
  * 任何带 __jsExpr 的配置值都会走到它，无法证明是冷路径，只能保守放行。
+ *
+ * 还不得不放行 'unsafe-inline'：上游 client-modules 的 bootInjections 会向
+ * 主文档注入两个 parser-blocking 的 inline `<script>`——`__ModuleLoader__`
+ * queue facade 与 `globalThis.__DSH_BOOT__` 图全局（宿主 webserver 的
+ * IndexInjection 机制，见 upstream/packages/client/modules/src/index.ts）。
+ * 这两个注入点没有 nonce/hash 协同通道（响应头在 Electron onHeadersReceived
+ * 静态下发），不放行 inline 则 WebUI 直接挂载失败（2026-09-04 实测：
+ * "web boot: window.__ModuleLoader__ bootstrap facade is missing"）。
  * 其余指令按最小化收敛：禁 object/base/form/frame-ancestors，连接限同源
  * （dsh webui 无 WebSocket，SSE/fetch 均走 127.0.0.1:<port> 同源）。
  */
 export const AGENT_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval'",
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",

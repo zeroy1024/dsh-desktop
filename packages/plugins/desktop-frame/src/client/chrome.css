@@ -13,6 +13,11 @@ html[data-dsh-desktop] {
   --dsh-radius-surface: 12px;
   --dsh-radius-pill: 999px;
   --dsh-radius-circle: 50%;
+  /* 单行 titleband 高度；Windows 由 WCO env 覆盖（见下方 win32 块）。 */
+  --dsh-titleband-height: 44px;
+  /* 左簇右缘（折叠态 header 让位与分隔线的单一事实源）；Titleband 用
+     ResizeObserver 写入真实测量值，此处 160px 只是测量前的 darwin 兜底。 */
+  --dsh-titleband-content-end: 160px;
   background: transparent;
 }
 
@@ -25,22 +30,27 @@ html[data-dsh-desktop] [data-dsh-frame='frame'] {
 }
 
 html[data-dsh-desktop] [data-dsh-frame='sidebar-col'] {
-  background: rgb(246 247 249 / 90%) !important;
+  /* Mica/vibrancy 上只铺主题语义 wash，不写死亮/暗 RGB；主题 token 自行
+     跟随 light/dark/custom theme，透明部分交给系统材质。 */
+  background: color-mix(
+    in srgb,
+    var(--dsw-specific-sidebar-fill, #f6f7f9) 82%,
+    transparent
+  ) !important;
   border-right-color: transparent !important;
 }
 
-html[data-dsh-desktop] body[data-ds-dark-theme] [data-dsh-frame='sidebar-col'] {
-  background: rgb(28 28 30 / 90%) !important;
-}
-
+/* Windows/Linux 实底回退：linux 无系统材质恒实底；win32 在 appearance
+   控制器判定为 solid（Win10、关闭透明效果、forced colors）时由 desktop-frame
+   写 data-dsh-backdrop='solid'。 */
 html[data-dsh-desktop][data-dsh-platform='linux'] [data-dsh-frame='sidebar-col'],
-html[data-dsh-desktop][data-dsh-platform='win32'] [data-dsh-frame='sidebar-col'] {
+html[data-dsh-desktop][data-dsh-platform='win32'][data-dsh-backdrop='solid'] [data-dsh-frame='sidebar-col'] {
   background: var(--dsw-specific-sidebar-fill, #f6f7f9) !important;
 }
 
 html[data-dsh-desktop] [data-dsh-frame='sidebar-root'] {
   background: transparent !important;
-  padding-top: 48px !important;
+  padding-top: calc(var(--dsh-titleband-height, 44px) + 4px) !important;
 }
 
 /* 官方会在会话列表底部覆盖一层 sidebar-fill 渐变；半透明侧栏下会重复
@@ -120,7 +130,7 @@ html[data-dsh-desktop] [data-dsh-frame='center-col'] header {
 }
 
 html[data-dsh-desktop] [data-dsh-frame='center-col'] header > div:first-child {
-  min-height: 44px;
+  min-height: var(--dsh-titleband-height, 44px);
 }
 
 /* 中栏会话 header 整行并入窗口拖动带（与侧栏顶带拼成同一行 44px 拖动区，
@@ -142,13 +152,21 @@ html[data-dsh-desktop] [data-dsh-frame='center-col'] header {
   }
 }
 
-/* 折叠态：侧栏收 0 轨后中栏 header 从窗口左缘起排，标题会钻进原生红绿灯
-   （trafficLightPosition x:16，原生层永远画在内容之上）和 titleband 控件区
-   （92–148px：灯区 92 + 折叠钮 24 + 间隙 8 + 新会话钮 24）底下。用 AppFrame
-   的明文属性 data-sidebar-collapsed 做锚点（Titleband.readCollapsed 同源，
-   非 CSS module hash）。168 = + 按钮盒末端 148 + 光学分隔区，标题字形实际
-   起于 176（面包屑按钮自带 padding 4px 8px）；几何改动时与 geometry.ts
-   互为镜像，待 --dsh-titleband-indent 变量缝补丁（编号未定）落地后由该变量收编。
+/* Windows WCO 几何：caption 按钮区由系统提供，页面从 env(titlebar-area-*)
+   推导左右安全区（不用固定 138px——0.0.3/0.0.4 的叠键回归就是盲猜像素）。
+   env() 未激活（非 win32 / WCO 不可见）时回落 0px/44px。*/
+html[data-dsh-desktop][data-dsh-platform='win32'] {
+  --dsh-titlebar-height: env(titlebar-area-height, 44px);
+  --dsh-titlebar-x: env(titlebar-area-x, 0px);
+  --dsh-titlebar-width: env(titlebar-area-width, 100vw);
+  --dsh-titlebar-left-inset: var(--dsh-titlebar-x);
+  --dsh-titlebar-right-inset: calc(100vw - var(--dsh-titlebar-x) - var(--dsh-titlebar-width));
+}
+
+/* 折叠态：侧栏收 0 轨后中栏 header 从窗口左缘起排，标题会钻进标题带左簇
+   （折叠钮 + 新会话钮 + Windows 菜单栏）底下。让位与分隔线位置都从
+   --dsh-titleband-content-end（Titleband 实测左簇右缘）推导——darwin、
+   win32（含菜单栏）、linux 各得各的终值，不再维护 172/168/159.5 三份常量。
 
    padding 挂在瞬时翻转的属性上，而上游轨道动画走
    `transition: grid-template-columns slow ease-in-out`——需要 padding 与
@@ -158,20 +176,16 @@ html[data-dsh-desktop] [data-dsh-frame='center-col'] header {
    常驻的 header 规则里）；reduced-motion 下轨道瞬移，padding 过渡同样
    关闭，否则又会短暂重叠。 */
 html[data-dsh-desktop] [data-sidebar-collapsed] [data-dsh-frame='center-col'] header {
-  padding-left: 168px !important;
+  padding-left: calc(var(--dsh-titleband-content-end, 160px) + 16px) !important;
 }
 
-/* 折叠态分隔线：+ 按钮（止于盒 148）与标题之间，参照项目同款（仅折叠态
-   可见；blank 态 header 整体隐藏，分隔线随之消失）。锚在 header 自身的
-   padding box（position:relative 是上游现值），不随 padding 动画；透明度
-   与 padding 走同一条曲线，展开时随标题一起淡出。
-   位置按视觉锚点光学居中，不能按盒距离算：+ 图标右缘 144（16px 图标居中于
-   124–148 按钮盒），标题字形左缘 176（168 + crumb 内边距 8）；中点 160，
-   线宽 1px 放 159.5，两侧各 15.5px。 */
+/* 折叠态分隔线：左簇与标题之间。锚在 header 自身的 padding box
+   （position:relative 是上游现值），不随 padding 动画；透明度与 padding
+   走同一条曲线，展开时随标题一起淡出。 */
 html[data-dsh-desktop] [data-dsh-frame='center-col'] header::before {
   content: '';
   position: absolute;
-  left: 159.5px;
+  left: calc(var(--dsh-titleband-content-end, 160px) + 8px);
   top: 12px;
   bottom: 12px;
   width: 1px;
@@ -217,8 +231,8 @@ html[data-dsh-desktop] [data-panel-overlay] [data-dsh-frame='center-col'] header
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
-  padding-left: 12px;
+  height: var(--dsh-titleband-height, 44px);
+  padding-left: calc(12px + var(--dsh-titlebar-left-inset, 0px));
   -webkit-app-region: drag;
   pointer-events: auto;
 }
@@ -244,14 +258,45 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   cursor: pointer;
 }
 
+/* 自绘顶级菜单栏（仅 win32 渲染；其他平台组件返回 null，此规则兜底隐藏）。
+   整条 no-drag 挖洞，menu 按钮 hover/active 与左侧按钮同款高亮。 */
+[data-dsh-menubar] {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-platform='win32'] [data-dsh-menubar] {
+  display: flex;
+}
+
+[data-dsh-menubar] button {
+  width: auto;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: var(--dsh-radius-compact, 6px);
+}
+
+[data-dsh-menubar] button[data-dsh-menu-active],
+[data-dsh-menubar] button:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(16, 18, 26, 0.06));
+}
+
 /* 面板按钮簇（放大/恢复 + 开关）钉在窗口 header 最右端（trailing 位），不随
    titleband 跟侧栏宽度走；面板开时正好落在 PanelShell header 预留的右端
-   88px 空位里。中栏 header 的拖动带延伸到右缘：app-region 的挖洞只认显式
-   no-drag（默认值 none 不挖），漏掉这行点击会被窗口拖动手势吞掉。 */
+   88px 空位里。Windows 捕获按钮区由 WCO 系统绘制（页面上无 DOM），CSS 从
+   env(titlebar-area-*) 推导右缘让位，簇不再落入 caption 按钮底下。中栏
+   header 的拖动带延伸到右缘：app-region 的挖洞只认显式 no-drag（默认值
+   none 不挖），漏掉这行点击会被窗口拖动手势吞掉。 */
 [data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
-  right: 0;
+  right: var(--dsh-titlebar-right-inset, 0px);
   z-index: 4;
   display: flex;
   pointer-events: auto;
@@ -264,7 +309,7 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   align-items: center;
   justify-content: center;
   width: 40px;
-  height: 44px;
+  height: var(--dsh-titleband-height, 44px);
   padding: 0;
   border: none;
   background: transparent;
@@ -281,7 +326,7 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
   content: '';
   position: absolute;
   left: 8px;
-  top: 10px;
+  top: calc((var(--dsh-titleband-height, 44px) - 24px) / 2);
   width: 24px;
   height: 24px;
   border-radius: var(--dsh-radius-compact, 6px);
@@ -295,11 +340,11 @@ html[data-dsh-platform='darwin'] [data-dsh-titleband] {
 /* 面板关闭时 details 列直达窗口右缘，其 header 的关闭按钮（28×28 贴右缘，
    header padding-right 12px）会被钉角按钮盖住——单按钮时代就互相踩。此时
    簇里只剩开关一枚（放大钮仅面板展开时渲染），让 details header 自让
-   48px（40 + 呼吸 8）。面板开时 details 列右缘止于面板列之前，无需让位。
-   锚点用 data-slot 渲染位包裹层 + 结构位（DetailsPanel 根的首个子 div 是
-   唯一 header），不碰 CSS module hash。 */
+   48px（40 + 呼吸 8）+ Windows caption 右 inset；面板开时 details 列右缘
+   止于面板列之前，无需让位。锚点用 data-slot 渲染位包裹层 + 结构位
+   （DetailsPanel 根的首个子 div 是唯一 header），不碰 CSS module hash。 */
 html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [data-slot='details'] > div > div:first-child {
-  padding-right: 48px !important;
+  padding-right: calc(48px + var(--dsh-titlebar-right-inset, 0px)) !important;
 }
 
 [data-dsh-titleband] button:hover {
@@ -313,4 +358,34 @@ html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [da
    合入后本规则可撤。 */
 html[data-dsh-desktop] [data-disclosure-row] {
   user-select: none;
+}
+
+/* forced colors（Windows 高对比度）：禁透明 wash，全部落到系统语义色，
+   控件保留边界；inactive 窗口的明暗降级交给 DWM 材质，不在 CSS 仿原生色。 */
+@media (forced-colors: active) {
+  html[data-dsh-desktop] [data-dsh-frame='sidebar-col'],
+  html[data-dsh-desktop][data-dsh-platform='win32'] [data-dsh-frame='sidebar-col'] {
+    background: Canvas !important;
+  }
+
+  html[data-dsh-desktop] [data-dsh-titleband],
+  html[data-dsh-desktop] [data-dsh-frame='sidebar-col'] {
+    border: 1px solid CanvasText;
+  }
+
+  html[data-dsh-desktop] [data-dsh-titleband] button,
+  html[data-dsh-desktop] [data-dsh-panel-cluster] button,
+  html[data-dsh-desktop] [data-dsh-menubar] button {
+    color: ButtonText;
+    background: ButtonFace;
+    border: 1px solid ButtonBorder;
+  }
+
+  html[data-dsh-desktop] [data-dsh-menubar] button:hover,
+  html[data-dsh-desktop] [data-dsh-menubar] button[data-dsh-menu-active],
+  html[data-dsh-desktop] [data-dsh-titleband] button:hover,
+  html[data-dsh-desktop] [data-dsh-panel-cluster] button:hover {
+    background: Highlight;
+    color: HighlightText;
+  }
 }

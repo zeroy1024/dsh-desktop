@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "桌面窗框适配：44px 顶带、藏 logo、新会话整行、侧栏 wash、折叠 0 轨、藏会话 tab。",
+  "description": "桌面窗框适配：44px 顶带、Windows 自绘菜单 + WCO 让位、藏 logo、新会话整行、侧栏 wash/Mica、折叠 0 轨。",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -17,7 +17,9 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-layout"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-theme"
       ],
       "platform": "web",
       "immediately": true
@@ -35,9 +37,16 @@
   },
   "devDependencies": {
     "@dsh-desktop/plugin-kit": "workspace:*",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^24.0.0",
     "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.1",
     "esbuild": "^0.28.2",
+    "jsdom": "29.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"

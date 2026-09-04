@@ -28,8 +28,10 @@ describe('agentDocumentCsp', () => {
 
   it('策略指令符合最小化基线', () => {
     // cordis ModuleLoader 的 __jsExpr 求值路径（new Function + eval）在发布产物中，
-    // script-src 必须带 'unsafe-eval'，改动前需在 security.ts 注释中同步说明。
-    expect(AGENT_CSP).toContain("script-src 'self' 'unsafe-eval'")
+    // 且上游 webserver 会向主文档注入 inline bootstrap（__ModuleLoader__ facade
+    // 与 __DSH_BOOT__ 全局），script-src 必须带 'unsafe-eval' 与 'unsafe-inline'，
+    // 改动前需在 security.ts 注释中同步说明。
+    expect(AGENT_CSP).toContain("script-src 'self' 'unsafe-eval' 'unsafe-inline'")
     expect(AGENT_CSP).toContain("default-src 'self'")
     expect(AGENT_CSP).toContain("connect-src 'self'")
     expect(AGENT_CSP).toContain("object-src 'none'")

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { shouldStretchTitleband, titlebandWidthPx } from '../geometry.ts'
 import { markDesktopFrame } from '../mark.ts'
+import { desktopFrameT, type FrameLocaleStore } from './locales.ts'
+import { ApplicationMenuBar } from './ApplicationMenuBar.tsx'
 
 function platform(): string {
   return window.dshDesktop?.platform ?? ''
@@ -50,6 +53,8 @@ export interface TitlebandProps {
   startSession: () => void
   togglePanel: () => void
   togglePanelExpand: () => void
+  /** 文案超源（locale id + 顶级菜单标签），由 apply 闭包创建。 */
+  frame: FrameLocaleStore
 }
 
 export function createTitleband(actions: TitlebandProps) {
@@ -58,23 +63,69 @@ export function createTitleband(actions: TitlebandProps) {
   }
 }
 
-export function Titleband({ toggleSidebar, startSession, togglePanel, togglePanelExpand }: TitlebandProps) {
+/**
+ * 左簇测量：观察标题带内真实按钮/菜单栏的右缘，写入
+ * --dsh-titleband-content-end（CSS 变量）——折叠态 header padding 与
+ * 分隔线位置从它推导（geometry.ts 的单一事实源，不再各自维护
+ * 172/168/159.5 常量）。Windows/Linux 不再落入 darwin 假灯区。
+ */
+function observeContentEnd(
+  container: HTMLElement,
+  geometryRef: { contentEnd: number },
+  apply: () => void,
+): () => void {
+  let raf = 0
+  const measure = (): void => {
+    raf = 0
+    const origin = container.getBoundingClientRect().left
+    let end = 0
+    for (const node of container.querySelectorAll<HTMLElement>('[data-dsh-menubar], [data-dsh-cluster-button]')) {
+      end = Math.max(end, node.getBoundingClientRect().right - origin)
+    }
+    if (end !== geometryRef.contentEnd) {
+      geometryRef.contentEnd = end
+      // 消费方（折叠态 center-col header padding/分隔线）在 titleband 的
+      // 子树之外，变量必须挂到 documentElement 才能被继承到。
+      document.documentElement.style.setProperty('--dsh-titleband-content-end', `${Math.round(end)}px`)
+      apply()
+    }
+  }
+  const ro = new ResizeObserver(() => {
+    if (raf !== 0) return
+    raf = requestAnimationFrame(measure)
+  })
+  ro.observe(container)
+  measure()
+  return () => {
+    if (raf !== 0) cancelAnimationFrame(raf)
+    ro.disconnect()
+    document.documentElement.style.removeProperty('--dsh-titleband-content-end')
+  }
+}
+
+export function Titleband({ toggleSidebar, startSession, togglePanel, togglePanelExpand, frame }: TitlebandProps) {
   const titlebandRef = useRef<HTMLDivElement>(null)
-  const geometryRef = useRef({ collapsed: false, width: 280, fullBleed: false, panelWidth: 0 })
+  const geometryRef = useRef({ collapsed: false, width: 280, fullBleed: false, panelWidth: 0, contentEnd: 0 })
   const [collapsed, setCollapsed] = useState(false)
   const [width, setWidth] = useState(280)
   const [fullBleed, setFullBleed] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(true)
   const [panelExpanded, setPanelExpanded] = useState(false)
 
+  // locale 快照（locale id + 顶级菜单标签）：菜单栏自订阅，按钮文案用 localeId
+  const frameSnapshot = useSyncExternalStore(frame.subscribe, frame.getSnapshot)
+  const t = (key: string): string => desktopFrameT(frameSnapshot.localeId, key)
+
   useEffect(() => {
     let raf = 0
     let sidebar: Element | null = null
     let panelCol: Element | null = null
+    let unobserveContentEnd: (() => void) | null = null
     const applyTitlebandWidth = (): void => {
       const geometry = geometryRef.current
       const value = titlebandWidthPx(
         geometry.width, geometry.collapsed, platform(), geometry.fullBleed, geometry.panelWidth,
+        geometry.contentEnd,
       )
       if (titlebandRef.current !== null) {
         titlebandRef.current.style.width = typeof value === 'number' ? `${value}px` : value
@@ -136,6 +187,7 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
         width: nextWidth,
         fullBleed: nextFullBleed,
         panelWidth: nextPanelWidth,
+        contentEnd: geometryRef.current.contentEnd,
       }
       setCollapsed(nextCollapsed)
       setWidth(nextWidth)
@@ -156,6 +208,9 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
     }
 
     sync()
+    if (titlebandRef.current !== null) {
+      unobserveContentEnd = observeContentEnd(titlebandRef.current, geometryRef.current, applyTitlebandWidth)
+    }
     // 只盯折叠标记和子树结构。不能观察 style/class/data-dsh-frame：
     // 官方 AppFrame 每帧写 gridTemplateColumns，我们自己也写 titleband width，
     // 会和 markDesktopFrame 互相触发，把渲染进程打满。
@@ -171,6 +226,7 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
       if (raf !== 0) cancelAnimationFrame(raf)
       observer.disconnect()
       ro.disconnect()
+      unobserveContentEnd?.()
       window.removeEventListener('resize', schedule)
     }
   }, [])
@@ -183,12 +239,14 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
         style={{
           width: titlebandWidthPx(
             width, collapsed, platform(), fullBleed, geometryRef.current.panelWidth,
+            geometryRef.current.contentEnd,
           ),
         }}
       >
         <button
           type="button"
-          aria-label={collapsed ? 'Open sidebar' : 'Collapse sidebar'}
+          data-dsh-cluster-button=""
+          aria-label={collapsed ? t('titleband.sidebar.expand') : t('titleband.sidebar.collapse')}
           aria-expanded={!collapsed}
           onClick={() => {
             toggleSidebar()
@@ -199,7 +257,8 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
         {collapsed ? (
           <button
             type="button"
-            aria-label="New session"
+            data-dsh-cluster-button=""
+            aria-label={t('titleband.newSession')}
             onClick={() => {
               startSession()
             }}
@@ -207,6 +266,7 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
             <PlusIcon />
           </button>
         ) : null}
+        <ApplicationMenuBar frame={frame} />
       </div>
       {/* 面板按钮簇钉在窗口 header 最右端（trailing 位）：不随 titleband 跟
           侧栏宽度走，面板开时正好落在 PanelShell header 预留的右端 88px 空位
@@ -218,8 +278,8 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
           <button
             type="button"
             data-dsh-panel-expand=""
-            aria-label={panelExpanded ? 'Restore panel width' : 'Expand side panel'}
-            title={panelExpanded ? '恢复面板宽度' : '放大面板'}
+            aria-label={panelExpanded ? t('titleband.panel.restore') : t('titleband.panel.expand')}
+            title={panelExpanded ? t('titleband.panel.restore') : t('titleband.panel.expand')}
             onClick={() => {
               togglePanelExpand()
             }}
@@ -230,9 +290,9 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
         <button
           type="button"
           data-dsh-panel-toggle=""
-          aria-label={panelCollapsed ? 'Open side panel' : 'Close side panel'}
+          aria-label={panelCollapsed ? t('titleband.panel.open') : t('titleband.panel.close')}
           aria-expanded={!panelCollapsed}
-          title={panelCollapsed ? '打开面板' : '关闭面板'}
+          title={panelCollapsed ? t('titleband.panel.open') : t('titleband.panel.close')}
           onClick={() => {
             togglePanel()
           }}

@@ -1,6 +1,6 @@
 # 架构
 
-DeepSeek Harness Desktop = Electron 壳 + 上游 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）。上游「万物皆插件」（Cordis 插件 + YAML patch 叠层），本项目的一切二次开发都优先落在插件层，见[边界铁律](../AGENTS.md#边界铁律)。
+DeepSeek Harness Desktop = Electron 壳 + 上游 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）。上游「万物皆插件」（Cordis 插件 + YAML patch 叠层），本项目的一切二次开发都优先落在插件层，见[边界铁律](../AGENTS.md#边界铁律)。窗框实现与平台分流的来龙去脉见 [overlay-titlebar.md](overlay-titlebar.md)。
 
 ## 三层结构
 
@@ -17,6 +17,33 @@ DeepSeek Harness Desktop = Electron 壳 + 上游 [deepseek-harness](https://gith
 └──────────────────────────────────────────────────────────┘
 ```
 
+## 窗口宿主：Windows 与 macOS/Linux 平台分流
+
+主进程的窗口宿主按平台分流（`apps/desktop/src/main/index.ts`，详见
+[overlay-titlebar.md](overlay-titlebar.md)）：
+
+```
+Windows                      macOS / Linux
+BrowserWindow                BaseWindow
+├─ primary webContents:      └─ contentView
+│   dsh WebUI（WCO 原生 caption）   ├─ WebUI WebContentsView
+└─ contentView                     └─ splash WebContentsView
+   └─ splash child view
+```
+
+- **Windows**：`titleBarStyle:'hidden'` + `titleBarOverlay`，WebUI 直接加载在
+  BrowserWindow primary——WCO rect（`env(titlebar-area-*)` 与
+  `navigator.windowControlsOverlay`）只有 primary 能拿到非零值，这是
+  0.0.3/0.0.4 叠键回归的根因；splash 是 contentView 顶层 child view（全不透明，
+  primary 在其下预加载）。外观由 `windows-appearance.ts` 控制（Mica/solid
+  回退、`nativeTheme` 深浅/forced colors/减少透明度）；应用菜单由
+  `application-menu.ts` 持有（roles/accelerator 保留、原生菜单栏隐藏、菜单
+  popup 由 renderer 传 id+anchor 触发）。
+- **macOS/Linux**：维持 `BaseWindow` + child view；macOS `hiddenInset` +
+  vibrancy，Linux `hidden` 无 overlay。两种模式共用 `splash.ts` 的
+  `WebuiResource` 所有权模型：Windows 借用 primary（不创建/不关闭），其他
+  平台拥有 child view（dispose 时关闭）。
+
 ## 数据流
 
 ```
@@ -29,7 +56,7 @@ Electron 主进程 ──spawn──▶ dsh --profile desktop --no-open --port 0
 
 - agent 与 Electron 主进程是**两个进程**，崩溃隔离、可独立升级；主进程通过 `@dsh-desktop/agent-host` 监管子进程（ready 解析、指数退避重启、稳定运行后才重置预算）。每次重启的随机端口都会更新导航锁并重载页面；日志写入 `userData/logs/dsh-agent.log`，launch token 脱敏、权限收紧并按 5 MiB 轮转。
 - 数据位置：`DSH_HOME` 默认与命令行共用 `~/.dsh`（API key/profiles/sessions 互通），设 `DSH_HOME` 环境变量可覆盖以隔离测试。
-- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航按解析后的 scheme/host/port 精确放行当前 `http://127.0.0.1:<port>`，IPC 只接受该 origin 的主 frame，其余 HTTP(S) 外链走系统浏览器。文档 URL 不含 token。主文档响应钉 CSP（`security.ts` 的 `AGENT_CSP`）：禁 object/base/form/frame-ancestors、连接限同源；`script-src` 含 `'unsafe-eval'` 是已知让步——上游发布产物内嵌 cordis ModuleLoader 的 `__jsExpr` 求值路径（`new Function` + `eval`），无法证明冷路径。
+- 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航按解析后的 scheme/host/port 精确放行当前 `http://127.0.0.1:<port>`，IPC 只接受该 origin 的主 frame，其余 HTTP(S) 外链走系统浏览器。文档 URL 不含 token。主文档响应钉 CSP（`security.ts` 的 `AGENT_CSP`）：禁 object/base/form/frame-ancestors、连接限同源；`script-src` 含 `'unsafe-eval'`（上游 `__jsExpr` 的 `new Function` + `eval`）与 `'unsafe-inline'`（上游 webserver 向主文档注入 `__ModuleLoader__` facade 与 `__DSH_BOOT__` 全局，无 nonce 通道）。
 
 ## 插件分发（P2 起，ADR-0004）
 
