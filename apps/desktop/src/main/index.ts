@@ -33,7 +33,7 @@ import {
 } from './application-menu'
 import { defaultReapDeps, reapOrphanedAgent, removeAgentPidRecord, writeAgentPidRecord } from './orphan-reaper'
 import { resolveCliEntry } from './paths'
-import { ensureDshRuntime } from './runtime-archive'
+import { canSelfHealRuntime, ensureDshRuntime, invalidateDshRuntime } from './runtime-archive'
 import { installSecurityHooks, isTrustedIpcSender } from './security'
 import {
   MOUNT_TIMEOUT_MS,
@@ -64,6 +64,8 @@ let quitRequested = false
 let startupTask: Promise<void> | null = null
 let restartTask: Promise<void> | null = null
 let startupGeneration = 0
+/** 打包态 ready 前自愈预算：整个 app 生命周期最多一次，restart-agent 复用同一预算。 */
+let runtimeSelfHealUsed = false
 const ciSmoke = process.env.DSH_DESKTOP_CI_SMOKE === '1'
 const ciSmokeReadyMarker = '.dsh-desktop-ci-ready.json'
 
@@ -439,6 +441,38 @@ function wireSupervisor(candidate: AgentSupervisor): void {
 }
 
 /**
+ * 打包态 ready 前失败的一次性自愈：start() 拒绝（启动超时/未 ready 退出）且
+ * 自愈预算未用时，失效解压产物并重解压，再重试一次；重试仍失败透传原错误。
+ * dev 态（vendor/dsh-cli，无解压产物）原样透传。预算在进入自愈时即占用，
+ * restart-agent 的后续失败不会反复重解压（app.quit 前最多一次重试）。
+ */
+async function startAgentWithPreReadySelfHeal(candidate: AgentSupervisor): Promise<AgentReadyInfo> {
+  if (!canSelfHealRuntime(app.isPackaged, runtimeSelfHealUsed)) return candidate.start()
+  try {
+    return await candidate.start()
+  } catch (error) {
+    if (quitRequested) throw error
+    runtimeSelfHealUsed = true
+    console.warn('[agent] 首启未达 ready，失效并重解压运行时后重试一次', error)
+    const userDataDir = app.getPath('userData')
+    const version = app.getVersion()
+    try {
+      await invalidateDshRuntime({ userDataDir, version })
+      await ensureDshRuntime({
+        userDataDir,
+        version,
+        archivePath: join(process.resourcesPath, 'dsh-cli.tar'),
+      })
+    } catch (healError) {
+      // 自愈失败（如产物 tar 缺失）：保留首启错误，走既有失败处理
+      console.warn('[agent] 运行时自愈失败', healError)
+      throw error
+    }
+    return candidate.start()
+  }
+}
+
+/**
  * 完整启动流程：splash → agent → WebUI loadURL → 挂载检测 → 定格 → 揭幕。
  * Windows 的 WebUI 在 BrowserWindow primary 中加载；macOS/Linux 在 owned
  * child view 中加载。restart-agent 可传入已经显示的 splash 控制器，保证在
@@ -485,7 +519,8 @@ async function runStartup(
   wireSupervisor(candidate)
 
   controller.sendProgress(5)
-  const ready = await candidate.start()
+  // 自愈包装：ready 前失败时失效并重解压运行时，重试一次（见 startAgentWithPreReadySelfHeal）
+  const ready = await startAgentWithPreReadySelfHeal(candidate)
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) {
     await candidate.stop()
     return

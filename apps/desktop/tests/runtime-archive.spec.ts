@@ -1,10 +1,15 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ensureDshRuntime, sweepOldRuntimes } from '../src/main/runtime-archive'
+import {
+  canSelfHealRuntime,
+  ensureDshRuntime,
+  invalidateDshRuntime,
+  sweepOldRuntimes,
+} from '../src/main/runtime-archive'
 
 /** 用系统 tar 造一个最小合法运行时包（仅 CLI 入口与一个普通文件）。 */
 function buildFixtureArchive(archivePath: string): void {
@@ -68,6 +73,30 @@ describe('ensureDshRuntime', () => {
     expect(readdirSync(versionDir())).not.toContain('stale.txt')
   })
 
+  it('标记命中但 CLI 入口缺失时重新解压（AV 隔离/部分删除自愈）', async () => {
+    await ensureDshRuntime({ userDataDir, version: VERSION, archivePath })
+    const entry = join(versionDir(), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    rmSync(entry) // 模拟 AV 隔离/部分删除：标记完好但入口被移走
+    await ensureDshRuntime({ userDataDir, version: VERSION, archivePath })
+    expect(readFileSync(entry, 'utf8')).toBe('// stub cli entry\n')
+  })
+
+  it('标记命中且入口完好时仍短路，不重解压', async () => {
+    await ensureDshRuntime({ userDataDir, version: VERSION, archivePath })
+    const sentinel = join(versionDir(), 'sentinel2.txt')
+    await writeFile(sentinel, 'keep\n')
+    const markerMtime = statSync(join(versionDir(), '.complete')).mtimeMs
+    const dir = await ensureDshRuntime({ userDataDir, version: VERSION, archivePath })
+    expect(dir).toBe(versionDir())
+    expect(readFileSync(sentinel, 'utf8')).toBe('keep\n')
+    expect(statSync(join(versionDir(), '.complete')).mtimeMs).toBe(markerMtime)
+  })
+
+  it('原子写标记不留临时文件残留', async () => {
+    await ensureDshRuntime({ userDataDir, version: VERSION, archivePath })
+    expect(readdirSync(versionDir()).filter((name) => name.includes('.tmp'))).toEqual([])
+  })
+
   it('解压失败时清理临时目录，不留半成品', async () => {
     const notTar = join(workDir, 'not-a-tar.bin')
     await writeFile(notTar, 'definitely not a tar archive\n')
@@ -88,6 +117,28 @@ describe('ensureDshRuntime', () => {
   it('拒绝非法版本号', async () => {
     await expect(ensureDshRuntime({ userDataDir, version: '../escape', archivePath }))
       .rejects.toThrow('非法版本号')
+  })
+})
+
+describe('canSelfHealRuntime / invalidateDshRuntime', () => {
+  it('自愈决策：仅打包态且自愈预算未用', () => {
+    expect(canSelfHealRuntime(true, false)).toBe(true)
+    expect(canSelfHealRuntime(false, false)).toBe(false)
+    expect(canSelfHealRuntime(true, true)).toBe(false)
+  })
+
+  it('invalidateDshRuntime 删除版本目录（含标记与入口），且幂等', async () => {
+    const dir = join(userDataDir, 'dsh-runtime', '0.0.2')
+    await mkdir(join(dir, 'node_modules'), { recursive: true })
+    await writeFile(join(dir, '.complete'), '{"size":1,"mtimeMs":1}\n')
+    await invalidateDshRuntime({ userDataDir, version: '0.0.2' })
+    expect(existsSync(dir)).toBe(false)
+    // 目录本就不存在也不抛
+    await expect(invalidateDshRuntime({ userDataDir, version: '0.0.2' })).resolves.toBeUndefined()
+  })
+
+  it('invalidateDshRuntime 拒绝非法版本号', async () => {
+    await expect(invalidateDshRuntime({ userDataDir, version: '../escape' })).rejects.toThrow('非法版本号')
   })
 })
 

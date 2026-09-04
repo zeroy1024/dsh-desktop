@@ -4,11 +4,13 @@
  * 安装产物只携带单个未压缩 tar（resources/dsh-cli.tar，见
  * stage-runtime-archive.ts），首次启动解压到 userData/dsh-runtime/<version>/：
  *
- *   - 完成标记 .complete 记录 tar 的 size+mtimeMs，命中即短路（微秒级），
- *     restart-agent 路径幂等安全
+ *   - 完成标记 .complete 记录 tar 的 size+mtimeMs：命中仍需 CLI 入口存在
+ *     才短路（防 AV 隔离/部分删除），restart-agent 路径幂等安全；标记经
+ *     同目录临时文件 + rename 原子写入
  *   - 解压到同盘 .extract-<version>-<pid> 临时目录，rename 原子切换；
  *     任何失败清理临时目录，下次启动重新来过，不会留下半成品
- *   - 解压成功后异步清扫其他版本目录（旧版本、中断的临时目录）
+ *   - 解压成功后异步清扫其他版本目录（旧版本、中断的临时目录）；
+ *     打包态 ready 前启动失败可失效并重解压一次（canSelfHealRuntime 决策）
  *
  * 纯 Node 模块（不 import electron），路径与平台由调用方注入，可单测。
  * 解压用系统 tar：macOS/Linux 自带 bsdtar/GNU tar，Windows 10+ 自带
@@ -16,9 +18,10 @@
  * Windows 解压不需要任何特权。
  */
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 export interface EnsureDshRuntimeOptions {
   /** Electron userData 目录。 */
@@ -96,6 +99,36 @@ export async function sweepOldRuntimes(rootDir: string, keepVersion: string): Pr
       .catch(() => {})))
 }
 
+/** 原子写 .complete：同目录临时文件 + rename，崩溃/中断不会留下半截标记。 */
+async function writeMarker(markerPath: string, marker: Marker): Promise<void> {
+  const temporary = join(dirname(markerPath), `.${basename(markerPath)}.${process.pid}.${randomUUID()}.tmp`)
+  try {
+    await writeFile(temporary, `${JSON.stringify(marker)}\n`)
+    await rename(temporary, markerPath)
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {})
+  }
+}
+
+/**
+ * 自愈决策：仅打包态（运行时来自解压产物）且预算未用（每个 app 生命周期
+ * 最多一次）时，允许 ready 前失败触发失效+重解压。
+ */
+export function canSelfHealRuntime(packaged: boolean, selfHealBudgetUsed: boolean): boolean {
+  return packaged && !selfHealBudgetUsed
+}
+
+/** 失效当前版本解压产物（删整个版本目录，含 .complete），下次 ensureDshRuntime 走完整重解压。 */
+export async function invalidateDshRuntime(
+  options: Pick<EnsureDshRuntimeOptions, 'userDataDir' | 'version'>,
+): Promise<void> {
+  if (!SAFE_VERSION.test(options.version)) {
+    throw new Error(`dsh 运行时自愈失败：非法版本号 ${JSON.stringify(options.version)}`)
+  }
+  const versionDir = join(join(options.userDataDir, 'dsh-runtime'), options.version)
+  await rm(versionDir, { recursive: true, force: true })
+}
+
 /**
  * 确保 dsh-cli 运行时已解压，返回其根目录（内含 node_modules/）。
  *
@@ -115,7 +148,10 @@ export async function ensureDshRuntime(options: EnsureDshRuntimeOptions): Promis
   })
   const marker = await readMarker(markerPath)
   if (marker !== null && marker.size === archiveStat.size && marker.mtimeMs === archiveStat.mtimeMs) {
-    return versionDir
+    // 标记命中只证明当时的解压完成；AV 隔离/部分删除会留下完好标记但缺失入口，
+    // 补一次入口 stat 校验（每次启动仅一个 stat），失败走下面整体重建
+    const entryIntact = await stat(join(versionDir, REQUIRED_ENTRY)).then(() => true, () => false)
+    if (entryIntact) return versionDir
   }
 
   await rm(versionDir, { recursive: true, force: true })
@@ -132,7 +168,7 @@ export async function ensureDshRuntime(options: EnsureDshRuntimeOptions): Promis
     })
     await rename(tmpDir, versionDir)
     const markerContent: Marker = { size: archiveStat.size, mtimeMs: archiveStat.mtimeMs }
-    await writeFile(markerPath, `${JSON.stringify(markerContent)}\n`)
+    await writeMarker(markerPath, markerContent)
   } catch (error) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     throw error
