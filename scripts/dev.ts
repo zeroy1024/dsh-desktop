@@ -8,6 +8,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnCommandSync, spawnPnpmSync } from './command'
+import { readPatchRegistry, syncFingerprint } from './sync-fingerprint'
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const desktopDir = join(rootDir, 'apps', 'desktop')
@@ -25,6 +26,28 @@ const cliEntry = join(rootDir, 'vendor', 'dsh-cli', 'node_modules', '@deepseek-a
 if (!existsSync(cliEntry)) {
   console.error('未找到 dsh CLI 安装产物（vendor/dsh-cli/…/lib/bin.js）。')
   console.error('请先执行：pnpm sync:upstream')
+  process.exit(1)
+}
+
+// 1.5 CLI 必须与当前上游 pin + 补丁队列一致。vendor/.upstream-commit 只由
+// 全量同步写入（markFullySynced）；--skip-pack/--skip-build 或失败的 pack 之后
+// bin.js 虽在，内容可能已过期——旧 CLI 跑起来查错成本远高于重新同步。
+const commitMarkerPath = join(rootDir, 'vendor', '.upstream-commit')
+if (!existsSync(commitMarkerPath)) {
+  console.error('vendor/.upstream-commit 缺失：完整同步（pnpm sync:upstream）尚未完成过，')
+  console.error('或 vendor 目录被部分重建。请先执行：pnpm sync:upstream')
+  process.exit(1)
+}
+let expected: string
+try {
+  expected = syncFingerprint(readPatchRegistry())
+} catch (error) {
+  console.error(`无法计算上游补丁指纹：${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
+}
+if (readFileSync(commitMarkerPath, 'utf8').trim() !== expected) {
+  console.error('vendor/dsh-cli 与当前上游 pin + 补丁队列不一致（可能只跑过 --skip-build/--skip-pack，')
+  console.error('或补丁队列已更新）。请重新执行完整同步：pnpm sync:upstream')
   process.exit(1)
 }
 

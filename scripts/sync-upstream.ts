@@ -21,7 +21,6 @@
  *   pnpm sync:upstream -- --skip-build   跳过构建与打包（仅补丁+安装）
  *   pnpm sync:upstream -- --skip-pack    跳过打包与 CLI 安装
  */
-import { createHash } from 'node:crypto'
 import {
   existsSync,
   globSync,
@@ -37,10 +36,15 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 import { spawnCommandSync, spawnPnpmSync } from './command'
+import {
+  readPatchRegistry,
+  registeredPatchPath,
+  syncFingerprint,
+  type PatchEntry,
+} from './sync-fingerprint'
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const upstreamDir = join(rootDir, 'upstream')
-const patchesDir = join(rootDir, 'patches')
 const vendorDir = join(rootDir, 'vendor')
 
 /** 无论补丁内容如何都要分发的基础包（相对 upstream/ 的目录）。 */
@@ -116,45 +120,6 @@ function capture(
 /** 记录上次完整同步的 commit + 补丁队列指纹（vendor/ 下，随 vendor 一起重建）。 */
 const commitMarkerPath = join(vendorDir, '.upstream-commit')
 
-interface PatchEntry {
-  file: string
-  reason: string
-  upstream?: string
-}
-
-function readPatchRegistry(): PatchEntry[] {
-  const registryPath = join(patchesDir, 'patches.yml')
-  const registry = yaml.load(readFileSync(registryPath, 'utf8')) as { patches?: unknown } | null
-  if (registry?.patches === undefined) return []
-  if (!Array.isArray(registry.patches)) throw new Error('[patches] patches.yml 的 patches 必须是数组')
-  const seen = new Set<string>()
-  return registry.patches.map((value, index) => {
-    if (typeof value !== 'object' || value === null) {
-      throw new Error(`[patches] 第 ${index + 1} 项必须是对象`)
-    }
-    const entry = value as Partial<PatchEntry>
-    if (typeof entry.file !== 'string' || typeof entry.reason !== 'string' || entry.reason.trim() === '') {
-      throw new Error(`[patches] 第 ${index + 1} 项必须提供 file 与非空 reason`)
-    }
-    if (seen.has(entry.file)) throw new Error(`[patches] 重复登记：${entry.file}`)
-    seen.add(entry.file)
-    registeredPatchPath(entry.file)
-    return {
-      file: entry.file,
-      reason: entry.reason,
-      ...(typeof entry.upstream === 'string' ? { upstream: entry.upstream } : {}),
-    }
-  })
-}
-
-function registeredPatchPath(file: string): string {
-  const path = resolve(patchesDir, file)
-  if (!path.startsWith(`${patchesDir}${sep}`) || !file.endsWith('.patch')) {
-    throw new Error(`[patches] 非法补丁路径：${file}`)
-  }
-  return path
-}
-
 /** 找到一个补丁文件所属的最近 workspace package；根配置/文档返回 null。 */
 function packageTargetForFile(file: string): string | null {
   let cursor = dirname(file)
@@ -200,22 +165,6 @@ function packedPackage(target: string): PackedPackage {
     tarball,
     specifier: `file:../${tarball}`,
   }
-}
-
-function syncFingerprint(patches: readonly PatchEntry[]): string {
-  const hash = createHash('sha256')
-  hash.update(capture('git', ['rev-parse', 'HEAD'], upstreamDir))
-  hash.update('\0')
-  hash.update(readFileSync(join(patchesDir, 'patches.yml')))
-  for (const entry of patches) {
-    const patchPath = registeredPatchPath(entry.file)
-    if (!existsSync(patchPath)) throw new Error(`[patches] 登记的文件不存在：${entry.file}`)
-    hash.update('\0')
-    hash.update(entry.file)
-    hash.update('\0')
-    hash.update(readFileSync(patchPath))
-  }
-  return `${capture('git', ['rev-parse', 'HEAD'], upstreamDir)} ${hash.digest('hex')}`
 }
 
 /**
