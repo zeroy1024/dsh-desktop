@@ -1,48 +1,32 @@
 diff --git a/packages/llm/llm/README.md b/packages/llm/llm/README.md
-index 59c5303bda..8ae5dfd1a4 100644
+index 6baa020a95..badf12bc87 100644
 --- a/packages/llm/llm/README.md
 +++ b/packages/llm/llm/README.md
-@@ -19,6 +19,7 @@ Each provider adapter supplies its resolved route policy. Omitting provider conf
- - `ctx.llm.registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle` Declare provider routes an adapter plugin can activate through configuration — registered or dormant — each naming its owning settings namespace and the path to its profile inside that section. All-or-nothing (`INVALID_DIRECTORY`/`DUPLICATE_DIRECTORY`), disposed with the calling fiber. The handle also carries `replace(entries)`: the candidate set is validated in full before anything moves, so an entry another registration already declares leaves the current set intact, and an empty array is legal there. A plugin whose declared set follows its configuration must use `replace` rather than disposing and re-registering — the latter strands the directory empty whenever the new set is refused.
- - `ctx.llm.listConfigurableProviders(): LlmConfigurableProvider[]` List the declared directory in declaration order; configuration surfaces merge it with `listProviders()` to mark each entry live or dormant. An entry may carry `declared` — whether the owning adapter knows that route only because configuration named it. Only the adapter can answer, so absence means "this adapter draws no such distinction", never "shipped".
- - `ctx.llm.registerModelDiscovery(settingsNs: string, discover): () => void` Offer to interrogate provider endpoints for the settings namespace this plugin owns. One offer per namespace (`INVALID_DISCOVERY`/`DUPLICATE_DISCOVERY`), disposed with the calling fiber.
-+- `ctx.llm.registerInputTransform(transform: LlmInputTransform): () => void` Register an ordered, fiber-owned projection for one adapter attempt. It runs only when the exact resolved model does not explicitly advertise image input and the request contains an image; native image routes and image-free requests skip it. The transform receives the exact provider/model, captured `inputModalities`, immutable request messages, and the caller signal, and may return detached messages or `undefined` to abstain. The result is request-local: it never appends session events or changes the loop's durable derivation. A missing registration leaves the built-in text-only image placeholder behavior unchanged.
- - `ctx.llm.listModelDiscoveryNamespaces(): string[]` List the namespaces that can interrogate an endpoint, so a surface offers the action only where it works.
- - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` Ask one endpoint which models it advertises.
- - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` Return the provider-owned retry policy captured during registration, with normal defaults resolved.
-@@ -49,6 +50,7 @@ Exact-model metadata is a separate correctness query, not a catalog decoration o
- ### Extension points
+@@ -63,6 +63,7 @@ After a successful mount, `ctx.llm.listProviders()` reports the registered route
+ - **Expose and activate providers through configuration** — adapters declare configurable-provider routes plus a settings namespace, so configuration surfaces can activate dormant providers and edit connection facts without a restart.
+ - **Discover and resolve models** — list the models an adapter advertises, interrogate an endpoint for the models it serves, and resolve one exact model's context window, output default, reasoning efforts, and input modalities.
+ - **Validate call config** — an explicit or configured reasoning effort is checked against the exact model before any provider I/O, and an adapter-configured output cap is materialized when the request omits one.
++- **Project one attempt's input** — `ctx.llm.registerInputTransform()` registers an ordered, fiber-owned representation change for a single adapter attempt (an image attachment becoming bounded text evidence for a text-only model); native image routes and image-free requests skip it, and the projection never touches session facts.
  
- - Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerRetryPolicy()` to supply provider-owned recovery configuration, `providerInfo()` and asynchronous `listModels()` to expose selector metadata, then implement `resolveModel()` when exact identity, capacity, an output default, or selectable reasoning efforts are available; an asynchronous resolver must honor its optional cancellation signal. The defaults use bounded normal retry policy, use the route and model ids as names, advertise no models, and return no capacity, output default, or reasoning metadata.
-+- Use `ctx.llm.registerInputTransform()` for an adapter-independent, attempt-local representation change such as converting an image attachment into bounded text evidence for a model that cannot accept images. The transform is downstream of exact adapter/model resolution and must preserve the original message objects as session facts; use its signal for all asynchronous work. It is not a replacement for `llm/stream` middleware: the latter wraps the stream, while this seam changes only the messages passed to the selected adapter.
- - Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, logging, or routing. A wrapper that retries after emitting a chunk has no durable attempt boundary; shipped agent retry policy therefore uses `agent/request-error` instead.
+ ### Failures and recovery
  
- ### Messages (`message.ts`) and content blocks (`types.ts`)
 diff --git a/packages/llm/llm/README.zh.md b/packages/llm/llm/README.zh.md
-index 313fc23590..4ca4dfd745 100644
+index f985736da4..f7bcba7ba5 100644
 --- a/packages/llm/llm/README.zh.md
 +++ b/packages/llm/llm/README.zh.md
-@@ -19,6 +19,7 @@
- - `ctx.llm.registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle` 声明适配器插件可通过配置激活的提供方路由——无论已注册还是休眠——每个条目指明其所属 settings namespace，以及 profile 在该分节内的路径。要么全部成功，要么全部不生效（`INVALID_DIRECTORY`/`DUPLICATE_DIRECTORY`），并随调用 fiber dispose。该句柄还带 `replace(entries)`：候选集合会先被整体校验，因此其中若有条目已被另一个注册声明，当前集合原封不动；此处允许传空数组。声明集合随配置变化的插件必须使用 `replace`，而不是先 dispose 再重新注册——后者会在新集合被拒时让目录整个落空。
- - `ctx.llm.listConfigurableProviders(): LlmConfigurableProvider[]` 按声明顺序列出可配置提供方目录；配置界面将其与 `listProviders()` 合并，为每个条目标注存活或休眠。条目可携带 `declared`，表示拥有该路由的适配器是否只因配置点名才知道它。只有适配器能回答这一点：该字段缺失时，只表示该适配器不区分这两种来源，不能据此判断路由是否随产品交付。
- - `ctx.llm.registerModelDiscovery(settingsNs: string, discover): () => void` 为本插件拥有的 settings namespace 提供查询提供方端点的能力。每个 namespace 只能有一个（`INVALID_DISCOVERY`/`DUPLICATE_DISCOVERY`），并随调用 fiber dispose。
-+- `ctx.llm.registerInputTransform(transform: LlmInputTransform): () => void` 注册按顺序执行、随所属 fiber 释放的单次适配器分发消息投影。只有当精确解析的模型没有明确声明支持图片输入，且请求包含图片时才会调用；原生图片路由和不含图片的请求都会跳过。transform 会收到精确的 provider/model、同一适配器世代捕获的 `inputModalities`、不可变的本次请求消息以及调用方 signal；可返回分离后的消息，或返回 `undefined` 表示放弃处理。结果只作用于本次请求：不会追加 session 事件，也不会改变 loop 的持久消息推导。没有注册时保持内置的纯文本图片占位行为。
- - `ctx.llm.listModelDiscoveryNamespaces(): string[]` 列出可以询问端点的 namespace，让界面只在可用之处提供该动作。
- - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` 询问某个端点它公布了哪些模型。
- - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方自身的重试策略，并解析 normal 默认值。
-@@ -49,6 +50,7 @@
- ### 扩展点
+@@ -63,6 +63,7 @@ for await (const chunk of ctx.llm.stream({
+ - **通过配置暴露并激活提供方**——适配器声明可配置提供方路由与 settings namespace，配置界面因此可以激活休眠提供方并编辑连接事实，无需重启。
+ - **发现与解析模型**——列出适配器公布的模型、询问端点它提供哪些模型，并解析某个精确模型的上下文窗口、输出默认值、推理（reasoning）强度与输入模态。
+ - **校验调用配置**——显式或配置的推理强度会在任何提供方 I/O 之前对照精确模型校验；请求省略输出上限时，会填入适配器配置的输出上限。
++- **投影单次尝试的输入** — `ctx.llm.registerInputTransform()` 注册按次适配器尝试的有序、fiber 私有表示变换（如把图片附件转为文本模型的受限文字证据）；原生图片路由与无图请求直接跳过，投影从不改动会话事实。
  
- - 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方定义的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量、输出默认值或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量、输出默认值或推理元数据。
-+- 使用 `ctx.llm.registerInputTransform()` 提供与适配器无关、仅限本次分发的表示转换，例如将不支持图片的模型所携带的图片附件转换为有界的文本证据。该转换发生在精确适配器／模型解析之后，必须保留原始消息作为 session 事实，并使用 signal 完成所有异步工作。它不是 `llm/stream` middleware 的替代品：后者包装流，而这里仅改变交给选定适配器的消息。
- - 包装 `llm/stream` 时，通过 `ctx.on()` waterfall listener 实现缓存、日志或路由。包装层如果在已经发出分片后重试，就没有可持久记录的尝试边界；因此，随产品交付的 agent 重试策略改用 `agent/request-error`。
+ ### 失败与恢复
  
- ### 消息（`message.ts`）与内容块（`types.ts`）
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
-index 82b64bf4ce..3cb8852ff5 100644
+index cdecc4c96e..af02e826de 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
-@@ -182,6 +182,37 @@ export interface PreparedAdapterCall {
+@@ -184,6 +184,37 @@ export interface PreparedAdapterCall {
    stream(options: GenerateOptions): AsyncIterable<StreamChunk>
  }
  
@@ -80,15 +64,15 @@ index 82b64bf4ce..3cb8852ff5 100644
  /**
   * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
   * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
-@@ -315,6 +346,7 @@ export class LlmRuntime extends Service {
+@@ -330,6 +361,7 @@ export class LlmRuntime extends TypertRemoteService {
      string,
-     (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+     (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
    >()
 +  private inputTransforms: InputTransformRegistration[] = []
  
    constructor(ctx: Context) {
      super(ctx, 'llm')
-@@ -547,6 +579,39 @@ export class LlmRuntime extends Service {
+@@ -567,6 +599,39 @@ export class LlmRuntime extends TypertRemoteService {
      return () => void dispose()
    }
  
@@ -128,7 +112,7 @@ index 82b64bf4ce..3cb8852ff5 100644
    /**
     * Interrogate one provider endpoint for the models it advertises. The
     * request describes a draft, not a stored route, so nothing here reads or
-@@ -890,6 +955,52 @@ export class LlmRuntime extends Service {
+@@ -956,6 +1021,52 @@ export class LlmRuntime extends TypertRemoteService {
      return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
    }
  
@@ -181,7 +165,7 @@ index 82b64bf4ce..3cb8852ff5 100644
    /**
     * Final adapter boundary. Adapter selection, dispatch, iterator construction,
     * and iteration failures become one terminal failure chunk. Middleware and
-@@ -900,12 +1011,15 @@ export class LlmRuntime extends Service {
+@@ -966,12 +1077,15 @@ export class LlmRuntime extends TypertRemoteService {
      prepared?: PreparedDispatch,
    ): AsyncGenerator<StreamChunk> {
      let iterator: AsyncIterator<StreamChunk>
@@ -202,7 +186,7 @@ index 82b64bf4ce..3cb8852ff5 100644
        if (prepared === undefined) {
          const adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal)
          modelInfo = this.normalizeModelInfo(registration, options.model, adapterCall.model)
-@@ -922,18 +1036,33 @@ export class LlmRuntime extends Service {
+@@ -988,18 +1102,33 @@ export class LlmRuntime extends TypertRemoteService {
            'INVALID_PREPARED_CALL',
          )
        }
@@ -244,7 +228,7 @@ index 82b64bf4ce..3cb8852ff5 100644
        const stream = dispatch(this.forAdapter(projectedOptions, adapter))
        iterator = stream[Symbol.asyncIterator]()
      } catch (error: unknown) {
-@@ -1023,4 +1152,22 @@ interface PreparedDispatch {
+@@ -1089,4 +1218,22 @@ interface PreparedDispatch {
    readonly dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
  }
  
@@ -268,7 +252,7 @@ index 82b64bf4ce..3cb8852ff5 100644
 +
  export default LlmRuntime
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 4c624fa862..6976818440 100644
+index 47309daea1..414546e794 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
 @@ -1,4 +1,4 @@
@@ -307,7 +291,7 @@ index 4c624fa862..6976818440 100644
  class ThrowingAdapter extends LlmAdapter {
    constructor(private readonly failure: Error) {
      super()
-@@ -1000,6 +1016,199 @@ describe('LlmRuntime', () => {
+@@ -1007,6 +1023,199 @@ describe('LlmRuntime', () => {
      expect(Object.isFrozen(seen[1]?.messages)).toBe(true)
    })
  

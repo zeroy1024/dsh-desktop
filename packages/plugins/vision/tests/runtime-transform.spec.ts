@@ -40,9 +40,7 @@ class RecordingTextAdapter extends LlmAdapter {
 
 afterEach(() => { vi.unstubAllGlobals() })
 
-// 迁移期 skip（upgrade/dsh-v0.1.2-rc.1）：0011 暂摘后上游 LlmRuntime 无
-// registerInputTransform 缝，本集成面在阶段 6 重做 0011 时恢复。
-describe.skip('vision and LlmRuntime input-transform integration', () => {
+describe('vision and LlmRuntime input-transform integration', () => {
   it('dispatches one derived text request without changing the durable image message', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

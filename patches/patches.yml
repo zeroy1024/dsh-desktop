@@ -44,6 +44,24 @@ patches:
       inspectHandoff 可选注入——apply 层惰性探测 panelShell 服务，在则整体委托
       （开列→开页→下发一次性选中目标），不在则上游 openView 路径原样保留。
       上游自带面板 inspect 集成后撤
+  - file: 0010-api-session-controller-image-admission.patch
+    reason: |
+      Web prompt 的图片准入缝（0.1.2 重做，宿主迁 api/session-controller 的
+      prompt 命令）：准入逻辑内嵌于 Remote 服务实现，插件无法在附件持久化前
+      表达“可转写”。抽出可测的 imagePromptAdmission helper（image-admission.ts，
+      补丁新增）经可选 imageInputAdmission 服务询问 bridge/abstain——
+      inputModalities 原生事实不变、原生图片路由与无图请求不受影响、无服务时
+      行为与上游一致；解析失败经 admit('unknown','failed') 决定是否桥接。
+      错误面保持上游 RemoteError session/attachment-invalid。上游提供正式图片
+      桥接准入契约后撤
+  - file: 0011-llm-input-transform-seam.patch
+    reason: |
+      LlmRuntime 原先只提供 text-only 占位投影，插件无法在精确模型能力解析后、
+      适配器分发前提供一次性图片转写。0.1.2 实测：adapterStream 分发边界、
+      resolveModelInfo→resolveCallConfig→图像投影→dispatch 的瀑布原样，缝位
+      不变，补丁近乎平移（基类 TypertRemoteService/deepFreeze 移位/README 区域
+      上游重写为 "What you can do" 摘要列表，registerInputTransform 以一条
+      bullet 并入）。上游提供同等 pre-dispatch transform 契约后撤
   - file: 0009-ui-chat-file-browser-open-seam.patch
     reason: |
       ui-chat 的 openFile 回调内嵌于 apply 注入闭包（0.1.2 已改走
