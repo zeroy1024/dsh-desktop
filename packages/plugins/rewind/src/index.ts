@@ -159,16 +159,12 @@ export async function handleRewindRequest(
       sendJson(res, 409, { ok: false, code: 'agent-running' })
       return
     }
-    // 0.1.2 迁移期：0012 暂摘后 vendor 内上游类型无 Session.events/墓碑事件名；
-    // 阶段 7 重做 0012 后这两个 @ts-expect-error 会因「未使用」报错，届时移除。
-    // @ts-expect-error 0012 暂摘期临时放行（阶段 7 恢复）
-    const precheckError = precheckRewind(session.events, atSeq)
+    const precheckError = precheckRewind(session.snapshotEvents(), atSeq)
     if (precheckError !== undefined) {
       sendJson(res, precheckError === 'invalid-at-seq' ? 400 : 409, { ok: false, code: precheckError })
       return
     }
 
-    // @ts-expect-error 0012 暂摘期临时放行（阶段 7 恢复）
     session.append(REWIND_EVENT_TYPE, { atSeq: atSeq as number })
     sendJson(res, 200, { ok: true, atSeq: atSeq as number })
   } catch {

@@ -8,6 +8,8 @@ import { REWIND_EVENT_TYPE } from '../src/shared.ts'
 function fakeSession(events: readonly SessionEvent[]) {
   return {
     events,
+    // 0.1.2 起 Session 对外暴露 snapshotEvents()（events 属性随品牌化移除）
+    snapshotEvents: () => events,
     append: vi.fn((type: string, data: unknown) => ({ type, data, seq: events.length })),
   }
 }
