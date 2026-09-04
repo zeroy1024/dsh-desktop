@@ -26,3 +26,27 @@ patches:
       --dsh-sidebar-collapsed-track 折叠轨变量缝与 100cqi 全屏 pin 语义保留。
       撤 0006 无连带（原 0004 已并入）；上游未来自带 panel 列应整体撤补丁，
       插件改指上游契约
+  - file: 0007-ui-trajectory-panel-page.patch
+    reason: |
+      轨迹视图呈现位迁移（0.1.2 适配重做）：呈现位 panel 优先 + web 回退——
+      panelShell 服务在场（桌面壳）注册 panel-shell.page 面板页双半（元数据 +
+      槽占用，generator 事务式）；无面板服务（上游 web）保留上游 conversation.view
+      tab；panel 环后声明时接管并撤回回退 tab。可选服务走 ctx.get 惰性读取、
+      不进 inject（否则无面板服务的宿主整个 fiber 置 INACTIVE）。数据管线六组
+      定义与注入面逐字保留（0.1.2 已迁 uiSession/uiConversation 新服务名）。
+      panel-shell 的类型面在补丁内本地声明合并（上游 workspace 无此包），
+      register 经最小结构断言对齐框架运行时。上游自带面板页注册或开放导出后撤
+  - file: 0008-ui-chat-panel-inspect-handoff.patch
+    reason: |
+      面板侧 inspect 交接缝（0.1.2 重做，宿主迁 ui-chat）：inspectCall 内嵌于
+      ChatView 的 openView 合成，插件无拦截点；且面板列在 conversation 子树之外，
+      chat store 的 inspect 目标对面板侧不可达。经 ChatViewInjected 增加
+      inspectHandoff 可选注入——apply 层惰性探测 panelShell 服务，在则整体委托
+      （开列→开页→下发一次性选中目标），不在则上游 openView 路径原样保留。
+      上游自带面板 inspect 集成后撤
+  - file: 0009-ui-chat-file-browser-open-seam.patch
+    reason: |
+      ui-chat 的 openFile 回调内嵌于 apply 注入闭包（0.1.2 已改走
+      ctx.remote.session.openWorkspacePath），插件没有可替换的拦截点；新增可选
+      fileBrowser.tryOpen 接缝，保留目录打开、服务缺席及未处理路径的原系统打开
+      回退。上游提供可扩展 openFile service/middleware 后撤

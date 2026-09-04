@@ -1,8 +1,8 @@
 diff --git a/packages/client/ui-trajectory/src/client/index.ts b/packages/client/ui-trajectory/src/client/index.ts
-index ef789dce30..d91e0f2eeb 100644
+index 118f3b2c28..cd10d6dc05 100644
 --- a/packages/client/ui-trajectory/src/client/index.ts
 +++ b/packages/client/ui-trajectory/src/client/index.ts
-@@ -1,14 +1,29 @@
+@@ -1,7 +1,20 @@
  /**
 - * Browser trajectory plugin contributing one entry to the conversation view
 - * slot without defining a service.
@@ -21,23 +21,21 @@ index ef789dce30..d91e0f2eeb 100644
 + * @dsh-desktop/panel-shell 已提供的契约，撤补丁时一并移除。
   */
 +import { createElement } from 'react'
- import type { Context } from '@deepseek-ai/cordis'
- import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
- // Type-only: pulls the locale plugin's Context merge (ctx.locale).
- import type {} from '@deepseek-ai/dsh-client-locale/client'
- // Type-only: the 'conversation.view' SlotMap row (declared by the slot's
--// owning package) must be in the program for the register calls to type.
-+// owning package) must be in the program for the register calls to type —
-+// the web fallback tab registers into it.
- import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-+import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 +import type { ReactNode } from 'react'
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+ import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+@@ -14,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
+ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
++import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
  import { createTrajectoryDurationStore } from './duration-store.ts'
  import { en, NS, zh } from './locales.ts'
  import { registerTrajectoryAssistantDefinition } from './trajectory-assistant-definition.ts'
-@@ -19,19 +34,54 @@ import { registerTrajectoryConversationView } from './trajectory-snapshot-builde
- import { registerTrajectoryToolDefinition } from './trajectory-tool-definition.ts'
- import { TrajectoryView, type TrajectoryViewInjected } from './TrajectoryView.tsx'
+@@ -36,7 +50,40 @@ export type {
+   UseTrajectory,
+ } from './trajectory-contract.ts'
  
 -/** Required services: the conversation slot, registries, ordinary Session paging, and the locale service. */
 +// Type-only: the 'panel-shell.page' SlotMap row is owned by the desktop
@@ -54,10 +52,9 @@ index ef789dce30..d91e0f2eeb 100644
 +  /** Whether this page is the active panel tab; inactive seats stay mounted. */
 +  active: boolean
 +  /**
-+   * Cross-view inspect handoff (the upstream ConvViewOwnerProps contract,
-+   * delivered by the panel container's owner share — patches/0008): one-shot
-+   * selection target; null/absent when idle. TrajectoryView consumes it via
-+   * its own same-named props.
++   * Cross-view inspect handoff (patches/0008): one-shot selection target;
++   * null/absent when idle. TrajectoryView consumes it via its own
++   * same-named props.
 +   */
 +  inspect?: { callId: string } | null
 +  /** Acknowledge the consumed (or unresolvable) request; the container clears the handoff. */
@@ -75,49 +72,39 @@ index ef789dce30..d91e0f2eeb 100644
 + * lazily through ctx.get and so stays out of this list — injecting it would
 + * park the whole fiber (data pipeline included) on hosts without a panel.
 + */
- export const inject = ['slots', 'conversationEvents', 'conversationViews', 'sessions', 'locale']
+ export const inject = ['slots', 'sessions', 'uiSession', 'uiConversation', 'locale']
  
  /**
-- * Client plugin body: register the trajectory view tab. The registration
-- * rides the slot service's effect wrapper, so plugin unload removes the tab.
-+ * Client plugin body: register the data pipeline and the presentation
-+ * entry. The registrations ride the slot service's effect wrapper, so
-+ * plugin unload removes everything they landed.
-  * @param ctx - client root context.
-  */
- export function apply(ctx: Context): void {
-   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-trajectory: dictionaries')
--  // Registration-time text (the view tab label) reads through the bound
--  // translate as a thunk, so it follows the active locale without
--  // re-registration.
-+  // Registration-time text (the view tab label / panel page title) reads
-+  // through the bound translate as a thunk, so it follows the active locale
-+  // without re-registration.
-   const t = ctx.locale.bind(NS)
-   const duration = createTrajectoryDurationStore()
-   registerTrajectoryMessageDefinitions(ctx)
-@@ -40,26 +90,99 @@ export function apply(ctx: Context): void {
-   registerTrajectoryToolDefinition(ctx)
-   registerTrajectoryCompactionDefinitions(ctx)
-   registerTrajectoryConversationView(ctx)
+@@ -74,34 +121,104 @@ export function apply(ctx: Context): void {
+     hooks: ['trajectory'],
+     resolve: binding => ({ hooks: { trajectory: trajectorySource(binding) } }),
+   })
 -  ctx.slots.inject('conversation.view', () => ctx.slots.register({
 -    name: 'conversation.view',
 -    id: 'trajectory',
 -    order: 10,
 -    locale: NS,
 -    label: () => t('view.trajectory'),
+-    children: {
+-      'conversation.trajectory.images': { kind: 'single', scope: 'session' },
+-    },
 -    inject: (sessionId: SessionId): TrajectoryViewInjected => {
 -      const session = ctx.sessions.binding(sessionId)?.session
 -      if (session === undefined) {
 -        throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
 -      }
+-      const trajectory = ctx.uiConversation.binding(sessionId).target('trajectory')
 -      return {
 -        hooks: { duration },
 -        loadOlder: async () => {
--          const before = session.getSnapshot().views.get('trajectory')
+-          const before = trajectory.getSnapshot()
 -          await session.loadOlder()
--          return session.getSnapshot().views.get('trajectory') !== before
+-          return trajectory.getSnapshot() !== before
 -        },
+-        loadImage: Object.assign(
+-          (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
+-          { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
+-        ),
 -        setActualDuration: (value) => { duration.set(value) },
 -      }
 -    },
@@ -129,6 +116,26 @@ index ef789dce30..d91e0f2eeb 100644
 +  // 撤掉已落下的回退 tab，避免双份。
 +  let disposeFallbackTab: (() => void) | undefined
 +  let panelTookOver = false
++  const viewInject = (sessionId: SessionId): TrajectoryViewInjected => {
++    const session = ctx.sessions.binding(sessionId)?.session
++    if (session === undefined) {
++      throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
++    }
++    const trajectory = ctx.uiConversation.binding(sessionId).target('trajectory')
++    return {
++      hooks: { duration },
++      loadOlder: async () => {
++        const before = trajectory.getSnapshot()
++        await session.loadOlder()
++        return trajectory.getSnapshot() !== before
++      },
++      loadImage: Object.assign(
++        (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
++        { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
++      ),
++      setActualDuration: (value) => { duration.set(value) },
++    }
++  }
 +  // The side panel page: both registration halves in one transactional
 +  // generator effect — metadata (the tab strip's source of truth) and the
 +  // slot occupancy wrap the existing TrajectoryView, and reverse-order
@@ -156,722 +163,50 @@ index ef789dce30..d91e0f2eeb 100644
 +      icon: createElement(IconDataOutline16, { size: 16 }),
 +    })
 +    yield disposeMeta
-+    const disposeSlot = ctx.slots.register({
++    // panel-shell.page 的槽类型面在 panel-shell 插件本地（上游 workspace
++    // 无此包），register 经最小结构断言对齐框架运行时：list+session 槽的
++    // inject 由框架按 seat 注入 sessionId。
++    const registerPanelPage = ctx.slots.register as unknown as (
++      options: {
++        name: 'panel-shell.page'
++        id: string
++        order: number
++        locale: string
++        children: { 'conversation.trajectory.images': { kind: 'single'; scope: 'session' } }
++        inject: (sessionId: SessionId) => TrajectoryViewInjected
++      },
++      component: typeof TrajectoryView,
++    ) => () => void
++    const disposeSlot = registerPanelPage({
 +      name: 'panel-shell.page',
 +      id: 'trajectory',
 +      order: 10,
 +      locale: NS,
-+      inject: (sessionId: SessionId): TrajectoryViewInjected => {
-+        const session = ctx.sessions.binding(sessionId)?.session
-+        if (session === undefined) {
-+          throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
-+        }
-+        return {
-+          hooks: { duration },
-+          loadOlder: async () => {
-+            const before = session.getSnapshot().views.get('trajectory')
-+            await session.loadOlder()
-+            return session.getSnapshot().views.get('trajectory') !== before
-+          },
-+          setActualDuration: (value) => { duration.set(value) },
-+        }
++      children: {
++        'conversation.trajectory.images': { kind: 'single', scope: 'session' },
 +      },
++      inject: viewInject,
 +    }, TrajectoryView)
 +    yield disposeSlot
 +  })
-+  // The upstream conversation view tab, kept as the fallback presentation
-+  // for hosts without the panelShell service (上游 web / `dsh web`):
-+  // skipped when the panel already took over or the service is seated. The
-+  // wrapper disposer lets a late panel-ring declaration retract the landed
-+  // tab and stays idempotent across declaration collapse and takeover.
-+  ctx.slots.inject('conversation.view', function* () {
-+    if (panelTookOver || ctx.get('panelShell') !== undefined) return
++  // Web fallback tab: skipped once the panel page has taken over, so the
++  // view never occupies both presentation seats.
++  ctx.slots.inject('conversation.view', () => {
++    // Already taken over by the panel page: contribute a no-op so the
++    // declaration lifetime owns nothing.
++    if (panelTookOver) return () => {}
 +    const dispose = ctx.slots.register({
 +      name: 'conversation.view',
 +      id: 'trajectory',
 +      order: 10,
 +      locale: NS,
 +      label: () => t('view.trajectory'),
-+      inject: (sessionId: SessionId): TrajectoryViewInjected => {
-+        const session = ctx.sessions.binding(sessionId)?.session
-+        if (session === undefined) {
-+          throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
-+        }
-+        return {
-+          hooks: { duration },
-+          loadOlder: async () => {
-+            const before = session.getSnapshot().views.get('trajectory')
-+            await session.loadOlder()
-+            return session.getSnapshot().views.get('trajectory') !== before
-+          },
-+          setActualDuration: (value) => { duration.set(value) },
-+        }
++      children: {
++        'conversation.trajectory.images': { kind: 'single', scope: 'session' },
 +      },
++      inject: viewInject,
 +    }, TrajectoryView)
-+    let disposed = false
-+    const disposeFallback = (): void => {
-+      if (disposed) return
-+      disposed = true
-+      dispose()
-+    }
-+    disposeFallbackTab = disposeFallback
-+    yield disposeFallback
++    disposeFallbackTab = dispose
++    return dispose
 +  })
  }
-diff --git a/packages/client/ui-trajectory/tests/client-bundle.client.spec.ts b/packages/client/ui-trajectory/tests/client-bundle.client.spec.ts
-index 25b13718aa..fc32d59802 100644
---- a/packages/client/ui-trajectory/tests/client-bundle.client.spec.ts
-+++ b/packages/client/ui-trajectory/tests/client-bundle.client.spec.ts
-@@ -3,8 +3,9 @@
-  * Real tsdown artifact shape: lib/client.js hands off through
-  * window.__ModuleLoader__.load, resolves externals through the injected
-  * require, returns the exports (apply + inject), and a mounted apply
-- * registers the view tab into a real SlotRegistry ring. Skips when dist/ is
-- * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
-+ * registers the trajectory panel page into a real SlotRegistry ring — or
-+ * the upstream conversation view tab when the host seats no panelShell
-+ * service. Skips when dist/ is not built (`pnpm --filter ... bundle`).
-  */
- import { readFileSync } from 'node:fs'
- import { resolve } from 'node:path'
-@@ -14,6 +15,17 @@ import { afterEach, describe, expect, it } from 'vitest'
- import {
-   ConversationEventRegistry, ConversationViewRegistry, SlotRegistry,
- } from '@deepseek-ai/dsh-client-runtime/client'
-+// 上游 workspace 没有 panel-shell 包：替身其 panelShell 服务面（仅测试
-+// 断言用到的 registerPage/page/pages 三面），随 0007 补丁一起撤。
-+class StubPanelRegistry {
-+  #pages = new Map<string, { id: string; title: () => string }>()
-+  registerPage(meta: { id: string; title: () => string }): () => void {
-+    this.#pages.set(meta.id, meta)
-+    return () => { this.#pages.delete(meta.id) }
-+  }
-+  page(id: string) { return this.#pages.get(id) }
-+  get pages() { return [...this.#pages.values()] }
-+}
- 
- const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
- 
-@@ -64,25 +76,29 @@ describe('tsdown client artifact', () => {
-     const { handoff, exports } = await loadArtifact()
-     expect(handoff.id).toBe(PLUGIN_ID)
-     expect(exports.apply).toBeTypeOf('function')
-+    // panelShell is optional (ctx.get lazy read) and stays out of inject, so
-+    // panel-less hosts never park the fiber.
-     expect(exports.inject).toEqual([
-       'slots', 'conversationEvents', 'conversationViews', 'sessions', 'locale',
-     ])
-   })
- 
--  it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
-+  it.skipIf(code === undefined)('mounted as an object plugin, apply keeps the data pipeline and registers the panel page', async () => {
-     const { exports } = await loadArtifact()
-     const ctx = new Context()
-     const slots = new SlotRegistry(ctx)
-     await ctx.plugin(ConversationEventRegistry).await()
-     await ctx.plugin(ConversationViewRegistry).await()
--    // The conversation entry's role: the ring must be declared before riders land.
-+    // The panel container's role: the page ring must be declared before
-+    // riders land, and the registry service must exist for the metadata half.
-     slots.register({
-       name: 'root',
--      children: { 'conversation.view': { kind: 'list', scope: 'session' } },
-+      children: { 'panel-shell.page': { kind: 'list', scope: 'session' } },
-     }, (_p: { renderSlot?: unknown }) => null)
-+    ctx.provide('panelShell', new StubPanelRegistry())
-     // Paging is session-owned; this registration-only probe never renders the
-     // entry, so the binding stays deliberately empty. The locale plugin backs
--    // the locale-aware view tab label (its settings scope needs a connection
-+    // the locale-aware page title (its settings scope needs a connection
-     // handle and the Host-facing settings/remote seams).
-     ctx.provide('sessions', { binding: () => undefined })
-     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-@@ -94,11 +110,48 @@ describe('tsdown client artifact', () => {
-     await fiber.await()
-     const events = ctx.get('conversationEvents') as ConversationEventRegistry
-     const views = ctx.get('conversationViews') as ConversationViewRegistry
-+    const panelShell = ctx.get('panelShell') as StubPanelRegistry
-+    // Both registration halves land: the slot entry and the page metadata.
-+    expect(slots.entries('panel-shell.page').map(e => e.options.id)).toEqual(['trajectory'])
-+    expect(panelShell.page('trajectory')?.id).toBe('trajectory')
-+    expect(events.entries().length).toBeGreaterThan(0)
-+    expect(views.entries()).toHaveLength(1)
-+    await fiber.dispose()
-+    expect(slots.entries('panel-shell.page')).toEqual([])
-+    expect(panelShell.page('trajectory')).toBeUndefined()
-+    expect(events.entries()).toEqual([])
-+    expect(views.entries()).toEqual([])
-+  })
-+
-+  it.skipIf(code === undefined)('without the panelShell service, apply falls back to the upstream conversation view tab', async () => {
-+    const { exports } = await loadArtifact()
-+    const ctx = new Context()
-+    const slots = new SlotRegistry(ctx)
-+    await ctx.plugin(ConversationEventRegistry).await()
-+    await ctx.plugin(ConversationViewRegistry).await()
-+    // The upstream web host's shape: the conversation view ring is declared
-+    // and no panel service exists.
-+    slots.register({
-+      name: 'root',
-+      children: { 'conversation.view': { kind: 'list', scope: 'session' } },
-+    }, (_p: { renderSlot?: unknown }) => null)
-+    // Same registration-only probe as the panel case: the binding stays
-+    // deliberately empty, and the locale plugin backs the view tab label.
-+    ctx.provide('sessions', { binding: () => undefined })
-+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-+    ctx.provide('remote', { $on: () => () => {} } as never)
-+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
-+    const locale = await import('@deepseek-ai/dsh-client-locale/client')
-+    ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
-+    const fiber = ctx.plugin(exports as { apply: (ctx: Context) => void })
-+    await fiber.await()
-+    const events = ctx.get('conversationEvents') as ConversationEventRegistry
-+    const views = ctx.get('conversationViews') as ConversationViewRegistry
-     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
-     expect(events.entries().length).toBeGreaterThan(0)
-     expect(views.entries()).toHaveLength(1)
-     await fiber.dispose()
--    expect(slots.entries('conversation.view')).toHaveLength(0)
-+    expect(slots.entries('conversation.view')).toEqual([])
-     expect(events.entries()).toEqual([])
-     expect(views.entries()).toEqual([])
-   })
-diff --git a/packages/client/ui-trajectory/tests/views.client.spec.tsx b/packages/client/ui-trajectory/tests/views.client.spec.tsx
-index 3df145b757..8f02ef2720 100644
---- a/packages/client/ui-trajectory/tests/views.client.spec.tsx
-+++ b/packages/client/ui-trajectory/tests/views.client.spec.tsx
-@@ -1,18 +1,19 @@
- // @vitest-environment jsdom
- /**
-- * View registration acceptance on the real framework stack: the plugin fiber
-- * registers Trajectory into a real SlotRegistry view ring, tabs
-- * switch inside ConversationRoot (renderSlot share driven by the same tab
-- * projection apply uses) without collapsing chat, trajectory renders the
-- * event ledger with its timing overview, and fiber disposal removes the tab.
-- * Timeline projection and inclusive focus edge cases ride along.
-+ * Presentation registration acceptance on the real framework stack: the
-+ * plugin fiber registers the trajectory page into a real SlotRegistry panel
-+ * ring (metadata half + slot half via panelShell), falls back to the
-+ * upstream conversation view tab when no panelShell service is seated, and
-+ * a late panel-ring declaration takes over and retracts the fallback tab.
-+ * The page renders the event ledger with its timing overview, and fiber
-+ * disposal removes the landed halves. Timeline projection and inclusive
-+ * focus edge cases ride along.
-  */
- import { Context } from '@deepseek-ai/cordis'
- import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
- import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
--import { createElement, type ComponentProps, type FC, type ReactNode } from 'react'
-+import { createElement, type ComponentProps } from 'react'
- import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
--import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
- import {
-   ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
-   EMPTY_CHAT_SNAPSHOT,
-@@ -20,19 +21,11 @@ import {
- import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
- import type {
-   ConversationSnapshot, RequestView,
--  SessionId, SessionListState, SnapshotStore, WorkspaceListState,
-+  SessionId,
- } from '@deepseek-ai/dsh-client-runtime/client'
--import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
--import {
--  ConversationSession, ConversationSessionHeader,
--  type ConversationSessionHeaderProps, type ConversationSessionProps,
--} from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
--import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
--import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
- import { apply as localeApply, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
- import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
--import type { LocaleKeysOf } from '@deepseek-ai/dsh-client-ui-slots'
--import { zh, type TrajectoryKey } from '../src/client/locales.ts'
-+import { zh } from '../src/client/locales.ts'
- import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
- import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
- import type { TrajectoryTurnModel } from '../src/client/layout.ts'
-@@ -45,13 +38,22 @@ import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
- import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
- 
- const SID = 's1' as SessionId
--const sessionSnapshots = new WeakMap<SlotRegistry, SnapshotStore<ConversationSnapshot>>()
--const tConversation: ConversationSessionHeaderProps['t'] =
--  key => (conversationZh as Record<string, string>)[key] ?? key
-+
-+// 上游 workspace 没有 panel-shell 包：替身其 panelShell 服务面（仅测试
-+// 断言用到的 registerPage/page/pages 三面），随 0007 补丁一起撤。
-+class StubPanelRegistry {
-+  #pages = new Map<string, { id: string; title: () => string }>()
-+  registerPage(meta: { id: string; title: () => string }): () => void {
-+    this.#pages.set(meta.id, meta)
-+    return () => { this.#pages.delete(meta.id) }
-+  }
-+  page(id: string) { return this.#pages.get(id) }
-+  get pages() { return [...this.#pages.values()] }
-+}
- 
- afterEach(cleanup)
--// The chat store persists under its declared key; clear so one case's active
--// view cannot rehydrate into the next.
-+// The trajectory duration preference persists under its declared key; clear
-+// so one case's value cannot rehydrate into the next.
- beforeEach(() => {
-   localStorage.clear()
- })
-@@ -136,43 +138,35 @@ function standaloneDuration(): Pick<
-   }
- }
- 
--function fakeSession(nodes: ConversationSnapshot['nodes']) {
--  const store = createSnapshotStore(historySnapshot(nodes))
--  return { store, useSession: bindSnapshotSelector(store) }
--}
--
--/** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
--function emptySessions() {
--  const store = createSnapshotStore<SessionListState>(
--    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined })
--  return bindSnapshotSelector(store)
--}
--
--function emptyWorkspaces() {
--  const store = createSnapshotStore<WorkspaceListState>({
--    items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null, baselinesReady: true,
--    recentWorkspaceId: undefined,
--  })
--  return bindSnapshotSelector(store)
--}
--
--/** Standalone view props: the session-scope standard kit the outlet would bake. */
--function standaloneProps(
--  nodes: ConversationSnapshot['nodes'],
--): ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string } {
-+/** Standalone page props: the session-scope standard kit the outlet would bake. */
-+function standaloneProps(): ComponentProps<typeof TrajectoryView> {
-   return {
-     sessionId: SID,
--    useSession: fakeSession(nodes).useSession,
--    useSessions: emptySessions(),
--    useWorkspaces: emptyWorkspaces(),
-+    useSessions: (() => undefined) as never,
-+    useWorkspaces: (() => undefined) as never,
-     useProjection: (() => undefined) as never,
--    // The locale seat the outlet would inject for the declared namespace.
--    t: (key: LocaleKeysOf<'trajectory'>) => zh[key as TrajectoryKey] ?? key,
--  } as unknown as ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string }
-+    active: true,
-+    t: ((key: string) => (zh as Record<string, string>)[key] ?? key) as never,
-+  } as unknown as ComponentProps<typeof TrajectoryView>
- }
- 
--/** Real-stack bench: root Context + real SlotRegistry ring + the plugin fiber. */
--async function bench(snapshot = historySnapshot(NODES)) {
-+/** Mount the trajectory page standalone (the panel seat's component face). */
-+function mountPage(nodes: ConversationSnapshot['nodes'], inspection: Partial<TrajectorySnapshot> = {}) {
-+  return render(
-+    <TrajectoryView
-+      {...standaloneProps()}
-+      {...standaloneHistory(historySnapshot(nodes, inspection))}
-+      {...standaloneDuration()}
-+    />,
-+  )
-+}
-+
-+/**
-+ * Real-stack bench: root Context + real SlotRegistry ring + the plugin
-+ * fiber. `panel: false` builds the upstream web host's shape — the
-+ * conversation view ring and no panelShell service.
-+ */
-+async function bench(snapshot = historySnapshot(NODES), panel = true) {
-   const ctx = new Context()
-   const slots = new SlotRegistry(ctx)
-   const loadOlder = vi.fn(() => Promise.resolve())
-@@ -187,16 +181,24 @@ async function bench(snapshot = historySnapshot(NODES)) {
-   ctx.provide('sessions', {
-     binding: () => ({ session }),
-   })
--  sessionSnapshots.set(slots, sessionStore)
--  // The conversation entry's role: declare the ring, then seed the chat entry.
--  slots.register({
--    name: 'root',
--    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
--  }, (_p: { renderSlot?: unknown }) => null)
--  const chatBody = vi.fn(() => <div data-testid="chat-body" />)
--  slots.register(
--    { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
--  // The locale plugin backs the locale-aware view tab label ('locale' in
-+  // The presentation host's seat: the panel container declares the page
-+  // ring and seats the registry service; the plain web host declares the
-+  // upstream conversation view ring and seats no panelShell service. The
-+  // registry instance exists either way so a late panel arrival can seat it.
-+  const registry = new StubPanelRegistry()
-+  if (panel) {
-+    ctx.provide('panelShell', registry)
-+    slots.register({
-+      name: 'root',
-+      children: { 'panel-shell.page': { kind: 'list', scope: 'session' } },
-+    }, (_p: { renderSlot?: unknown }) => null)
-+  } else {
-+    slots.register({
-+      name: 'root',
-+      children: { 'conversation.view': { kind: 'list', scope: 'session' } },
-+    }, (_p: { renderSlot?: unknown }) => null)
-+  }
-+  // The locale plugin backs the locale-aware page title ('locale' in
-   // inject); its settings scope needs a connection handle and the
-   // forwarded-event port.
-   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-@@ -205,109 +207,25 @@ async function bench(snapshot = historySnapshot(NODES)) {
-   ctx.plugin({ inject: [...localeInject], apply: localeApply })
-   const fiber = ctx.plugin({ inject: [...inject], apply })
-   await fiber.await()
--  return { ctx, slots, fiber, loadOlder, sessionStore }
-+  return { ctx, slots, fiber, loadOlder, sessionStore, registry }
- }
- 
--/** Tab projection twin of apply's viewTabs (the render-side consumption path). */
--function tabsOf(slots: SlotRegistry): ViewTab[] {
--  return slots.entries('conversation.view')
--    .map(e => ({ id: e.options.id!, label: resolveSlotLabel(e.options.label) ?? e.options.id! }))
--}
--
--/** Mount the strict Session header/body over the ring ledger with outlet-faithful render shares. */
--function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES) {
--  const sessionSnapshot = sessionSnapshots.get(slots) ?? createSnapshotStore(historySnapshot(nodes))
--  const useSession = bindSnapshotSelector(sessionSnapshot)
--  const chat = createChatStore().create()
--  const views = {
--    list: () => tabsOf(slots),
--    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
--    version: () => slots.getVersion('conversation.view'),
--  }
--  const useInput = bindSnapshotSelector(createSnapshotStore({
--    draft: '', imageIds: [], draftRev: 0, phase: 'plain', occurrences: [], queue: [],
--  })) as never
--  const inputActions = {
--    setDraft: vi.fn(), addImages: vi.fn(), removeImage: vi.fn(), pruneImages: vi.fn(), submit: vi.fn(),
--  }
--  // Minimal outlet twin: resolve the ring entry by the `only` filter and
--  // render it with the session standard kit (what SlotOutlet does for a
--  // list-kind session slot, minus machinery).
--  const renderSlot = ((key: string, _owner: object, opts?: { only?: string }): ReactNode => {
--    const entry = slots.entries('conversation.view').find(e => e.options.id === opts?.only)
--    if (entry === undefined) return null
--    const View = entry.component as FC<ConvViewProps>
--    const injectEntry = entry.inject as ((sessionId: SessionId) => object) | undefined
--    const injected = injectEntry === undefined
--      ? {}
--      : injectEntry(SID)
--    const injectedProps = 'hooks' in injected
--      ? (() => {
--        const trajectory = injected as TrajectoryViewInjected
--        return {
--          loadOlder: trajectory.loadOlder,
--          setActualDuration: trajectory.setActualDuration,
--          useDuration: bindSnapshotSelector(trajectory.hooks.duration),
--          t: (key: TrajectoryKey) => zh[key],
--        }
--      })()
--      : injected
--    return (
--      <View
--        {...injectedProps}
--        {...({ sessionId: SID, useSession, useSessions: emptySessions(), useWorkspaces: emptyWorkspaces() } as unknown as ConvViewProps)}
--        key={key}
--      />
--    )
--  }) as unknown as ConversationSessionProps['renderSlot']
--  return render(
--    <>
--      <ConversationSessionHeader
--        sessionId={SID}
--        SessionProvider={({ children }) => children(SID)}
--        useSession={useSession}
--        useSessions={emptySessions()}
--        useWorkspaces={emptyWorkspaces()}
--        useProjection={(() => undefined)}
--        useStore={bindSnapshotSelector(chat)}
--        actions={chat.actions}
--        renderSlot={() => null}
--        views={views}
--        useInput={useInput}
--        inputActions={inputActions}
--        open={vi.fn()}
--        t={tConversation}
--      />
--      <ConversationSession
--        sessionId={SID}
--        SessionProvider={({ children }) => children(SID)}
--        useSession={useSession}
--        useSessions={emptySessions()}
--        useWorkspaces={emptyWorkspaces()}
--        useProjection={(() => undefined)}
--        useStore={bindSnapshotSelector(chat)}
--        actions={chat.actions}
--        renderSlot={renderSlot}
--        views={views}
--        releaseSessionImages={vi.fn()}
--        useInput={useInput}
--        inputActions={inputActions}
--        bindDraftMirror={() => () => {}}
--      />
--    </>,
--  )
-+/** Page-id projection twin of the container's tab-strip consumption path. */
-+function pageIdsOf(slots: SlotRegistry): string[] {
-+  return slots.entries('panel-shell.page')
-+    .map(e => e.options.id!)
-+    .filter(id => id !== undefined)
- }
- 
- describe('plugin registration', () => {
--  it('registers trajectory after chat on the ring', async () => {
-+  it('registers the trajectory page on the panel ring with its metadata half', async () => {
-     const b = await bench()
--    expect(tabsOf(b.slots)).toEqual([
--      { id: 'chat', label: 'Chat' },
--      { id: 'trajectory', label: 'Trajectory' },
--    ])
-+    expect(pageIdsOf(b.slots)).toEqual(['trajectory'])
-+    expect(b.registry.page('trajectory')?.id).toBe('trajectory')
-+    expect(b.registry.pages.map(page => page.id)).toEqual(['trajectory'])
-   })
- 
--  it('fiber disposal removes the tab and leaves chat standing', async () => {
-+  it('fiber disposal removes both registration halves', async () => {
-     const b = await bench()
-     const events = b.ctx.get('conversationEvents') as ConversationEventRegistry
-     const views = b.ctx.get('conversationViews') as ConversationViewRegistry
-@@ -316,14 +234,55 @@ describe('plugin registration', () => {
- 
-     await b.fiber.dispose()
- 
--    expect(tabsOf(b.slots).map(v => v.id)).toEqual(['chat'])
-+    expect(pageIdsOf(b.slots)).toEqual([])
-+    expect(b.registry.page('trajectory')).toBeUndefined()
-     expect(events.entries()).toEqual([])
-     expect(views.entries()).toEqual([])
-   })
- 
-+  it('without the panelShell service, falls back to the upstream conversation view tab', async () => {
-+    const b = await bench(historySnapshot(NODES), false)
-+    expect(b.slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
-+    expect(b.registry.page('trajectory')).toBeUndefined()
-+
-+    await b.fiber.dispose()
-+
-+    expect(b.slots.entries('conversation.view')).toEqual([])
-+  })
-+
-+  it('a late panel-ring declaration takes over and retracts the fallback tab', async () => {
-+    const b = await bench(historySnapshot(NODES), false)
-+    expect(b.slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
-+
-+    // The desktop shell activating after this plugin: the service seats,
-+    // then the page ring declares from a shadowing root entry. Declaration
-+    // listeners run synchronously, so the takeover completes in the call.
-+    b.ctx.provide('panelShell', b.registry)
-+    b.slots.register({
-+      name: 'root',
-+      priority: 1,
-+      children: { 'panel-shell.page': { kind: 'list', scope: 'session' } },
-+    }, (_p: { renderSlot?: unknown }) => null)
-+
-+    expect(b.slots.entries('conversation.view')).toEqual([])
-+    expect(pageIdsOf(b.slots)).toEqual(['trajectory'])
-+    expect(b.registry.page('trajectory')?.id).toBe('trajectory')
-+  })
-+
-+  it('labels the panel page title in the active locale', async () => {
-+    const b = await bench()
-+    const titleOf = () => b.registry.page('trajectory')?.title()
-+    expect(titleOf()).toBe('Trajectory')
-+    const locale = b.ctx.get('locale') as { setLocale(id: string): void }
-+    locale.setLocale('zh')
-+    expect(titleOf()).toBe('轨迹')
-+    locale.setLocale('en')
-+    expect(titleOf()).toBe('Trajectory')
-+  })
-+
-   it('shares one browser-wide duration preference across session injections', async () => {
-     const b = await bench()
--    const entry = b.slots.entries('conversation.view')
-+    const entry = b.slots.entries('panel-shell.page')
-       .find(candidate => candidate.options.id === 'trajectory')
-     expect(entry).toBeDefined()
-     const injectEntry = entry!.inject as unknown as (
-@@ -341,7 +300,7 @@ describe('plugin registration', () => {
- 
-   it('reports whether loading older history changed the Trajectory snapshot', async () => {
-     const b = await bench()
--    const entry = b.slots.entries('conversation.view')
-+    const entry = b.slots.entries('panel-shell.page')
-       .find(candidate => candidate.options.id === 'trajectory')
-     const injectEntry = entry!.inject as unknown as (
-       sessionId: SessionId,
-@@ -357,45 +316,21 @@ describe('plugin registration', () => {
-   })
- })
- 
--describe('tab switching in ConversationRoot', () => {
--  it('renders two tabs, defaults to chat, and switches to the trajectory ledger', async () => {
--    const b = await bench()
--    const view = mount(b.slots)
--    expect(screen.getByTestId('chat-body')).toBeTruthy()
--    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Chat', 'Trajectory'])
--
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
--    expect(screen.queryByText(/turns ·/)).toBeNull()
-+describe('trajectory page rendering', () => {
-+  it('renders the ledger with its timing overview and toolbar', () => {
-+    const view = mountPage(NODES)
-     expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
-     expect(screen.queryByRole('columnheader')).toBeNull()
-     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
-     expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
--    expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
-     fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
-     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
-     fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
-     expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
--    expect(screen.queryByTestId('chat-body')).toBeNull()
--    expect(b.loadOlder).not.toHaveBeenCalled()
--    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
--    expect(b.loadOlder).not.toHaveBeenCalled()
-   })
- 
--  it('labels the trajectory tab in the active locale', async () => {
--    const b = await bench()
--    const labelOf = () => tabsOf(b.slots).find(tab => tab.id === 'trajectory')?.label
--    expect(labelOf()).toBe('Trajectory')
--    const locale = b.ctx.get('locale') as { setLocale(id: string): void }
--    locale.setLocale('zh')
--    expect(labelOf()).toBe('轨迹')
--    locale.setLocale('en')
--    expect(labelOf()).toBe('Trajectory')
--  })
--
--  it('opens a local record inspector and switches payload tabs without opening chat details', async () => {
--    const b = await bench()
--    mount(b.slots)
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-+  it('opens a local record inspector and switches payload tabs', () => {
-+    mountPage(NODES)
- 
-     fireEvent.keyDown(screen.getByRole('row', { name: /TOOL/ }), { key: 'Enter' })
-     expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
-@@ -407,7 +342,7 @@ describe('tab switching in ConversationRoot', () => {
-     expect(screen.queryByRole('complementary', { name: 'Event details' })).toBeNull()
-   })
- 
--  it('labels a standalone compaction as between-turn work in the ledger and inspector', async () => {
-+  it('labels a standalone compaction as between-turn work in the ledger and inspector', () => {
-     const nodes = [
-       { kind: 'user', seq: 1, time: 1_000, content: [], source: null },
-       {
-@@ -430,9 +365,7 @@ describe('tab switching in ConversationRoot', () => {
-       status: 'complete',
-       summary: [{ type: 'text', text: 'standalone summary' }],
-     }
--    const b = await bench(historySnapshot(nodes, { requests: [compaction] }))
--    const view = mount(b.slots, nodes)
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-+    const view = mountPage(nodes, { requests: [compaction] })
- 
-     expect(screen.getByText('Between turns')).toBeTruthy()
-     expect(view.container.textContent).not.toContain('Turn null')
-@@ -442,7 +375,7 @@ describe('tab switching in ConversationRoot', () => {
-     expect(view.container.textContent).not.toContain('Turn null')
-   })
- 
--  it('activates only the selected standalone compaction section', async () => {
-+  it('activates only the selected standalone compaction section', () => {
-     const nodes = [
-       { kind: 'user', seq: 1, time: 1_000, content: [], source: null },
-       {
-@@ -482,9 +415,7 @@ describe('tab switching in ConversationRoot', () => {
-         summary: [{ type: 'text', text: 'second standalone summary' }],
-       },
-     ]
--    const b = await bench(historySnapshot(nodes, { requests: compactions }))
--    mount(b.slots, nodes)
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-+    mountPage(nodes, { requests: compactions })
- 
-     const firstRequest = screen.getByRole('button', { name: 'Request #2 · Compaction' })
-     const secondRequest = screen.getByRole('button', { name: 'Request #4 · Compaction' })
-@@ -506,10 +437,8 @@ describe('tab switching in ConversationRoot', () => {
-     expect(screen.getByText('Compaction · Between turns')).toBeTruthy()
-   })
- 
--  it('dragging the overview focuses overlapping records without filtering the ledger', async () => {
--    const b = await bench()
--    mount(b.slots)
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-+  it('dragging the overview focuses overlapping records without filtering the ledger', () => {
-+    mountPage(NODES)
-     const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
-     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
-       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
-@@ -538,10 +467,8 @@ describe('tab switching in ConversationRoot', () => {
-       .toBe('outside')
-   })
- 
--  it('clicking a timeline block clears the range, selects the record, and opens its inspector', async () => {
--    const b = await bench()
--    const view = mount(b.slots)
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-+  it('clicking a timeline block clears the range, selects the record, and opens its inspector', () => {
-+    const view = mountPage(NODES)
-     const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
-     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
-       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
-@@ -576,10 +503,8 @@ describe('tab switching in ConversationRoot', () => {
-     expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
-   })
- 
--  it('empty window keeps the toolbar and reports no timing data', async () => {
--    const b = await bench(historySnapshot([]))
--    mount(b.slots)
--    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-+  it('empty window keeps the toolbar and reports no timing data', () => {
-+    mountPage([])
-     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
-     expect(screen.getByText('No timing data')).toBeTruthy()
-     expect(screen.getByRole<HTMLButtonElement>('button', {
-@@ -1124,7 +1049,7 @@ describe('timeline projection', () => {
-     render(createElement(
-       TrajectoryView,
-       {
--        ...standaloneProps([]),
-+        ...standaloneProps(),
-         ...standaloneHistory(historySnapshot([])),
-         ...standaloneDuration(),
-       },
-@@ -1138,7 +1063,7 @@ describe('TrajectoryView state', () => {
-   it('persists the duration preference through the runtime snapshot-store seam', () => {
-     const firstDuration = createTrajectoryDurationStore()
-     const commonProps = {
--      ...standaloneProps(NODES),
-+      ...standaloneProps(),
-       ...standaloneHistory(historySnapshot(NODES)),
-     }
-     const first = render(
-@@ -1167,8 +1092,6 @@ describe('TrajectoryView state', () => {
-       .toBe('true')
-   })
- 
--
--
-   it('keeps ledger and timeline selection on the same event after prepend', () => {
-     const older = {
-       kind: 'user', seq: 1, time: 1_000,
-@@ -1181,7 +1104,7 @@ describe('TrajectoryView state', () => {
-     const store = createSnapshotStore(historySnapshot([current]))
-     const view = render(
-       <TrajectoryView
--        {...standaloneProps([])}
-+        {...standaloneProps()}
-         {...standaloneDuration()}
-         useSession={bindSnapshotSelector(store)}
-         loadOlder={vi.fn(() => Promise.resolve(false))}
