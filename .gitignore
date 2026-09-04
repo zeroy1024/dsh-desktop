@@ -6,6 +6,9 @@ out/
 *.log
 .DS_Store
 
+# vitest v8 覆盖率输出（test:coverage 产物，CI 只看门槛、不入库）
+coverage/
+
 # vendor 全部由 scripts/sync-upstream.ts 从锁定的 submodule 重新生成
 # （上游包 tarball + dsh-cli 独立安装产物）；仅 dsh-cli 的 lockfile 入库，
 # 锁定 registry 侧的可传递依赖解析

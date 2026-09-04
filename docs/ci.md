@@ -61,7 +61,11 @@ Each runner downloads the upstream contract and then:
    fake-koffi unit tests cannot cover the real host), and launches the real
    unpackaged app. The startup smoke succeeds only after dsh is ready, the
    WebUI mounts, and the desktop preload/plugin platform markers agree with the
-   host. Linux configures the unpackaged `node_modules` Electron
+   host. Setting `DSH_DESKTOP_CI_SMOKE_STAGE=restart` also runs a restart phase:
+   a second app launch, after first ready, triggers one real `restart-agent`
+   (restart cooldown and self-heal budget same as production; new random port,
+   pid record rewrite, renderer reload) and re-verifies the markers before
+   exit. Linux configures the unpackaged `node_modules` Electron
    `chrome-sandbox` helper as `root:root` mode `4755` and runs under Xvfb; it
    does not weaken production behavior with `--no-sandbox`. The packaged
    distributables' SUID helper is asserted separately in the release workflow.
@@ -70,12 +74,35 @@ Lint and TypeScript checking run once on Linux because their results are not
 OS-dependent. The matrix uses `fail-fast: false` so every platform reports its
 result even if another platform fails.
 
+### `packaged-smoke` (Linux)
+
+`platform-check` launches the app from `node_modules`; the packaged artifact
+could regress independently (missing resources, broken runtime archive,
+broken sandbox helper) without any test noticing. This job therefore runs the
+real electron-builder Linux packaging and the packaged smoke once per CI run
+on Linux only — the expensive all-3-OS packaging gate remains release-only:
+
+1. Downloads the upstream contract and installs workspace dependencies.
+2. Builds the desktop app (`package:ci:linux`: `--linux dir tar.gz`, skipping
+   the AppImage/installer stages of the release job).
+3. Configures the unpacked `chrome-sandbox` helper and runs
+   `pnpm ci:smoke:packaged` against `linux-unpacked` under Xvfb.
+
+### Coverage gate (Linux)
+
+Unit tests are run by `platform-check`; the v8 coverage gate runs once on
+Linux in the same job (`pnpm -r --if-present test:coverage`, i.e. the
+`test:coverage` scripts of `@dsh-desktop/desktop` and
+`@dsh-desktop/agent-host`). Thresholds live in each package's
+`vitest.config.ts` (`coverage.thresholds`); see
+[Local verification](#local-verification) for the exact commands.
+
 ### `CI Gate`
 
 `CI Gate` is the stable aggregate check intended for branch protection. It
-fails unless both the upstream contract and the complete platform matrix
-succeed. Requiring this single name avoids branch-protection churn if matrix
-labels change.
+fails unless the upstream contract, the complete platform matrix, and the
+packaged smoke all succeed. Requiring this single name avoids
+branch-protection churn if matrix labels change.
 
 ## Local verification
 
@@ -91,7 +118,24 @@ pnpm ci:smoke:dsh
 pnpm --filter @dsh-desktop/desktop exec install-electron
 pnpm ci:probe-electron-sandbox
 pnpm ci:smoke:electron
+DSH_DESKTOP_CI_SMOKE_STAGE=restart pnpm ci:smoke:electron   # 追加重启阶段（此开关当前未默认进 CI 工作流）
 ```
+
+Coverage gate (what CI runs on Linux):
+
+```bash
+pnpm --filter @dsh-desktop/desktop test:coverage
+pnpm --filter @dsh-desktop/agent-host test:coverage
+```
+
+Both commands run the plain unit tests and then enforce the v8 thresholds
+configured in the package's `vitest.config.ts` (`coverage.include`,
+`coverage.exclude`, `coverage.thresholds`). The desktop scope is
+`src/main` + `src/preload` except `src/main/index.ts` (Electron entry,
+untestable in plain Node — tracked as a TODO in the config); `agent-host`
+covers all of `src`. v8's default output exclusions (`dist/`, `index.html`,
+`.runtime-archive/`) apply automatically. Reports are written to `coverage/`
+under each package (gitignored).
 
 After changing `upstream/`, `patches/`, or `scripts/sync-upstream.ts`, also run:
 

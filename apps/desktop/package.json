@@ -16,10 +16,12 @@
     "build": "tsx ./build.ts",
     "package": "pnpm --dir ../.. build && tsx ./stage-runtime-archive.ts && electron-builder --config electron-builder.yml --publish never",
     "package:linux": "pnpm --dir ../.. build && tsx ./stage-runtime-archive.ts && electron-builder --config electron-builder.yml --linux --publish never",
+    "package:ci:linux": "tsx ./stage-runtime-archive.ts && electron-builder --config electron-builder.yml --linux dir tar.gz --publish never",
     "package:mac": "pnpm --dir ../.. build && tsx ./stage-runtime-archive.ts && electron-builder --config electron-builder.yml --mac --publish never",
     "package:win": "pnpm --dir ../.. build && tsx ./stage-runtime-archive.ts && electron-builder --config electron-builder.yml --win --publish never",
     "start": "electron .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.8",
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",

@@ -294,6 +294,12 @@ jobs:
         if: ${{ matrix.platform != 'linux' }}
         run: pnpm ci:smoke:electron
 
+      - name: Run coverage gate (Linux)
+        # v8 覆盖率门槛：桌面（src/main+src/preload）与 agent-host（src），
+        # 按各自 vitest.config.ts 的 coverage.thresholds 判失败
+        if: ${{ matrix.platform == 'linux' }}
+        run: pnpm -r --if-present test:coverage
+
       - name: Collect failure diagnostics
         if: ${{ failure() }}
         shell: bash
@@ -314,6 +320,99 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+  # Packaging smoke on Linux only. electron-builder is the slowest part of the
+  # release pipeline, so this deliberately mirrors release.yml's Linux package
+  # job (dir target + tar.gz) without tripling CI cost: mac/windows packaging
+  # stays the release-only all-3-OS gate.
+  packaged-smoke:
+    name: Packaged smoke (Linux)
+    needs: upstream-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Set up Node.js
+        id: node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download patched vendor contract
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.VENDOR_ARTIFACT_NAME }}
+          path: vendor
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'upstream/pnpm-lock.yaml', 'vendor/dsh-cli/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-
+
+      - name: Install platform dsh CLI dependencies
+        working-directory: vendor/dsh-cli
+        run: pnpm install --prod --frozen-lockfile
+
+      - name: Install root workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Electron binary
+        run: pnpm --filter @dsh-desktop/desktop exec install-electron
+
+      - name: Build desktop installer and archives
+        working-directory: apps/desktop
+        # 只出 dir + tar.gz（跳过 AppImage/installer 等重型产物），打包配置见
+        # electron-builder.yml；stage-runtime-archive 由 package:ci:linux 前置
+        run: pnpm run package:ci:linux
+
+      - name: Configure Chromium sandbox (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sandbox="$(find apps/desktop/release -maxdepth 2 -type f -name chrome-sandbox -print -quit)"
+          test -n "${sandbox}"
+          sudo chown root:root "${sandbox}"
+          sudo chmod 4755 "${sandbox}"
+
+      - name: Run packaged smoke (Linux)
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' pnpm ci:smoke:packaged -- --release-dir apps/desktop/release
+
+      - name: Collect failure diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          mkdir -p .ci-artifacts/packaged
+          node --version > .ci-artifacts/packaged/node-version.txt 2>&1 || true
+          pnpm --version > .ci-artifacts/packaged/pnpm-version.txt 2>&1 || true
+          git status --short > .ci-artifacts/packaged/git-status.txt 2>&1 || true
+          git -C upstream status --short > .ci-artifacts/packaged/upstream-status.txt 2>&1 || true
+
+      - name: Upload failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-logs-packaged-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 3
+
   # Keep one stable required-check name for branch protection even when the
   # platform matrix grows or runner labels are rotated.
   ci-gate:
@@ -323,6 +422,7 @@ jobs:
       - workflow-lint
       - upstream-contract
       - platform-check
+      - packaged-smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -331,12 +431,15 @@ jobs:
         env:
           UPSTREAM_RESULT: ${{ needs.upstream-contract.result }}
           PLATFORM_RESULT: ${{ needs.platform-check.result }}
+          PACKAGED_RESULT: ${{ needs.packaged-smoke.result }}
           WORKFLOW_RESULT: ${{ needs.workflow-lint.result }}
         run: |
           set -euo pipefail
           echo "workflow-lint: ${WORKFLOW_RESULT}"
           echo "upstream-contract: ${UPSTREAM_RESULT}"
           echo "platform-check: ${PLATFORM_RESULT}"
+          echo "packaged-smoke: ${PACKAGED_RESULT}"
           test "${WORKFLOW_RESULT}" = success
           test "${UPSTREAM_RESULT}" = success
           test "${PLATFORM_RESULT}" = success
+          test "${PACKAGED_RESULT}" = success
