@@ -1,6 +1,17 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // 单测在纯 Node 进程跑，永不加载真实 electron 包：其 index.js 在 dist
+      // 缺失时会同步 spawn install.js 下载二进制，CI 多 worker 并发下载会对
+      // 同一目录竞争解压（Windows 上 os error 80，suite 加载期失败）。行为
+      // 测试经 vi.doMock('electron') 注入结构 fake——alias 解析在前、doMock
+      // 按同一模块 id 拦截在后，两者不冲突（见 tests/helpers/electron-stub.ts）。
+      electron: fileURLToPath(new URL('./tests/helpers/electron-stub.ts', import.meta.url)),
+    },
+  },
   test: {
     include: ['tests/**/*.spec.ts'],
     coverage: {
