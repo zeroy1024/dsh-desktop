@@ -36,7 +36,7 @@
 
 ## 后果
 
-- 插件版本 = app 版本；P4 打包时插件构建产物经 extraResources 随包携带，profile 物化逻辑不变。
+- 插件版本 = app 版本：stage:plugins 在 staging 时把发布面 manifest 的 `version` 改写为根 package.json 的 app 版本（源 plugin package.json 保持开发版本号，不逐插件抖动）；P4 打包时插件构建产物经 extraResources 随包携带，profile 物化逻辑不变。
 - dev 循环：workspace 插件重建后先运行 `pnpm stage:plugins`，staged `lib/client.js` 再由 dsh client-hmr 轮询并热换。node 半改动仍需重启 agent；CLI 重装会清空 staging，因此 `sync:upstream` 之后也必须重新 stage。
 - file://（P3）下 HMR 的 EventSource 是硬编码 HTTP 端点（`packages/client/hmr/src/client/index.ts:167`），需随 IPC 桥一并解决。
 - 镜像的构建 preset 是维护点：上游 pre-release 无兼容承诺，`dsh.client` schema 与 preset 变更需列入升级 checklist。

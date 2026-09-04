@@ -23,14 +23,20 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const pluginsDir = join(rootDir, 'packages', 'plugins')
-const cliModulesDir = join(rootDir, 'vendor', 'dsh-cli', 'node_modules')
-const targetScopeDir = join(cliModulesDir, '@dsh-desktop')
 
 interface PluginManifest {
   name?: unknown
   files?: unknown
   dshDesktop?: { enabled?: unknown }
+}
+
+export interface StagePluginsOptions {
+  /** 插件源目录（缺省 packages/plugins）。 */
+  pluginsDir?: string
+  /** dsh CLI 闭包 node_modules（缺省 vendor/dsh-cli/node_modules）。 */
+  cliModulesDir?: string
+  /** 根 package.json（app 版本来源，缺省仓库根）。 */
+  appManifestPath?: string
 }
 
 const SAFE_SEGMENT = /^[a-z0-9][a-z0-9._~-]*$/u
@@ -59,7 +65,20 @@ function safeSource(packageDir: string, relativePath: string): string {
   return source
 }
 
-export function stagePlugins(): string {
+/** 当前 app 版本：staged 发布面 manifest 以此为准（ADR-0004：插件版本 = app 版本）。 */
+function readAppVersion(appManifestPath: string): string {
+  const manifest = JSON.parse(readFileSync(appManifestPath, 'utf8')) as { version?: unknown }
+  if (typeof manifest.version !== 'string' || manifest.version === '') {
+    throw new Error(`stage plugins: ${appManifestPath} 缺少非空 version`)
+  }
+  return manifest.version
+}
+
+export function stagePlugins(options: StagePluginsOptions = {}): string {
+  const pluginsDir = resolve(options.pluginsDir ?? join(rootDir, 'packages', 'plugins'))
+  const cliModulesDir = resolve(options.cliModulesDir ?? join(rootDir, 'vendor', 'dsh-cli', 'node_modules'))
+  const targetScopeDir = join(cliModulesDir, '@dsh-desktop')
+  const appVersion = readAppVersion(resolve(options.appManifestPath ?? join(rootDir, 'package.json')))
   if (!existsSync(join(cliModulesDir, '@deepseek-ai', 'dsh', 'package.json'))) {
     throw new Error('stage plugins: 缺少 vendor/dsh-cli，请先运行 pnpm sync:upstream')
   }
@@ -83,7 +102,12 @@ export function stagePlugins(): string {
       const segment = pluginName(manifest.name, manifestPath)
       const destination = join(stagedScope, segment)
       mkdirSync(destination, { recursive: true })
-      cpSync(manifestPath, join(destination, 'package.json'))
+      // staged 发布面版本改写为 app 版本（ADR-0004 机制化）；源 package.json 不动，
+      // 保持开发态 0.0.1，避免改一个插件就制造一次全仓 version 抖动
+      writeFileSync(
+        join(destination, 'package.json'),
+        `${JSON.stringify({ ...manifest, version: appVersion }, null, 2)}\n`,
+      )
       for (const relativePath of publishFiles(manifest.files, manifestPath)) {
         const source = safeSource(packageDir, relativePath)
         if (!existsSync(source)) {
