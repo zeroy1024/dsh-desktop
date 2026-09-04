@@ -46,7 +46,9 @@ export const AGENT_CSP = [
   "connect-src 'self'",
   "worker-src 'self' blob:",
   "object-src 'none'",
-  "base-uri 'none'",
+  // 0.1.2 起主文档自带 <base href="/">，'none' 会拦截（console CSP 违规）；
+  // 'self' 保留防外站 base 劫持的语义，仅放行同源。
+  "base-uri 'self'",
   "form-action 'none'",
   "frame-ancestors 'none'",
 ].join('; ')

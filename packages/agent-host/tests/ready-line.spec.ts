@@ -19,6 +19,15 @@ describe('parseReadyLine', () => {
     })
   })
 
+  it('解析 0.1.2-rc.1 真实形态：32B base64url token（含 - 与 _）', () => {
+    const token = 'sLUtghoNgZSRUkpvDoimmDuV_wdKnJ-EGCMLCxMV4N4'
+    expect(parseReadyLine(`dsh web: http://127.0.0.1:62494/?token=${token}`)).toEqual({
+      url: `http://127.0.0.1:62494/?token=${token}`,
+      port: 62494,
+      token,
+    })
+  })
+
   it('显式端口缺省时按协议取默认端口', () => {
     expect(parseReadyLine('dsh web: http://localhost/?token=abc')?.port).toBe(80)
   })

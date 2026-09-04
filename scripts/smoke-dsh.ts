@@ -133,11 +133,30 @@ async function getWebPage(url: string, timeoutMs: number): Promise<WebSmokeRespo
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(url, {
-      redirect: 'error',
-      signal: controller.signal,
-      headers: { accept: 'text/html' },
-    })
+    const headers: Record<string, string> = { accept: 'text/html' }
+    let target = url
+    // 0.1.2 鉴权：ready URL 带 ?token= 时首载 303 → 干净地址 + 签名 cookie。
+    // undici fetch 无 cookie jar，手动完成交接后带 cookie 请求干净地址；
+    // 无 token 的 URL（0.1.1-rc.2 形态/假 CLI 演练）走直接 GET。
+    if (new URL(url).searchParams.has('token')) {
+      const handshake = await fetch(url, { redirect: 'manual', signal: controller.signal, headers })
+      if (handshake.status === 303) {
+        const location = handshake.headers.get('location')
+        if (location !== null) target = new URL(location, url).toString()
+        const cookie = handshake.headers
+          .getSetCookie()
+          .map((entry) => entry.split(';')[0] ?? '')
+          .filter((entry) => entry !== '')
+          .join('; ')
+        if (cookie !== '') headers.cookie = cookie
+        handshake.body?.cancel()
+      } else {
+        // 未按 303 交接（未来形态变化）：按首个响应直接校验
+        const body = await handshake.text()
+        return validateWebResponse(handshake.status, handshake.headers.get('content-type') ?? '', body)
+      }
+    }
+    const response = await fetch(target, { redirect: 'error', signal: controller.signal, headers })
     const body = await response.text()
     return validateWebResponse(response.status, response.headers.get('content-type') ?? '', body)
   } catch (error) {
