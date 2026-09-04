@@ -17,6 +17,7 @@ import {
 } from './helpers/electron-harness'
 
 let h: Harness
+const originalPlatform = process.platform
 
 beforeEach(() => {
   delete process.env.DSH_DESKTOP_CI_SMOKE
@@ -31,7 +32,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  // 恢复宿主机原始平台（不钉死 darwin——CI 的 linux runner 也要能跑）
+  Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
   h.cleanup()
   vi.useRealTimers()
 })

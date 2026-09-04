@@ -27,6 +27,9 @@ import {
 } from './helpers/electron-harness'
 
 let h: Harness
+// 本文件的断言以 macOS 语义为准（关窗隐藏、darwin 菜单等）；宿主机平台
+// 不影响判定——钉死 darwin，跑完恢复原始值
+const originalPlatform = process.platform
 
 beforeEach(() => {
   // ciSmoke 环境变量会改变启动分支（写 marker/自动退出），测试一律清掉
@@ -34,10 +37,12 @@ beforeEach(() => {
   delete process.env.DSH_DESKTOP_CI_SMOKE_STAGE
   // seal/reveal 延时与 restart 冷却全部走 fake 时钟，确定性可推
   vi.useFakeTimers()
+  Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
   h = buildHarness()
 })
 
 afterEach(() => {
+  Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
   h.cleanup()
   vi.useRealTimers()
 })

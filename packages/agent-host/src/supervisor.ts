@@ -484,10 +484,12 @@ export class AgentSupervisor extends EventEmitter {
         return
       }
       if (process.platform === 'win32' && pid !== undefined) {
-        // child.kill 在 win32 只 TerminateProcess 单进程，dsh 的孙进程
-        // （工具执行/终端）会残留并继续持有端口/密钥；taskkill /T 整树收割。
+        // taskkill /T 整树收割孙进程（工具执行/终端）；它是尽力而为的
+        // 增强（静默失败由调用方的 close 等待兜底），child.kill 的
+        // TerminateProcess 单杀是保底下限——两路并发，先到的生效。
         // Job Object 是更彻底的长期方案（subtree 全杀 + 防逃逸），留作 backlog
         killProcessTree(pid, sig)
+        child.kill(sig)
         return
       }
       child.kill(sig)

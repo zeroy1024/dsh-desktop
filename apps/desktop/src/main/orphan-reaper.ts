@@ -158,9 +158,14 @@ export function defaultReapDeps(): ReapDeps {
     kill: (pid, group, sig) => {
       try {
         if (process.platform === 'win32') {
-          // child kill 只杀单进程，dsh 的孙进程（工具执行/终端）靠 taskkill /T 杀
-          if (group) killProcessTree(pid, sig)
-          else process.kill(pid, sig)
+          // taskkill /T 整树收割孙进程（尽力而为增强），process.kill 的
+          // TerminateProcess 单杀保底（与 supervisor.signal 同一策略）
+          if (group) {
+            killProcessTree(pid, sig)
+            process.kill(pid, sig)
+          } else {
+            process.kill(pid, sig)
+          }
           return
         }
         // detached 子进程自成进程组，负 pid 整组发信号（与 supervisor.signal 同理）
