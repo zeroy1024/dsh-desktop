@@ -1,120 +1,46 @@
-diff --git a/packages/client/ui-workspace/README.md b/packages/client/ui-workspace/README.md
-index 041c886ae3..21cafbd062 100644
---- a/packages/client/ui-workspace/README.md
-+++ b/packages/client/ui-workspace/README.md
-@@ -8,7 +8,7 @@ The browser renders grouped or flat Session rows from the global runtime hooks a
- 
- Collapsed search is one header action beside the view and add actions. In the rail, add and search render as 36px controls on the shell's shared horizontal entry path. Activating search expands the field across the header; an outside click collapses only a query that is empty after trimming — except while the rail search gesture is still in flight (until focus lands in the input after the column slide), so the expanding click cannot dismiss the search it opened — while the clear control always resets and collapses it. A non-blank search query replaces either browsing mode with one flat result list: case-insensitive title and Workspace substring matches appear immediately, while a 250 ms debounced Host request adds ranked current-conversation content matches and snippets. The English search input and its defensive request path remove NUL, cap the query at the wire schema's 500 UTF-16 code units without splitting a surrogate pair, and preserve the existing debounce and cancellation behavior. Each new query aborts the preceding request; a failed content search leaves metadata matches visible with a warning. The list is capped at 20, asks the user to narrow broader queries, and opens the selected Session without clearing the query or jumping to a specific event.
- 
--The picker lists real Host Workspace entities through the global `useWorkspaces` hook. Selecting a Workspace invokes the slot owner's `onPick` callback to retarget the frontend Session object. Distinct canonical paths remain separate id-keyed Workspaces when their basenames and display titles match; the sidebar hover detail shows a POSIX home or descendant as `~` / `~/…` and leaves a Windows path verbatim. Each registration declares a **directory-flow child hole** (`single` kind: `conversation.hero.workspace.directoryFlow` / `sidebar.workspaces.directoryFlow`) that the composed picker package's client half fills with its picking interaction — the [`-native`](../../host/directory-picker-native/README.md) backend's renderless OS-chooser driver today, an in-app browsing dialog under a `-browse` composition. The flat **Add workspace...** action renders only while the surface's hole is occupied (occupancy read per menu render; an empty hole means the composition has no picking affordance — the seam's documented no-flow default, under which the sidebar header drops its add button rather than offering a dead one). This package owns the trigger and the adoption: the occupant reports one picked path per open through the hole's owner conversation (`open`/`busy`/`onPicked`/`onCancel`/`onError`), and the owner adopts it through the object layer, selecting the committed Workspace only after its list projection has refreshed; cancellation is silent, and errors land in the retryable folder dialog whose **Choose again** reopens the flow. Adding has exactly one route: the occupant's own create-folder affordance already covers a brand-new directory, so no separate create-by-name dialog exists. A menu only appears where there is something to choose between — with no Workspace listed, the anchor gesture raises the flow directly instead of a one-row popover, and it waits for the list baseline before treating an empty list as final. The runtime Session and Workspace services own materialization. The Workspace row's Delete action opens a confirmation that states the retention boundary, blocks duplicate submission, and keeps failures open; success removes the group while its Sessions remain under Ungrouped. The Session row's Rename action opens the same browser-owned dialog pattern prefilled with the row's display title: no client-side conflict rule exists (the host normalizes and may reject with `title-invalid`, rendered in the dialog alert), and confirming an unchanged title is deliberately allowed — it pins the current automatic title against regeneration. The Session row's Archive action commits without a confirmation dialog (non-destructive: the log and the workspace accounting slot remain) through `ctx.workspaces.archiveSession`; the row disappears from every grouping surface — workspace groups, Ungrouped, content search, and the flat list — when the archive-set echo lands, and failures are console diagnostics that leave the tree unchanged. A blank New Session row is a pure placeholder: it renders no row menu and no time label (nothing has happened in it yet), so rename, fork, and archive first apply once the first prompt lands.
-+The picker lists real Host Workspace entities through the global `useWorkspaces` hook. Selecting a Workspace invokes the slot owner's `onPick` callback to retarget the frontend Session object. Distinct canonical paths remain separate id-keyed Workspaces when their basenames and display titles match; the sidebar hover detail shows a POSIX home or descendant as `~` / `~/…` and leaves a Windows path verbatim. Each registration declares a **directory-flow child hole** (`single` kind: `conversation.hero.workspace.directoryFlow` / `sidebar.workspaces.directoryFlow`) that the composed picker package's client half fills with its picking interaction — the [`-native`](../../host/directory-picker-native/README.md) backend's renderless OS-chooser driver today, an in-app browsing dialog under a `-browse` composition. The flat **Add workspace...** action renders only while the surface's hole is occupied (occupancy read per menu render; an empty hole means the composition has no picking affordance — the seam's documented no-flow default, under which the sidebar header drops its add button rather than offering a dead one). This package owns the trigger and the adoption: the occupant reports one picked path per open through the hole's owner conversation (`open`/`busy`/`onPicked`/`onCancel`/`onError`), and the owner adopts it through the object layer, selecting the committed Workspace only after its list projection has refreshed; cancellation is silent, and errors land in the retryable folder dialog whose **Choose again** reopens the flow. Adding has exactly one route: the occupant's own create-folder affordance already covers a brand-new directory, so no separate create-by-name dialog exists. A menu only appears where there is something to choose between — with no Workspace listed, the anchor gesture raises the flow directly instead of a one-row popover, and it waits for the list baseline before treating an empty list as final. The runtime Session and Workspace services own materialization. The Workspace row's Delete action opens a confirmation that states the retention boundary, blocks duplicate submission, and keeps failures open; success removes the group while its Sessions remain under Ungrouped. Right-clicking a non-blank Session row opens the pointer-anchored Rename/Fork/Archive menu. Its Rename action opens the same browser-owned dialog pattern prefilled with the row's display title: no client-side conflict rule exists (the host normalizes and may reject with `title-invalid`, rendered in the dialog alert), and confirming an unchanged title is deliberately allowed — it pins the current automatic title against regeneration. The row's hover Archive button and the menu's Archive action commit without a confirmation dialog (non-destructive: the log and the workspace accounting slot remain) through `ctx.workspaces.archiveSession`; the row disappears from every grouping surface — workspace groups, Ungrouped, content search, and the flat list — when the archive-set echo lands, and failures are console diagnostics that leave the tree unchanged. A blank New Session row is a pure placeholder: it renders no archive button, context menu, or time label (nothing has happened in it yet), so rename, fork, and archive first apply once the first prompt lands.
- 
- Workspace and Session hover cards copy the value their row clips: activating a Workspace card writes its full directory path, while activating a non-blank Session card writes its full display title. A provisional blank New Session card remains read-only because its localized label is a placeholder rather than session content. The card reports the dictionary-driven copied state only after the browser accepts the clipboard write.
- 
-diff --git a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
-index 08f22ed400..7c176052fb 100644
---- a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
-+++ b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
-@@ -241,7 +241,7 @@ type SessionTreeProps = Pick<
-   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
-   /** Open the browser-owned session rename dialog. */
-   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
--  /** Archive a session (row menu action; the row disappears on the state echo). */
-+  /** Archive a session (row action; the row disappears on the state echo). */
-   onSessionArchive: (sessionId: SessionNode['id']) => void
-   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
-   orderBy: SessionOrderBy
-@@ -963,7 +963,7 @@ export function WorkspaceBrowser({
-   }
- 
-   // Archive is dialog-free: not destructive (the log and the accounting slot
--  // remain), so the menu action commits directly; the row disappears when the
-+  // remain), so the row action commits directly; the row disappears when the
-   // archive-set echo lands. Failures are non-fatal console diagnostics, the
-   // same posture as reorder rejections.
-   const onSessionArchive = (sessionId: SessionNode['id']) => {
 diff --git a/packages/client/ui-workspace/src/client/locales.ts b/packages/client/ui-workspace/src/client/locales.ts
-index c08fd931de..645eb03ed1 100644
+index af0f535b68..878b5ee32a 100644
 --- a/packages/client/ui-workspace/src/client/locales.ts
 +++ b/packages/client/ui-workspace/src/client/locales.ts
-@@ -45,10 +45,11 @@ export const zh = {
+@@ -45,6 +45,7 @@ export const zh = {
    'delete.pending': '正在删除工作区…',
    'menu.fork': '分叉会话',
    'menu.archiveSession': '归档会话',
-+  'menu.exportSessionLog': '导出会话记录',
++  'menu.exportSessionLog': '导出会话日志',
    'sessions.count.one': '{n} 个会话',
    'sessions.count.other': '{n} 个会话',
    'actions.workspace.aria': '工作区“{name}”的操作',
--  'actions.session.aria': '会话“{name}”的操作',
-+  'actions.archiveSession.aria': '归档会话“{name}”',
-   'actions.newSession.aria': '在“{name}”中新建会话',
-   'status.running': '进行中',
-   'status.subagentsRunning.one': '{n} 个子代理运行中',
-@@ -114,10 +115,11 @@ export const en = {
+@@ -115,6 +116,7 @@ export const en = {
    'delete.pending': 'Deleting workspace…',
    'menu.fork': 'Fork session',
    'menu.archiveSession': 'Archive session',
-+  'menu.exportSessionLog': 'Export Session log',
++  'menu.exportSessionLog': 'Export session log',
    'sessions.count.one': '{n} session',
    'sessions.count.other': '{n} sessions',
    'actions.workspace.aria': 'Workspace actions for {name}',
--  'actions.session.aria': 'Session actions for {name}',
-+  'actions.archiveSession.aria': 'Archive session {name}',
-   'actions.newSession.aria': 'New session in {name}',
-   'status.running': 'Running',
-   'status.subagentsRunning.one': '{n} subagent running',
-diff --git a/packages/client/ui-workspace/src/client/rows/Rows.module.css b/packages/client/ui-workspace/src/client/rows/Rows.module.css
-index 5dc899af45..8604175a8c 100644
---- a/packages/client/ui-workspace/src/client/rows/Rows.module.css
-+++ b/packages/client/ui-workspace/src/client/rows/Rows.module.css
-@@ -1,7 +1,7 @@
- /* Tree rows: project 34px, session 32px, radius 8, indent step 22px
-    (16px slot + 6px gap). Hover swaps
-    are pure CSS: project folder -> chevron + action buttons; session time ->
--   ellipsis button. */
-+   archive button. */
- 
- .projectRow,
- .sessionRow {
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index d2d121fe4d..cdc2b30de3 100644
+index 0f917100ff..7b02557fcd 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-@@ -1,16 +1,16 @@
- /**
-  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
-  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
-- * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
-- * except workspace Rename/Delete and session Rename/Fork/Archive; the session
-- * and workspace hover cards are suppressed while a menu is open.
-+ * time->archive, action buttons) are CSS-only. Workspace ellipsis and Session
-+ * context menus dispatch their row actions; hover cards are suppressed while a
-+ * menu is open.
-  */
--import { useState } from 'react'
-+import { useCallback, useState } from 'react'
- import clsx from 'clsx'
- import {
--  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
--  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
--  IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
-+  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconDownloadOutline16,
-+  IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
-+  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
+@@ -12,6 +12,7 @@ import {
+   IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
+   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
+   StateDot,
++  IconDownloadOutline16,
  } from '@deepseek-ai/dsh-client-ui-primitives'
  import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
- import { abbreviateHomePath } from '@deepseek-ai/dsh-client-runtime/client'
-@@ -33,6 +33,24 @@ function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
+ import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
+@@ -33,6 +34,24 @@ function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
    return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
  }
  
 +/**
-+ * Export one Session log as a Host-generated ZIP (descendants and attachments
-+ * included). The page origin is the Host origin, so a relative URL reaches the
-+ * same endpoint the Session Header's download capsule uses; the browser
-+ * download manager owns progress and failures, so no dialog state rides along.
-+ * Pure browser verb — no runtime service, hence local to the row instead of a
-+ * prop-threaded callback.
++ * Export one Session log as a Host-generated ZIP (patches/0001: session-row
++ * context-menu export). The page origin is the Host origin, so the relative
++ * URL reaches the same endpoint the Session Header's download capsule uses;
++ * the browser download manager owns progress and failures, so no dialog
++ * state rides along. Pure browser verb — no runtime service, hence local to
++ * the row instead of a prop-threaded callback.
 + */
 +function downloadSessionLog(sessionId: SessionNode['id']): void {
 +  const url = new URL('/api/session.export', window.location.origin)
@@ -129,48 +55,7 @@ index d2d121fe4d..cdc2b30de3 100644
  /** Hover-card variant: distances wrap in the ago template; the now bucket stays bare (no "now ago"). */
  function hoverTimeLabel(updatedAt: number, now: number, t: RowTranslate): string {
    const { unit, n } = relativeTime(updatedAt, now)
-@@ -346,7 +364,8 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
- 
- /**
-  * One top-level 34px session row: status dot (pending user interaction outranks
-- * own or descendant activity), title, relative time, and the row actions menu.
-+ * own or descendant activity), title, relative time, hover archive action, and
-+ * pointer-anchored context menu.
-  * @param props.node - derived session node.
-  * @param props.currentId - selected session id (row highlight).
-  * @param props.now - epoch ms for relative-time formatting.
-@@ -364,11 +383,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
-   currentId: string | undefined
-   now: number
-   onOpen: (id: SessionNode['id']) => void
--  /** Open the browser-owned session rename dialog (row menu action). */
-+  /** Open the browser-owned session rename dialog (context-menu action). */
-   onRename: (id: SessionNode['id'], currentTitle: string) => void
--  /** Fork a session at its last completed turn (row menu action). */
-+  /** Fork a session at its last completed turn (context-menu action). */
-   onFork: (id: SessionNode['id']) => void
--  /** Archive this session (row menu action; commits without a dialog). */
-+  /** Archive this session (hover button or context-menu action; no dialog). */
-   onArchive: (id: SessionNode['id']) => void
-   /** Present only on draggable rows (workspace-group sessions outside search). */
-   drag?: RowDragProps | undefined
-@@ -383,6 +402,15 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
-   const primaryStatus = statuses[0]
-   const showStatus = primaryStatus.state !== 'done' || row.completed
-   const [menuOpen, setMenuOpen] = useState(false)
-+  const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
-+  const closeSessionMenu = useCallback(() => {
-+    setMenuOpen(false)
-+    setMenuPoint(null)
-+  }, [])
-+  const getSessionMenuAnchorRect = useCallback(
-+    () => menuPoint === null ? null : new DOMRect(menuPoint.x, menuPoint.y, 0, 0),
-+    [menuPoint],
-+  )
-   // Archive hides the row through the registry-global archive set and never
-   // touches the session log, so it is not styled as destructive and needs no
-   // confirmation dialog.
-@@ -391,6 +419,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -407,6 +426,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
      { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
      // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
      { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
@@ -178,351 +63,45 @@ index d2d121fe4d..cdc2b30de3 100644
    ]
    // Figma session cell: pad 8, status slot 16, then a 4px title gap.
    const ownRow = (
-@@ -403,6 +432,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
-       role="treeitem"
-       aria-selected={selected}
-       onClick={() => { onOpen(node.id) }}
-+      onContextMenu={(e) => {
-+        e.preventDefault()
-+        e.stopPropagation()
-+        if (row.blank) {
-+          closeSessionMenu()
-+          return
-+        }
-+        setMenuPoint({ x: e.clientX, y: e.clientY })
-+        setMenuOpen(true)
-+      }}
-       draggable={drag !== undefined}
-       onDragStart={drag === undefined
-         ? undefined
-@@ -438,37 +477,43 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
-       )}
-       <span className={css.title}>{title}</span>
-       {/* A blank New Session row is a provisional placeholder: nothing has
--          happened in it yet, so a "now" timestamp and the row verbs
--          (rename/fork/archive) would all act on content that does not
--          exist — both trailing cells stay off until the first prompt. */}
-+          happened in it yet, so the timestamp, archive button, and context menu
-+          stay off until the first prompt. */}
-       {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
-       {!row.blank && (
-         <span className={css.rowActions}>
--          <Menu
--            open={menuOpen}
--            onClose={() => { setMenuOpen(false) }}
--            items={sessionMenuItems}
--            onSelect={(id) => {
--              setMenuOpen(false)
--              if (id === 'rename') onRename(node.id, row.title)
--              if (id === 'fork') onFork(node.id)
--              if (id === 'archive') onArchive(node.id)
-+          <button
-+            type="button"
-+            className={css.iconButton}
-+            aria-label={t('actions.archiveSession.aria', { name: title })}
-+            onClick={(e) => {
-+              e.stopPropagation()
-+              closeSessionMenu()
-+              onArchive(node.id)
+@@ -470,6 +490,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+               if (id === 'rename') onRename(node.id, row.title)
+               if (id === 'fork') onFork(node.id)
+               if (id === 'archive') onArchive(node.id)
++          if (id === 'export') downloadSessionLog(node.id)
              }}
--            portal
--            closeOnPointerLeave
--            anchor={(
--              <button
--                type="button"
--                className={css.iconButton}
--                aria-label={t('actions.session.aria', { name: title })}
--                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
--              >
--                <IconEllipsisOutline16 />
--              </button>
--            )}
--          />
-+          >
-+            <IconArchiveOutline20 size={16} />
-+          </button>
-         </span>
-       )}
-+      {!row.blank && (
-+        <Menu
-+          open={menuOpen}
-+          onClose={closeSessionMenu}
-+          items={sessionMenuItems}
-+          onSelect={(id) => {
-+            closeSessionMenu()
-+            if (id === 'rename') onRename(node.id, row.title)
-+            if (id === 'fork') onFork(node.id)
-+            if (id === 'archive') onArchive(node.id)
-+            if (id === 'export') downloadSessionLog(node.id)
-+          }}
-+          portal
-+          closeOnPointerLeave
-+          anchor={null}
-+          getAnchorRect={getSessionMenuAnchorRect}
-+        />
-+      )}
-     </div>
-   )
-   return (
-diff --git a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
-index c2e201469f..772d3ee72b 100644
---- a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
-+++ b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
-@@ -1,18 +1,17 @@
- // @vitest-environment jsdom
- /**
-  * The session-rename assembly chain on SlotTestRuntime (real apply, real
-- * WorkspaceBrowser occupying the sidebar hole): row menu → rename dialog →
-- * the injected renameSession hop (sessions.binding → ISession.rename) → on
-- * the accepted unary response the dialog closes and the row re-labels from
-- * the list state — no push-frame wait. Coverage split: the assembled-app
-+ * WorkspaceBrowser occupying the sidebar hole): row context menu → rename
-+ * dialog → the injected renameSession hop (sessions.binding → ISession.rename)
-+ * → on the accepted unary response the dialog closes and the row re-labels
-+ * from the list state — no push-frame wait. Coverage split: the assembled-app
-  * snapshot (apps/web/tests/session-actions.snapshot.ts) pins the full-app
-- * transcript; the
-- * verb's wire behavior stays with the runtime package
-+ * transcript; the verb's wire behavior stays with the runtime package
-  * (session.spec.ts#rename), the dialog's own arms with rows.spec /
-  * workspace-browser.spec.
-  */
- import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
--import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
-+import { cleanup, fireEvent, waitFor } from '@testing-library/react'
- import type { ISession, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
- import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
- import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-@@ -47,7 +46,7 @@ function SidebarFrame({ renderSlot }: FrameProps) {
- }
- 
- describe('session rename through the assembled browser', () => {
--  it('renames via the row menu: binding.session.rename fires, the dialog closes, the row re-labels from the list', async () => {
-+  it('renames via the row context menu: binding.session.rename fires, the dialog closes, the row re-labels from the list', async () => {
-     const runtime = await createRuntime()
-     const rename = vi.fn<ISession['rename']>(async title => ({
-       ok: true, value: { title: title.trim().replace(/\s+/g, ' '), seq: 7 },
-@@ -70,9 +69,9 @@ describe('session rename through the assembled browser', () => {
-     await runtime.mount({ inject: [...inject], apply })
-     const view = runtime.renderRoot()
- 
--    // The current session's group auto-expands; open the row's action menu.
-+    // The current session's group auto-expands; open its context menu.
-     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
--    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
-+    fireEvent.contextMenu(row as HTMLElement, { clientX: 48, clientY: 72 })
-     fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
- 
-     // The dialog seeds from the current title; submit a padded value.
-@@ -119,7 +118,7 @@ describe('session rename through the assembled browser', () => {
-     await runtime.flush()
- 
-     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
--    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
-+    fireEvent.contextMenu(row as HTMLElement, { clientX: 48, clientY: 72 })
-     fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
-     const input = await view.findByLabelText('会话名称')
-     fireEvent.change(input, { target: { value: '新名' } })
+             portal
+             closeOnPointerLeave
 diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-index f86e275c5e..5be351cd6c 100644
+index 7865c31c22..ffe0999539 100644
 --- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-@@ -56,6 +56,15 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
-   fireEvent(row, event)
- }
- 
-+/** Build a cancellable contextmenu event with the pointer coordinates retained. */
-+function fireContextMenu(row: HTMLElement, clientX: number, clientY: number): Event {
-+  const event = createEvent.contextMenu(row)
-+  Object.defineProperty(event, 'clientX', { value: clientX })
-+  Object.defineProperty(event, 'clientY', { value: clientY })
-+  fireEvent(row, event)
-+  return event
-+}
+@@ -624,3 +624,29 @@ describe('workspace browser rows', () => {
+     expect(screen.getByRole('treeitem').className).toMatch(/dropAfter/)
+   })
+ })
 +
- describe('workspace browser rows', () => {
-   it('omits only an empty leading status slot in the hierarchy-free flat list', () => {
-     const idle: SessionNode = {
-@@ -369,20 +378,32 @@ describe('workspace browser rows', () => {
-     expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
-   })
- 
--  it('blank New Session rows carry no menu, no time label, and no hover-card time', () => {
-+  it('blank New Session rows carry no archive action, context menu, time label, or hover-card time', () => {
-     vi.useFakeTimers()
-     try {
-+      const onOpen = vi.fn()
-+      const onRename = vi.fn()
-+      const onFork = vi.fn()
-+      const onArchive = vi.fn()
-       const node: SessionNode = {
-         id: sid('s-blank'), title: 'ignored', blank: true, running: false,
-         runningSubagentCount: 0, completed: false, updatedAt: 0,
-       }
--      render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
--        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
--      // The placeholder has no content yet: no row verbs, no "now" stamp.
--      expect(screen.queryByRole('button', { name: /会话.*的操作/ })).toBeNull()
-+      render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={onOpen}
-+        onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
-+      const row = screen.getByRole('treeitem')
-+      // The placeholder has no content yet: no row actions and no "now" stamp.
-+      expect(screen.queryByRole('button', { name: /归档会话/ })).toBeNull()
-       expect(screen.queryByText('刚刚')).toBeNull()
-+      const contextMenu = fireContextMenu(row, 48, 72)
-+      expect(contextMenu.defaultPrevented).toBe(true)
-+      expect(screen.queryByRole('menu')).toBeNull()
-+      expect(onOpen).not.toHaveBeenCalled()
-+      expect(onRename).not.toHaveBeenCalled()
-+      expect(onFork).not.toHaveBeenCalled()
-+      expect(onArchive).not.toHaveBeenCalled()
-       // The hover card keeps title + status but drops the timestamp line.
--      const wrapper = screen.getByRole('treeitem').parentElement as HTMLElement
-+      const wrapper = row.parentElement as HTMLElement
-       fireEvent.pointerEnter(wrapper)
-       act(() => { vi.advanceTimersByTime(500) })
-       expect(screen.getAllByText('新会话').length).toBeGreaterThanOrEqual(2)
-@@ -394,7 +415,23 @@ describe('workspace browser rows', () => {
-     }
-   })
- 
--  it('session row menu opens without opening the session and dispatches rename, fork, and archive', () => {
-+  it('archives directly from the hover action without opening the session or a menu', () => {
-+    const onOpen = vi.fn()
-+    const onArchive = vi.fn()
++describe('session row export menu item (patches/0001)', () => {
++  it('offers the session log export and navigates via a same-origin anchor', () => {
 +    const node: SessionNode = {
 +      id: sid('s1'), title: 'One', blank: false, running: false,
-+      runningSubagentCount: 0, completed: false, updatedAt: 0,
++      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
 +    }
-+    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
-+      onRename={vi.fn()} onFork={vi.fn()} onArchive={onArchive} t={t} />)
-+    expect(screen.queryByRole('button', { name: '会话“One”的操作' })).toBeNull()
-+    fireEvent.click(screen.getByRole('button', { name: '归档会话“One”' }))
-+    expect(onArchive).toHaveBeenCalledWith(node.id)
-+    expect(onOpen).not.toHaveBeenCalled()
-+    expect(screen.queryByRole('menu')).toBeNull()
++    const origCreate = document.createElement.bind(document)
++    const anchors: HTMLAnchorElement[] = []
++    vi.spyOn(document, 'createElement').mockImplementation(((tag: string, options?: ElementCreationOptions) => {
++      const el = origCreate(tag, options)
++      if (tag === 'a') anchors.push(el as HTMLAnchorElement)
++      return el
++    }) as typeof document.createElement)
++    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
++      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
++    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
++    const item = screen.getByRole('menuitem', { name: '导出会话日志' })
++    fireEvent.click(item)
++    expect(anchors).toHaveLength(1)
++    expect(new URL(anchors[0]!.href).pathname + '?' + new URL(anchors[0]!.href).searchParams.toString()).toBe(
++      '/api/session.export?sessionId=s1&includeDescendants=true',
++    )
++    expect(anchors[0]!.download).toBe('dsh-session-s1.zip')
 +  })
-+
-+  it('opens the Session menu at the context pointer and dispatches rename, fork, and archive', () => {
-     const onOpen = vi.fn()
-     const onRename = vi.fn()
-     const onFork = vi.fn()
-@@ -405,7 +442,16 @@ describe('workspace browser rows', () => {
-     }
-     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
-       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
--    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-+    const row = screen.getByRole('treeitem')
-+    const openAt = (clientX: number, clientY: number): void => {
-+      const contextMenu = fireContextMenu(row, clientX, clientY)
-+      expect(contextMenu.defaultPrevented).toBe(true)
-+      const menu = screen.getByRole('menu')
-+      expect(menu.style.left).toBe(`${clientX}px`)
-+      expect(menu.style.top).toBe(`${clientY + 4}px`)
-+    }
-+
-+    openAt(48, 72)
-     expect(onOpen).not.toHaveBeenCalled()
-     // Archive is not destructive (log and accounting slot remain): no danger styling.
-     expect(screen.getByRole('menuitem', { name: '归档会话' }).className).not.toMatch(/danger/)
-@@ -413,24 +459,27 @@ describe('workspace browser rows', () => {
-     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
-     expect(screen.queryByRole('menu')).toBeNull()
-     expect(onRename).toHaveBeenCalledWith(node.id, 'One')
--    expect(onOpen).not.toHaveBeenCalled()
--    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-+
-+    openAt(96, 120)
-     fireEvent.click(screen.getByRole('menuitem', { name: '分叉会话' }))
-     expect(onFork).toHaveBeenCalledWith(node.id)
--    // Archive dispatches without opening the session.
--    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-+
-+    openAt(144, 168)
-     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
-     expect(onArchive).toHaveBeenCalledWith(node.id)
-     expect(onRename).toHaveBeenCalledOnce()
-     expect(onOpen).not.toHaveBeenCalled()
--    // Escape closes without selecting (Menu onClose path).
--    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-+
-+    // Escape closes without selecting and clears the pointer anchor.
-+    openAt(192, 216)
-     fireEvent.keyDown(document, { key: 'Escape' })
-     expect(screen.queryByRole('menu')).toBeNull()
-+    expect(onRename).toHaveBeenCalledOnce()
-+    expect(onFork).toHaveBeenCalledOnce()
-+    expect(onArchive).toHaveBeenCalledOnce()
-   })
- 
--
--  it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
-+  it('suppresses the hover card while the context menu is open and restores it after Escape', () => {
-     vi.useFakeTimers()
-     try {
-       const node: SessionNode = {
-@@ -439,19 +488,27 @@ describe('workspace browser rows', () => {
-       }
-       render(<SessionNodeItem node={node} currentId={undefined} now={60_000} onOpen={vi.fn()}
-         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
--      const wrapper = screen.getByRole('treeitem').parentElement as HTMLElement
-+      const row = screen.getByRole('treeitem')
-+      const wrapper = row.parentElement as HTMLElement
-       fireEvent.pointerEnter(wrapper)
-       act(() => { vi.advanceTimersByTime(500) })
-       // Card body: full title + relative time + running status.
-       expect(screen.getAllByText('Hovered')).toHaveLength(2)
-       expect(screen.getByText('1分钟前')).toBeTruthy()
-       expect(screen.getAllByText('进行中')).toHaveLength(2)
--      fireEvent.pointerLeave(wrapper)
--      // Menu open (disabled=true) suppresses the card for the same hover.
--      fireEvent.click(screen.getByRole('button', { name: '会话“Hovered”的操作' }))
-+
-+      fireContextMenu(row, 48, 72)
-+      expect(screen.queryByText('1分钟前')).toBeNull()
-       fireEvent.pointerEnter(wrapper)
-       act(() => { vi.advanceTimersByTime(1000) })
-       expect(screen.queryByText('1分钟前')).toBeNull()
-+
-+      fireEvent.keyDown(document, { key: 'Escape' })
-+      expect(screen.queryByRole('menu')).toBeNull()
-+      fireEvent.pointerLeave(wrapper)
-+      fireEvent.pointerEnter(wrapper)
-+      act(() => { vi.advanceTimersByTime(500) })
-+      expect(screen.getByText('1分钟前')).toBeTruthy()
-     } finally {
-       vi.useRealTimers()
-     }
-diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
-index 820d2bd66b..2eefa896e8 100644
---- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
-+++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
-@@ -336,7 +336,7 @@ describe('WorkspaceBrowser', () => {
-     expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
-   })
- 
--  it('archives a session from the row menu and hides archived rows in both modes', async () => {
-+  it('archives a session from the row action and hides archived rows in both modes', async () => {
-     const archiveSession = vi.fn(async () => {})
-     const b = mount({
-       useSessions: hook(sessionState([summary('kept-s', 2), summary('gone-s', 1)])),
-@@ -344,8 +344,7 @@ describe('WorkspaceBrowser', () => {
-       archiveSession,
-     })
-     fireEvent.click(screen.getByText('alpha'))
--    fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
--    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
-+    fireEvent.click(screen.getByRole('button', { name: '归档会话“gone-s”' }))
-     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
- 
-     // The archive-set echo hides the row in grouped and flat modes.
-@@ -368,8 +367,7 @@ describe('WorkspaceBrowser', () => {
-         archiveSession,
-       })
-       fireEvent.click(screen.getByText('alpha'))
--      fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
--      fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
-+      fireEvent.click(screen.getByRole('button', { name: '归档会话“alpha-s”' }))
-       await Promise.resolve()
-       await Promise.resolve()
-       expect(warn).toHaveBeenCalledWith('session archive rejected:', rejection)
++})

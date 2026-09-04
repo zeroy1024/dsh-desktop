@@ -58,6 +58,8 @@ export interface ClientContext {
   }
   /** 布局面板动作（0006 缝的 ctx.layout 面；本插件只用开列）。 */
   layout: { openPanel: () => void }
+  /** 读取任意已注册服务（cordis Context.get 的宽松切片）。 */
+  get: (key: string) => unknown
   slots: {
     /** 声明「本插件作为某槽的占位者」的装配工厂（框架在渲染点调用）。 */
     inject: (name: string, factory: () => unknown) => unknown

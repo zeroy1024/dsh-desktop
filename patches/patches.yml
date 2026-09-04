@@ -94,3 +94,11 @@ patches:
       CI 测不出）。0.1.2 实测上游仍未修（仅修了 NUL 扫描的双字节边界），本补丁
       继续改为 koffi.decode.string16 的拷贝式读取并吸收上游双字节语义（string16
       原生按两字节 NUL 终止）；fake koffi 移除 view mock 以防回退。上游修复后撤
+  - file: 0001-session-row-archive-context-menu.patch
+    reason: |
+      会话行的会话日志导出入口（0.1.2 重做，最小化）：0.1.2 的会话行已带
+      原生 rename/fork/archive 菜单（常量数组、dispatch 硬编码），无 action
+      槽可扩展；追加「导出会话日志」项——同源 /api/session.export 的 anchor
+      下载（0.1.2 起该路由经 connection.fetch.register 挂载、cookie 鉴权，
+      页面同源自动携带）。含 menu.exportSessionLog 双语词条与行菜单断言。
+      上游开放行级 action 槽后撤

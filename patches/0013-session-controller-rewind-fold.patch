@@ -129,10 +129,23 @@ index 39ce09ccab..bdf10875af 100644
 +  }
 +}
 diff --git a/packages/api/session-controller/src/client/sessions/session.ts b/packages/api/session-controller/src/client/sessions/session.ts
-index d9d58d41e2..b0efda4102 100644
+index d9d58d41e2..150fffc1a2 100644
 --- a/packages/api/session-controller/src/client/sessions/session.ts
 +++ b/packages/api/session-controller/src/client/sessions/session.ts
-@@ -136,8 +136,15 @@ export class Session implements SessionFace {
+@@ -23,7 +23,11 @@ import type {
+ import type {
+   OpenState, PendingSubmission, PromptError, SessionSnapshot,
+ } from '../contract/snapshot.ts'
+-import { MutableSessionEventSource } from '../contract/events.ts'
++import { createRewindVisibilitySource, MutableSessionEventSource } from '../contract/events.ts'
++// patches/0013: re-exported for the rewind-visibility specs. Importing
++// ../contract/events.ts directly from a spec would drag client-store sources
++// into the host tsconfig program (TS6307 cascade).
++export { createRewindVisibilitySource, keepViewEvent, rewindRangesOf, MutableSessionEventSource } from '../contract/events.ts'
+ import type {
+   SessionEventLikeEntry, SessionLiveEventEntry,
+ } from '../contract/events.ts'
+@@ -136,8 +140,15 @@ export class Session implements SessionFace {
     */
    readonly projections: ProjectionValueStore
  
@@ -150,7 +163,7 @@ index d9d58d41e2..b0efda4102 100644
    private snapshotCache: SessionSnapshot
    private readonly notifier: Notifier
    /**
-@@ -636,7 +643,7 @@ export class Session implements SessionFace {
+@@ -636,7 +647,7 @@ export class Session implements SessionFace {
      this.hasMore = hasMore
      if (entries.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
      if (projections !== undefined) this.projections.seed(projections)
@@ -159,7 +172,7 @@ index d9d58d41e2..b0efda4102 100644
      for (const entry of entries) this.observeSubmissionEvent(entry.event)
      this.notifier.markDirty()
    }
-@@ -645,7 +652,7 @@ export class Session implements SessionFace {
+@@ -645,7 +656,7 @@ export class Session implements SessionFace {
    private prependWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
      this.baseSeq = entries[0] === undefined ? this.baseSeq : SessionLogOffset(entries[0].event.seq)
      this.hasMore = hasMore
@@ -168,7 +181,7 @@ index d9d58d41e2..b0efda4102 100644
    }
  
    /** Append one stream-validated live event. */
-@@ -654,7 +661,7 @@ export class Session implements SessionFace {
+@@ -654,7 +665,7 @@ export class Session implements SessionFace {
      const awaitingFirstTurn = this.firstPromptPendingTurn
      if (event.type === 'turn/start') this.firstPromptPendingTurn = false
      const queueChanged = this.queueMirror.acceptDurable(event)
@@ -179,7 +192,7 @@ index d9d58d41e2..b0efda4102 100644
      // scheduled here always runs after the durable node became renderable.
 diff --git a/packages/api/session-controller/tests/rewind-visibility.spec.ts b/packages/api/session-controller/tests/rewind-visibility.spec.ts
 new file mode 100644
-index 0000000000..46f5036e09
+index 0000000000..c364f272fc
 --- /dev/null
 +++ b/packages/api/session-controller/tests/rewind-visibility.spec.ts
 @@ -0,0 +1,74 @@
@@ -195,7 +208,7 @@ index 0000000000..46f5036e09
 +  MutableSessionEventSource,
 +  rewindRangesOf,
 +  type SessionEventLikeEntry,
-+} from '../src/client/contract/events.ts'
++} from '../src/client/sessions/session.ts'
 +
 +let nextSeq = 100
 +function entry(type: string, data: Record<string, unknown> = {}): SessionEventLikeEntry {
@@ -257,17 +270,3 @@ index 0000000000..46f5036e09
 +    expect(seen).toEqual(['append'])
 +  })
 +})
-diff --git a/tsconfig.host.json b/tsconfig.host.json
-index 6dfe0a9d31..7d25babfe4 100644
---- a/tsconfig.host.json
-+++ b/tsconfig.host.json
-@@ -8,6 +8,9 @@
-     "rewriteRelativeImportExtensions": false
-   },
-   "include": [
-+    "packages/client/store/src/index.ts",
-+    "packages/api/session-controller/src/client/contract/events.ts",
-+    "packages/api/session-controller/tests/rewind-visibility.spec.ts",
-     "apps/web/tests/scaffold.ts",
-     "apps/web/tests/default-model.e2e.ts",
-     "apps/web/tests/github-ready-review.e2e.ts",
