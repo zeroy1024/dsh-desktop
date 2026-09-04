@@ -1,0 +1,273 @@
+diff --git a/packages/api/session-controller/src/client/contract/events.ts b/packages/api/session-controller/src/client/contract/events.ts
+index 39ce09ccab..bdf10875af 100644
+--- a/packages/api/session-controller/src/client/contract/events.ts
++++ b/packages/api/session-controller/src/client/contract/events.ts
+@@ -156,3 +156,125 @@ export class MutableSessionEventSource implements SessionEventSource {
+     notifySubscribers(this.listeners, '[session-controller] event feed')
+   }
+ }
++
++
++// ---------------------------------------------------------------------------
++// patches/0013 — rewind-visibility fold over the Conversation-facing feed.
++//
++// A tombstone event ('dsh-desktop/session-rewind', appended by the desktop
++// rewind plugin) hides the raw events with seq in [atSeq, markerSeq) from the
++// Conversation assembly. Only the assembled view is filtered: the raw window
++// keeps every event so seq continuity, pagination cursors, and the
++// live-append dedup guard keep operating on the untouched log. The marker
++// itself always flows through (a definition may claim it to render a rewind
++// marker; unclaimed it is dropped by the fallback).
++//
++// The literal below duplicates the core declaration
++// (packages/core/session/src/rewind.ts) deliberately: importing the constant
++// from the built dsh-session surface would couple this fold's resolution to
++// that package's build freshness.
++//
++
++/** The rewind tombstone event type. Namespaced to the desktop harness owner. */
++const REWIND_EVENT_TYPE = 'dsh-desktop/session-rewind'
++
++/** One tombstone's withdrawn range: raw events with seq in [atSeq, markerSeq). */
++export interface RewindRange {
++  readonly atSeq: number
++  readonly markerSeq: number
++}
++
++/** Unwrap a window entry ({ event }) or a bare event to its log face. */
++function logFaceOf(entry: unknown): { readonly seq: number; readonly type: string; readonly data?: unknown } {
++  const e = entry as { event?: { seq: number; type: string; data?: unknown }; seq?: number; type?: string; data?: unknown }
++  return e.event ?? (e as { seq: number; type: string; data?: unknown })
++}
++
++/** Collect every tombstone range declared inside a raw event window. */
++export function rewindRangesOf(events: readonly unknown[]): RewindRange[] {
++  const ranges: RewindRange[] = []
++  for (const entry of events) {
++    const event = logFaceOf(entry)
++    if (event.type === REWIND_EVENT_TYPE) {
++      ranges.push({ atSeq: (event.data as { atSeq: number }).atSeq, markerSeq: event.seq })
++    }
++  }
++  return ranges
++}
++
++/**
++ * Whether one event stays in the Conversation view input: tombstones always
++ * flow through (a definition may claim one to render a rewind marker),
++ * every other event is hidden exactly when a tombstone's range covers it.
++ */
++export function keepViewEvent(
++  entry: unknown,
++  ranges: readonly RewindRange[],
++): boolean {
++  const event = logFaceOf(entry)
++  if (event.type === REWIND_EVENT_TYPE) return true
++  for (const range of ranges) {
++    if (event.seq >= range.atSeq && event.seq < range.markerSeq) return false
++  }
++  return true
++}
++
++/**
++ * Wrap the raw event source with the rewind-visibility fold. The returned
++ * facade satisfies the MutableSessionEventSource surface Session and the
++ * bindings expose; every write routes to `raw`, and the published snapshot
++ * carries the folded view. A write whose tail entry is (or lands inside) a
++ * tombstone range republishes as a full window replacement so the
++ * assembler's incremental path rebuilds instead of appending a hidden row.
++ */
++export function createRewindVisibilitySource(raw: MutableSessionEventSource): SessionEventSource & { replace(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void; prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void; append(entry: SessionLiveEventEntry): void } {
++  let listeners: Set<() => void> = new Set()
++  let published: SessionEventWindow | undefined
++
++  raw.subscribe(() => {
++    const rawWindow = raw.getSnapshot()
++    const change = rawWindow.change
++    // A write that carries (or follows) a tombstone rewrites visibility
++    // across the whole window: republish as a full replacement so the
++    // assembler's incremental path rebuilds instead of tripping over a
++    // hidden (withdrawn) materialized row.
++    const tombstone = change.entries.some(
++      entry => logFaceOf(entry).type === REWIND_EVENT_TYPE,
++    )
++    const ranges = rewindRangesOf(rawWindow.entries)
++    const entries = rawWindow.entries.filter(entry => keepViewEvent(entry.event, ranges))
++    published = {
++      entries,
++      hasMore: rawWindow.hasMore,
++      revision: rawWindow.revision,
++      change: tombstone ? { kind: 'replace', entries } : change,
++    }
++    for (const listener of [...listeners]) listener()
++  })
++
++  return {
++    getSnapshot: () => {
++      // Lazy self-heal for direct reads that skipped a notification: keep the
++      // last published window (its change semantics matter to the assembler)
++      // but refresh the folded entries and revision.
++      const rawWindow = raw.getSnapshot()
++      if (published === undefined || published.revision !== rawWindow.revision) {
++        const ranges = rewindRangesOf(rawWindow.entries)
++        published = {
++          entries: rawWindow.entries.filter(entry => keepViewEvent(entry.event, ranges)),
++          hasMore: rawWindow.hasMore,
++          revision: rawWindow.revision,
++          change: { kind: 'replace', entries: [] },
++        }
++      }
++      return published
++    },
++    subscribe: listener => {
++      listeners.add(listener)
++      return () => { listeners.delete(listener) }
++    },
++    replace: (entries, hasMore) => raw.replace(entries, hasMore),
++    prepend: (entries, hasMore) => raw.prepend(entries, hasMore),
++    append: entry => raw.append(entry),
++  }
++}
+diff --git a/packages/api/session-controller/src/client/sessions/session.ts b/packages/api/session-controller/src/client/sessions/session.ts
+index d9d58d41e2..b0efda4102 100644
+--- a/packages/api/session-controller/src/client/sessions/session.ts
++++ b/packages/api/session-controller/src/client/sessions/session.ts
+@@ -136,8 +136,15 @@ export class Session implements SessionFace {
+    */
+   readonly projections: ProjectionValueStore
+ 
+-  /** Contiguous history and live tail consumed by Conversation assembly. */
+-  readonly eventSource = new MutableSessionEventSource()
++  /**
++   * Raw contiguous history and live tail. Never published to Conversation
++   * assembly directly (patches/0013): `eventSource` wraps this source with
++   * the rewind-visibility fold, so the raw log keeps every event for seq
++   * continuity, pagination cursors, and live-append dedup.
++   */
++  private readonly rawEvents = new MutableSessionEventSource()
++  /** Conversation-facing view of {@link rawEvents} with rewind tombstones folded. */
++  readonly eventSource: MutableSessionEventSource = createRewindVisibilitySource(this.rawEvents) as MutableSessionEventSource
+   private snapshotCache: SessionSnapshot
+   private readonly notifier: Notifier
+   /**
+@@ -636,7 +643,7 @@ export class Session implements SessionFace {
+     this.hasMore = hasMore
+     if (entries.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
+     if (projections !== undefined) this.projections.seed(projections)
+-    this.eventSource.replace(entries, hasMore)
++    this.rawEvents.replace(entries, hasMore)
+     for (const entry of entries) this.observeSubmissionEvent(entry.event)
+     this.notifier.markDirty()
+   }
+@@ -645,7 +652,7 @@ export class Session implements SessionFace {
+   private prependWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
+     this.baseSeq = entries[0] === undefined ? this.baseSeq : SessionLogOffset(entries[0].event.seq)
+     this.hasMore = hasMore
+-    this.eventSource.prepend(entries, hasMore)
++    this.rawEvents.prepend(entries, hasMore)
+   }
+ 
+   /** Append one stream-validated live event. */
+@@ -654,7 +661,7 @@ export class Session implements SessionFace {
+     const awaitingFirstTurn = this.firstPromptPendingTurn
+     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
+     const queueChanged = this.queueMirror.acceptDurable(event)
+-    this.eventSource.append(entry)
++    this.rawEvents.append(entry)
+     // After the feed append: the conversation assembly's animation frame is
+     // registered by the feed subscribers above, so the echo-retirement frame
+     // scheduled here always runs after the durable node became renderable.
+diff --git a/packages/api/session-controller/tests/rewind-visibility.spec.ts b/packages/api/session-controller/tests/rewind-visibility.spec.ts
+new file mode 100644
+index 0000000000..46f5036e09
+--- /dev/null
++++ b/packages/api/session-controller/tests/rewind-visibility.spec.ts
+@@ -0,0 +1,74 @@
++/**
++ * Rewind-visibility fold (patches/0013): the Conversation-facing event source
++ * hides [atSeq, markerSeq) raw ranges, always flows the marker, and
++ * republishes a tombstone write as a full replacement.
++ */
++import { describe, expect, it } from 'vitest'
++import {
++  createRewindVisibilitySource,
++  keepViewEvent,
++  MutableSessionEventSource,
++  rewindRangesOf,
++  type SessionEventLikeEntry,
++} from '../src/client/contract/events.ts'
++
++let nextSeq = 100
++function entry(type: string, data: Record<string, unknown> = {}): SessionEventLikeEntry {
++  const seq = nextSeq++
++  return { type: 'event' as const, event: { seq, time: seq, type, data } } as unknown as SessionEventLikeEntry
++}
++const user = () => entry('user/message', { content: [] })
++const marker = (atSeq: number) => entry('dsh-desktop/session-rewind', { atSeq })
++
++describe('rewindRangesOf / keepViewEvent', () => {
++  it('collects tombstone ranges and keeps the marker itself visible', () => {
++    const events = [user(), marker(100), user(), user()]
++    const ranges = rewindRangesOf(events)
++    expect(ranges).toEqual([{ atSeq: 100, markerSeq: events[1]!.event!.seq }])
++    expect(keepViewEvent(events[1]!, ranges)).toBe(true)
++    expect(keepViewEvent(events[0]!, ranges)).toBe(false)
++    expect(keepViewEvent(events[2]!, ranges)).toBe(true)
++    expect(keepViewEvent(events[3]!, ranges)).toBe(true)
++  })
++})
++
++describe('createRewindVisibilitySource', () => {
++  it('hides withdrawn ranges from the published window while keeping the raw log intact', () => {
++    const raw = new MutableSessionEventSource()
++    const source = createRewindVisibilitySource(raw)
++    const u1 = user()
++    const u2 = user()
++    raw.replace([u1, u2], false)
++    expect(source.getSnapshot().entries).toEqual([u1, u2])
++
++    const m = marker(0)
++    raw.append(m)
++    const window = source.getSnapshot()
++    expect(window.entries).toEqual([m])
++    expect(raw.getSnapshot().entries).toHaveLength(3)
++  })
++
++  it('republishes a tombstone append as a full replacement', () => {
++    const raw = new MutableSessionEventSource()
++    const source = createRewindVisibilitySource(raw)
++    raw.replace([user()], false)
++    const seen: string[] = []
++    source.subscribe(() => {
++      seen.push(source.getSnapshot().change.kind)
++    })
++    raw.append(marker(0))
++    expect(seen).toEqual(['replace'])
++  })
++
++  it('passes ordinary appends through as appends', () => {
++    const raw = new MutableSessionEventSource()
++    const source = createRewindVisibilitySource(raw)
++    raw.replace([user()], false)
++    const seen: string[] = []
++    source.subscribe(() => {
++      seen.push(source.getSnapshot().change.kind)
++    })
++    raw.append(user())
++    expect(seen).toEqual(['append'])
++  })
++})
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index 6dfe0a9d31..7d25babfe4 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -8,6 +8,9 @@
+     "rewriteRelativeImportExtensions": false
+   },
+   "include": [
++    "packages/client/store/src/index.ts",
++    "packages/api/session-controller/src/client/contract/events.ts",
++    "packages/api/session-controller/tests/rewind-visibility.spec.ts",
+     "apps/web/tests/scaffold.ts",
+     "apps/web/tests/default-model.e2e.ts",
+     "apps/web/tests/github-ready-review.e2e.ts",

@@ -38,6 +38,11 @@
 - ⛔ **反转控制实验也失败（2026-09-05 第二轮）**：把注册点反转为 trajectory `reflect.provide('trajectoryPanelPage')` + panel-shell 声明 cordis 服务依赖（client/index.ts 的 inject 数组加服务名）后，报错**转移到 panel-shell 自身**（同样 undefined ctx 的 .effect）——`export const inject` 的服务名数组在这个 loader/cordis 形态下对「纯服务对象（无 apply）」的提供者有额外语义，非安全依赖通道。**0007 维持摘除（绿态交付）**。恢复 0007 的前提：读懂 vendored cordis/loader 对 `inject` 数组与服务提供的完整装配语义（upstream/vendor/{cordis,loader}/src），确认「插件消费另一插件提供的服务对象」的安全声明方式；或等上游开放面板页注册后以纯插件形态重做。实验代码已全部回滚。
 - ⛔ **P0 最终结论（实测）**：根因是 **0007 自身**——不论 generator 还是普通 factory 形态，`ctx.slots.inject('panel-shell.page', …)`（ui-slots 对「当前无宿主声明的槽」的 inject）在多插件 desktop 组合下使 ui-trajectory 的 cordis apply 竞态收到 undefined ctx（web profile 单独正常、摘除 0007 后全插件装配绿）。**处置：0007 已从 patches.yml 摘除**（轨迹面板页功能降级：trajectory 回到 web 形态的 conversation.view tab；面板页 + inspect 面板交接随之降级——0008 的 handoff 无消费方，静默无副作用）。恢复条件：弄清 ui-slots 对未声明槽 inject 的安全用法（读 packages/client/ui-slots/src/renderer.ts 的 inject 实现与 host 容错），或上游开放面板页注册后以插件形态重做。完整实验矩阵见 git log 42b587b..HEAD 的文档记录。
 
+
+- ✅ **0005 完成**：commit `62b635e`。0007 两轮注入形态（slots.inject 声明驱动 / cordis 服务依赖反转）均在多插件 desktop 组合下复现 P0，**维持摘除降级**（trajectory 回 web 页签形态，0008 handoff 闲置无害）；恢复前提=读懂 vendored cordis/loader 的 inject 装配语义。
+- ✅ **0013 实现完成但暂摘**：`patches/0013-session-controller-rewind-fold.patch` 已写好（events.ts 装饰器 + session.ts raw/可见性双源接线 + 4 个单测绿；session.ts 内部走 rawEvents，对外 eventSource 为折叠视图）。**阻塞**：新增 spec 被 host tsconfig 通配捞入 host program，其 store 深链触发 TS6307 连锁；需把 spec 登记进包级检查面或改组织方式（登记后需同步核对 host include 白名单）。
+- ⏳ **剩余**：0001（Rows.tsx 完整移植）、0007/0013 恢复登记、阶段 9 打包与三平台 CI、阶段 10 文档终稿。
+
 ## 阶段总览
 
 | 阶段 | 内容 | 里程碑 | 估算 |
