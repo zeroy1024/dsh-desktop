@@ -8,7 +8,6 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import z from '@deepseek-ai/schemastery'
 // Type-only: this contributes `ctx.web` and the provider contract without
@@ -33,7 +32,7 @@ export const inject = ['web']
 export const PROVIDER_ID = 'dsh-web-search'
 
 /** Settings namespace paired with the browser card. */
-export const WEB_SEARCH_SETTINGS_NAMESPACE = settingsNamespace('web-search')
+export const WEB_SEARCH_SETTINGS_NAMESPACE = 'web-search'
 
 /**
  * Internal credential reference used by new installations.  The API key value
@@ -223,11 +222,30 @@ export function resolveOptions(ctx: Context, config: Config): WebSearchProviderO
   }
 }
 
+/** 0.1.2 SettingsProvider.installSection 的最小结构面（仅本插件触碰的部分）。 */
+interface SettingsHost {
+  installSection(
+    owner: Context,
+    ns: typeof WEB_SEARCH_SETTINGS_NAMESPACE,
+    schema: typeof Config,
+    entry: Config,
+    hooks: {
+      validate: (value: Config) => void
+      setSource: (source: () => Config) => void
+      onChange: () => void
+    },
+  ): void
+}
+
 /** Register the provider and its optional settings namespace. */
 export function apply(ctx: Context, config: Config = {}): void {
   validateConfig(config)
   let current: () => Config = () => config
-  installSettingsSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
+  // 0.1.2 迁移：installSettingsSection 模块函数已移除，等价改用
+  // SettingsProvider 实例方法 installSection；settings 为可选服务，
+  // 缺席时保持组合配置（与旧 API 的回退语义一致）。
+  const settings = ctx.get('settings') as SettingsHost | undefined
+  settings?.installSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
     validate: validateConfig,
     setSource: source => { current = source },
     // The provider reads the source at operation entry; no re-registration is

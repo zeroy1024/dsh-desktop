@@ -24,12 +24,17 @@ export const PLATFORM_MODULES = [
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
 ] as const
 
-/** 预加载的 runtime client 半（同上游 PRELOADED_CLIENT_EXTERNALS）。 */
-export const PRELOADED_CLIENT_EXTERNALS = ['@deepseek-ai/dsh-client-runtime/client'] as const
+/**
+ * 预加载 external 基线（同上游 PRELOADED_CLIENT_EXTERNALS）。0.1.2 起
+ * runtime 解体为 store/controller，上游把该清单清空——store 已进
+ * PLATFORM_MODULES 走模块表，无单独预加载面。
+ */
+export const PRELOADED_CLIENT_EXTERNALS = [] as const
 
 export interface BuildClientBundleOptions {
   /** 插件包名，写入 ModuleLoader id，必须与 package.json name 一致。 */

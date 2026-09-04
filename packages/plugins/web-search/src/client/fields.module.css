@@ -8,7 +8,7 @@
 }
 
 .field + .field {
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 .head {
@@ -34,6 +34,7 @@
 
 .badge {
   border-radius: 999px;
+  corner-shape: round;
   padding: 1px 8px;
   font-size: 11px;
   line-height: 17px;
@@ -45,6 +46,7 @@
 
 .badgeMuted {
   border-radius: 999px;
+  corner-shape: round;
   padding: 1px 8px;
   font-size: 11px;
   line-height: 17px;
@@ -74,18 +76,13 @@
 .input {
   height: 34px;
   padding: 0 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-3);
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
   color: var(--dsw-alias-label-primary);
-}
-
-.select {
-  composes: input;
-  cursor: pointer;
 }
 
 .input:focus-visible {
@@ -103,11 +100,6 @@
   border-color: var(--dsw-alias-label-error);
 }
 
-.selectInvalid {
-  composes: select;
-  border-color: var(--dsw-alias-label-error);
-}
-
 .invalid {
   margin: 0;
   font-size: 12px;
@@ -120,30 +112,4 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
-}
-
-/* The upstream package does not own a boolean settings control yet.  Keep
-   this extension on the same field rhythm and typography as its fields. */
-.checkboxRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.checkbox {
-  width: 16px;
-  height: 16px;
-  margin: 1px 0 0;
-  accent-color: var(--dsw-alias-label-primary);
-}
-
-.checkbox:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
-}
-
-.checkboxText {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }

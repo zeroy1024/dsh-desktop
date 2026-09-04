@@ -2,10 +2,10 @@
  * 运行时外部模块声明：createSnapshotStore 由浏览器端的加载器模块表提供
  * （plugin-kit PRELOADED_CLIENT_EXTERNALS 预加载基线），bundle 时是
  * external，运行时解析到宿主的 runtime client 实例。上游权威定义：
- * upstream/packages/client/runtime/src/client/contract/store.ts（此处按
+ * upstream/packages/client/store/src/contract.ts（0.1.2 起 store 包取代 runtime）（此处按
  * panel-store 实际触碰的面结构化镜像）。
  */
-declare module '@deepseek-ai/dsh-client-runtime/client' {
+declare module '@deepseek-ai/dsh-client-store' {
   /** Minimal observable snapshot source. */
   export interface ObservableSnapshot<T> {
     getSnapshot(): T
