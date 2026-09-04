@@ -9,6 +9,7 @@ import {
   writeAgentPidRecord,
   type ReapDeps,
 } from '../src/main/orphan-reaper'
+import { killProcessTreeCommand } from '@dsh-desktop/agent-host'
 
 const CLI_ENTRY = '/vendor/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js'
 const AGENT_CMDLINE = `/Electron --expose-internals ${CLI_ENTRY} --profile desktop --no-open --port 0`
@@ -122,6 +123,15 @@ describe('reapOrphanedAgent', () => {
     expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('skipped')
     expect(kills).toHaveLength(0)
     expect(existsSync(pidPath)).toBe(true)
+  })
+
+  it('win32 进程树 kill 命令形态：SIGTERM 常规 /T，SIGKILL 升级 /T /F', () => {
+    // 与 supervisor.signal 共用同一 taskkill 构造（win32 分支），非 Windows 主机也能
+    // 精确断言 argv——单 pid 的 TerminateProcess 会漏掉 dsh 的孙进程（工具执行/终端）
+    expect(killProcessTreeCommand(4321, 'SIGTERM'))
+      .toEqual(['taskkill', '/pid', '4321', '/T', '/windowless'])
+    expect(killProcessTreeCommand(4321, 'SIGKILL'))
+      .toEqual(['taskkill', '/F', '/pid', '4321', '/T', '/windowless'])
   })
 })
 

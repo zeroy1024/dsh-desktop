@@ -8,6 +8,7 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { killProcessTree } from '@dsh-desktop/agent-host'
 
 /** pid 文件内容：agent 子进程 pid + 启动它的 CLI 入口绝对路径（收割核身用）。 */
 export interface AgentPidRecord {
@@ -59,7 +60,12 @@ export function removeAgentPidRecord(path: string, pid: number): void {
 export interface ReapDeps {
   /** 返回进程完整命令行；进程不存在或无法探测时返回 null。 */
   probeCmdline: (pid: number) => Promise<string | null>
-  /** 结束进程；group=true 时 POSIX 下对整组（负 pid）发信号。 */
+  /**
+   * 结束进程；group=true 时 POSIX 下对整组（负 pid）发信号。
+   * win32 下 group=true 杀整棵进程树（taskkill /T /F，异步 fire-and-forget）；
+   * 常规 taskkill 走进程树主杀，`/T /F` 作兜底。Job Object 是更彻底的长期
+   * 方案（subtree 全杀 + 防逃逸），留作 backlog。
+   */
   kill: (pid: number, group: boolean, sig: 'SIGTERM' | 'SIGKILL') => void
   sleep: (ms: number) => Promise<void>
   log?: (msg: string) => void
@@ -151,8 +157,14 @@ export function defaultReapDeps(): ReapDeps {
     },
     kill: (pid, group, sig) => {
       try {
+        if (process.platform === 'win32') {
+          // child kill 只杀单进程，dsh 的孙进程（工具执行/终端）靠 taskkill /T 杀
+          if (group) killProcessTree(pid, sig)
+          else process.kill(pid, sig)
+          return
+        }
         // detached 子进程自成进程组，负 pid 整组发信号（与 supervisor.signal 同理）
-        if (group && process.platform !== 'win32') process.kill(-pid, sig)
+        if (group) process.kill(-pid, sig)
         else process.kill(pid, sig)
       } catch (error) {
         // 进程刚好已退出时 kill 抛 ESRCH，忽略；其余错误上交调用方按核身失败处理

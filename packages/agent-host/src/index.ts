@@ -1,6 +1,8 @@
 export { parseReadyLine, type ReadyLineInfo } from './ready-line'
 export {
   AgentSupervisor,
+  killProcessTree,
+  killProcessTreeCommand,
   redactSecrets,
   type AgentReadyInfo,
   type AgentState,

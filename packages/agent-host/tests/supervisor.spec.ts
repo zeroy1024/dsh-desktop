@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +45,17 @@ describe('AgentSupervisor', () => {
     )).toBe(
       'http://127.0.0.1/?token=[REDACTED] --launch-token [REDACTED] {"token":"[REDACTED]"}',
     )
+  })
+
+  it('脱敏 Authorization: Bearer 头与 sk- 前缀 API key', () => {
+    expect(redactSecrets(
+      'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature sk-0123456789abcdefghijklmnop',
+    )).toBe(
+      'Authorization: Bearer [REDACTED] sk-[REDACTED]',
+    )
+    // 请求头大小写不敏感；sk- 短于 16 位或前缀前有词字符的不误伤
+    expect(redactSecrets('authorization: bearer abc123')).toBe('authorization: Bearer [REDACTED]')
+    expect(redactSecrets('musk-explorer')).toBe('musk-explorer')
   })
 
   it('start 解析 ready 行，stop 终止进程', async () => {
@@ -203,6 +214,125 @@ describe('AgentSupervisor', () => {
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100))
     expect(readyCount).toBe(1)
     expect(supervisor.state).toBe('stopped')
+  })
+
+  it('稳定判定边界（略低于阈值）：崩溃周期比自身退避短 → 照常累积直至 gave-up', async () => {
+    const options = makeOptions('fake-dsh-crash.mjs', {
+      restart: { maxRetries: 2, baseDelayMs: 100, maxDelayMs: 100, stableRunMs: 500 },
+    })
+    // 存活 400ms：差一点不到 500 + 100 = 600ms 阈值，预算不得清零
+    options.env = { FAKE_DSH_CRASH_AFTER_MS: '400' }
+    const supervisor = track(new AgentSupervisor(options))
+    const attempts: number[] = []
+    supervisor.on('restarting', (attempt: number) => attempts.push(attempt))
+
+    await supervisor.start()
+    await new Promise<void>((resolvePromise) => supervisor.once('gave-up', resolvePromise))
+
+    expect(attempts).toEqual([1, 2])
+    expect(supervisor.state).toBe('stopped')
+  })
+
+  it('稳定判定边界（略高于阈值）：活过自身退避期 → 视为偶发崩溃，预算清零', async () => {
+    const options = makeOptions('fake-dsh-crash.mjs', {
+      restart: { maxRetries: 3, baseDelayMs: 100, maxDelayMs: 100, stableRunMs: 500 },
+    })
+    // 存活 800ms > 600ms 阈值：每轮 close 都判定为「稳定」并清零预算。
+    // 若清零失效，attempt 会爬到 3 并 gave-up，readyCount 只有 2
+    options.env = { FAKE_DSH_CRASH_AFTER_MS: '800' }
+    const supervisor = track(new AgentSupervisor(options))
+    const attempts: number[] = []
+    let readyCount = 0
+    let gaveUp = false
+    supervisor.on('restarting', (attempt: number) => attempts.push(attempt))
+    supervisor.on('ready', () => {
+      readyCount += 1
+    })
+    supervisor.on('gave-up', () => {
+      gaveUp = true
+    })
+
+    await supervisor.start()
+    await new Promise<void>((resolvePromise) => {
+      const check = (): void => {
+        if (readyCount >= 3) resolvePromise()
+        else setTimeout(check, 20)
+      }
+      check()
+    })
+    // 等第 5 代 ready：期间第 4 代进程崩溃（800ms）后 close 判定稳定、再次清零重启。
+    // 若清零失效，attempts 会爬到 [1,2,3] 并 gave-up，此轮询到超时为止——即失败
+    await new Promise<void>((resolvePromise) => {
+      const check = (): void => {
+        if (attempts.length >= 4 && readyCount >= 5) resolvePromise()
+        else setTimeout(check, 20)
+      }
+      check()
+    })
+
+    expect(gaveUp).toBe(false)
+    expect(attempts).toEqual([1, 1, 1, 1])
+    expect(supervisor.state).toBe('running')
+    await supervisor.stop()
+    expect(supervisor.state).toBe('stopped')
+  })
+
+  it('运行期日志跨越上限 → 轮转到 .1，当前日志继续写入', { timeout: 20_000 }, async () => {
+    const options = makeOptions('fake-dsh-chatty.mjs', { maxLogBytes: 8_192, stopGraceMs: 1_000 })
+    const supervisor = track(new AgentSupervisor(options))
+
+    await supervisor.start()
+    // 等 fixture 的 200 条心跳全部落盘（约 20 KiB 总量，8 KiB 阈值下必然轮转多次）
+    const logPath = join(options.logDir, 'dsh-agent.log')
+    await new Promise<void>((resolvePromise) => {
+      const check = (): void => {
+        try {
+          if (readFileSync(logPath, 'utf8').includes('heartbeat line 199')) resolvePromise()
+          else setTimeout(check, 20)
+        } catch {
+          setTimeout(check, 20)
+        }
+      }
+      check()
+    })
+    await supervisor.stop()
+
+    // .1 是最后一次轮转搬走的中间段（轮转只发生在已写满 8 KiB 时）；
+    // 当前日志接续到第 199 条心跳。两份内容都必须脱敏
+    const backupPath = `${logPath}.1`
+    expect(existsSync(backupPath)).toBe(true)
+    expect(statSync(backupPath).size).toBeGreaterThanOrEqual(8_192)
+    expect(readFileSync(backupPath, 'utf8')).toContain('[chatty] heartbeat')
+    expect(readFileSync(backupPath, 'utf8')).not.toContain('chatty-secret')
+    expect(readFileSync(logPath, 'utf8')).toContain('heartbeat line 199')
+    expect(readFileSync(logPath, 'utf8')).not.toContain('chatty-secret')
+  })
+
+  it('巨型无换行输出：按不完整行落盘且不撑爆残留缓冲，进程保持健康', { timeout: 20_000 }, async () => {
+    const options = makeOptions('fake-dsh-big-line.mjs', { stopGraceMs: 1_000 })
+    const supervisor = track(new AgentSupervisor(options))
+
+    await supervisor.start()
+    expect(supervisor.state).toBe('running')
+    // 等 160 KiB 巨型输出全部落盘后再 stop（写日志通道关闭前不吞数据）
+    const logPath = join(options.logDir, 'dsh-agent.log')
+    await new Promise<void>((resolvePromise) => {
+      const check = (): void => {
+        try {
+          if (statSync(logPath).size >= 160 * 1024) resolvePromise()
+          else setTimeout(check, 20)
+        } catch {
+          setTimeout(check, 20)
+        }
+      }
+      check()
+    })
+    await supervisor.stop()
+
+    // 默认 64 KiB 上限：同一行输出分段落盘，两个“片段”都完整可读
+    const log = readFileSync(logPath, 'utf8')
+    expect(log).toContain('x'.repeat(64 * 1024))
+    expect(log.length).toBeGreaterThan(160 * 1024)
   })
 
   it('启动超时后 terminate 收尸，start 以「未等到 ready」拒绝而非悬挂', async () => {

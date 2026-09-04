@@ -6,7 +6,7 @@
  * stdout/stderr 落盘到日志目录。桌面主进程通过它拿到 loadURL 目标。
  * 上游 0.1.1-rc.2 起 ready 行已不再携带 token；redactSecrets 保留是对旧格式的兼容防御。
  */
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import {
   chmodSync,
@@ -36,7 +36,11 @@ export interface RestartPolicy {
   baseDelayMs: number
   /** 退避上限毫秒数。 */
   maxDelayMs: number
-  /** 连续运行多久才视为稳定并清零重试次数，默认 30s。 */
+  /**
+   * 「稳定」判定阈值：一次意外退出前的存活时间 ≥ stableRunMs + 当期退避延迟
+   * 才视为偶发崩溃并把重试次数清零——即「活过了自己当下的退避期」才算稳定。
+   * 无独立计时器，判定全部发生在 close 时，默认 30s。
+   */
   stableRunMs: number
 }
 
@@ -48,6 +52,8 @@ const DEFAULT_RESTART: RestartPolicy = {
 }
 const LOG_FILENAME = 'dsh-agent.log'
 const MAX_LOG_BYTES = 5 * 1024 * 1024
+/** 无换行残留缓冲上限：巨型行不可能撑爆主进程堆，超出部分按不完整行落盘。 */
+const PARTIAL_LINE_CAP = 64 * 1024
 
 export interface AgentSupervisorOptions {
   /** dsh CLI 入口的绝对路径（upstream/apps/cli/lib/bin.js）。 */
@@ -70,6 +76,31 @@ export interface AgentSupervisorOptions {
   stopGraceMs?: number
   /** 重启策略覆盖。 */
   restart?: Partial<RestartPolicy>
+  /** 单文件日志上限，默认 5 MiB；运行期跨越该值同样轮转（写路径实时判定）。 */
+  maxLogBytes?: number
+  /** 无换行残留缓冲上限，默认 64 KiB；超限按不完整行落盘，不参与 ready 解析。 */
+  partialLineCapBytes?: number
+}
+
+/**
+ * win32 进程树 `taskkill` 命令构造：纯函数，便于非 Windows 主机精确单测 argv。
+ * /pid /T 常规树杀，SIGKILL 升级 /T /F；windowless 避免杀进程时闪现控制台窗口。
+ * Job Object 是更彻底的长期方案（subtree 全杀 + 防逃逸），留作 backlog。
+ */
+export function killProcessTreeCommand(pid: number, sig: NodeJS.Signals): string[] {
+  const force = sig === 'SIGKILL' ? ['/F'] : []
+  return ['taskkill', ...force, '/pid', String(pid), '/T', '/windowless']
+}
+
+/**
+ * 执行 taskkill 进程树终止（win32 专用；其他平台 no-op 以免误杀）。
+ * fire-and-forget：taskkill 失败（如进程刚退出）由调用方的 close/探活等待兜底。
+ */
+export function killProcessTree(pid: number, sig: NodeJS.Signals): void {
+  if (process.platform !== 'win32') return
+  execFile('taskkill', killProcessTreeCommand(pid, sig), { timeout: 10_000 }, () => {
+    // taskkill 失败（如进程刚退出）由调用方的 close/探活等待兜底，这里只记日志
+  })
 }
 
 export type AgentState = 'stopped' | 'starting' | 'running' | 'stopping'
@@ -80,6 +111,9 @@ export function redactSecrets(value: string): string {
     .replace(/([?&]token=)[^&\s"'<>]+/giu, '$1[REDACTED]')
     .replace(/(--(?:launch-)?token(?:=|\s+))\S+/giu, '$1[REDACTED]')
     .replace(/("token"\s*:\s*")[^"]*(")/giu, '$1[REDACTED]$2')
+    .replace(/(authorization:)\s*bearer\s+\S+/giu, '$1 Bearer [REDACTED]')
+    // sk- 前缀 API key（16+ 位）；日志里误伤代价低，宁可多遮
+    .replace(/\bsk-[a-zA-Z0-9_]{16,}\b/gu, 'sk-[REDACTED]')
 }
 
 export class AgentSupervisor extends EventEmitter {
@@ -88,16 +122,19 @@ export class AgentSupervisor extends EventEmitter {
   private readonly logCloseTasks = new WeakMap<ChildProcess, Promise<void>>()
   private latestLogCloseTask: Promise<void> = Promise.resolve()
   private restartTimer: NodeJS.Timeout | null = null
-  private stableTimer: NodeJS.Timeout | null = null
   private currentState: AgentState = 'stopped'
   private currentReady: AgentReadyInfo | null = null
   private retryCount = 0
   private intentionalStop = false
   private readonly restartPolicy: RestartPolicy
+  private readonly maxLogBytes: number
+  private readonly partialLineCapBytes: number
 
   constructor(private readonly options: AgentSupervisorOptions) {
     super()
     this.restartPolicy = { ...DEFAULT_RESTART, ...options.restart }
+    this.maxLogBytes = options.maxLogBytes ?? MAX_LOG_BYTES
+    this.partialLineCapBytes = options.partialLineCapBytes ?? PARTIAL_LINE_CAP
   }
 
   get state(): AgentState {
@@ -130,7 +167,6 @@ export class AgentSupervisor extends EventEmitter {
       clearTimeout(this.restartTimer)
       this.restartTimer = null
     }
-    this.clearStableTimer()
     const child = this.child
     if (!child) {
       await this.latestLogCloseTask
@@ -153,8 +189,44 @@ export class AgentSupervisor extends EventEmitter {
         return
       }
       this.currentState = 'starting'
-      const logStream = this.openLogStream()
+      let logStream = this.openLogStream()
       this.logStream = logStream
+      // 运行期日志字节计数；写日志统一走 writeLog（脱敏 + 计数 + 越阈轮转同一处）
+      let logBytes = 0
+      // 每代进程的日志关闭承诺链：运行期轮转会中途换流，只有最后一个流的
+      // close 才算这一代日志关毕，terminate()/stop() 不能提前返回
+      let logCloseTask: Promise<void> = Promise.resolve()
+      const attachLogStream = (stream: WriteStream): void => {
+        const closed = new Promise<void>((resolveLogClose) => {
+          let settled = false
+          const done = (): void => {
+            if (settled) return
+            settled = true
+            resolveLogClose()
+          }
+          stream.once('close', done)
+          stream.once('error', done)
+        })
+        logCloseTask = logCloseTask.then(() => closed)
+        this.logCloseTasks.set(child, logCloseTask)
+        this.latestLogCloseTask = logCloseTask
+      }
+      const writeLog = (text: string, allowRotation = true): void => {
+        const rendered = redactSecrets(text)
+        logBytes += Buffer.byteLength(rendered, 'utf8')
+        logStream.write(rendered)
+        if (!allowRotation || logBytes < this.maxLogBytes) return
+        // 跨过阈值：运行期中位轮转（与 spawn 时同一语义），换新流接续。
+        // 磁盘文件大小是轮转基准，计数只是触发器——flush 落后时本轮跳过，
+        // 计数已复位，下一轮写入自然再试
+        logBytes = 0
+        if (this.rotateLogIfNeeded(join(this.options.logDir, LOG_FILENAME))) {
+          logStream.end()
+          logStream = this.openLogStream()
+          this.logStream = logStream
+          attachLogStream(logStream)
+        }
+      }
 
       const node = this.options.nodeExecutable ?? process.execPath
       const args = [
@@ -162,37 +234,26 @@ export class AgentSupervisor extends EventEmitter {
         this.options.cliEntry,
         ...(this.options.profileArgs ?? ['--profile', 'web', '--no-open', '--port', '0']),
       ]
-      // 分隔行：日志以追加方式写入，多次启动的输出必须能区分开；
-      // 记录完整命令行，参数类问题看一眼日志就能定位
-      logStream.write(redactSecrets(
-        `\n===== dsh agent spawn ${new Date().toISOString()} =====\n$ ${node} ${args.join(' ')}\n`,
-      ))
 
       const child = spawn(node, args, {
           env: { ...process.env, DSH_HOME: this.options.dshHome, ...this.options.env },
           // POSIX 下独立进程组，stop() 才能整组 SIGTERM/SIGKILL；
-          // win32 无进程组信号，kill 即 TerminateProcess（无优雅期），
-          // dsh web 不派生孙进程，可接受
+          // win32 无进程组信号，child.kill 只杀单进程——dsh 会派生孙进程
+          // （工具执行/终端），由 signal() 的 taskkill /T 整树收割
           detached: process.platform !== 'win32',
           stdio: ['ignore', 'pipe', 'pipe'],
         },
       )
       this.child = child
-      const logClosed = new Promise<void>((resolveLogClose) => {
-        let settled = false
-        const done = (): void => {
-          if (settled) return
-          settled = true
-          resolveLogClose()
-        }
-        logStream.once('close', done)
-        logStream.once('error', done)
-      })
-      this.logCloseTasks.set(child, logClosed)
-      this.latestLogCloseTask = logClosed
+      attachLogStream(logStream)
+      // 分隔行：日志以追加方式写入，多次启动的输出必须能区分开；
+      // 记录完整命令行，参数类问题看一眼日志就能定位
+      writeLog(`\n===== dsh agent spawn ${new Date().toISOString()} =====\n$ ${node} ${args.join(' ')}\n`)
 
       let promiseSettled = false
       let reachedReady = false
+      // ready 行到达时刻：close 侧据此判定「跑够了算稳定」还是「照常累积退避」
+      let readyAt = 0
       let startupFailure: Error | null = null
       let stdoutBuf = ''
       let stderrBuf = ''
@@ -206,9 +267,15 @@ export class AgentSupervisor extends EventEmitter {
         while (newlineIndex >= 0) {
           const line = buffer.slice(0, newlineIndex)
           buffer = buffer.slice(newlineIndex + 1)
-          logStream.write(`${redactSecrets(line)}\n`)
+          writeLog(`${line}\n`)
           onLine?.(line)
           newlineIndex = buffer.indexOf('\n')
+        }
+        // 巨型无换行输出不能让残留缓冲无限增长：ready 后按不完整行落盘并丢弃。
+        // ready 前绝不触发——ready 行只从完整行解析，启动期输出量小用不到
+        if (reachedReady && buffer.length > this.partialLineCapBytes) {
+          writeLog(`${buffer}\n`)
+          buffer = ''
         }
         return buffer
       }
@@ -238,10 +305,10 @@ export class AgentSupervisor extends EventEmitter {
           if (ready) {
             promiseSettled = true
             reachedReady = true
+            readyAt = Date.now()
             clearTimeout(timer)
             this.currentState = 'running'
             this.currentReady = { ...ready, pid: child.pid ?? 0 }
-            this.armStableTimer(child)
             this.emit('ready', this.currentReady)
             resolvePromise(this.currentReady)
           }
@@ -256,12 +323,12 @@ export class AgentSupervisor extends EventEmitter {
       child.on('close', (code, signal) => {
         clearTimeout(timer)
         const isCurrentChild = this.child === child
-        if (isCurrentChild) this.clearStableTimer()
-        // decoder.end() 吐出跨 chunk 扣留的尾部字节，拼在行缓冲之后一并落盘
+        // decoder.end() 吐出跨 chunk 扣留的尾部字节，拼在行缓冲之后一并落盘；
+        // 收尾写入不再轮转（下一次 spawn 的 openLogStream 会做同样的轮转）
         const stdoutTail = stdoutBuf + stdoutDecoder.end()
         const stderrTail = stderrBuf + stderrDecoder.end()
-        if (stdoutTail.length > 0) logStream.write(redactSecrets(stdoutTail))
-        if (stderrTail.length > 0) logStream.write(redactSecrets(stderrTail))
+        if (stdoutTail.length > 0) writeLog(stdoutTail, false)
+        if (stderrTail.length > 0) writeLog(stderrTail, false)
         logStream.end()
         if (this.logStream === logStream) this.logStream = null
         if (isCurrentChild) {
@@ -281,6 +348,17 @@ export class AgentSupervisor extends EventEmitter {
         if (this.intentionalStop) {
           this.currentState = 'stopped'
           return
+        }
+        // 稳定判定内置在 close 路径，没有独立 stableTimer——不存在定时器与
+        // close 竞态导致预算被持续重置的问题。存活 ≥ stableRunMs + 当次退避
+        // 延迟才算稳定（偶发崩溃）并清零预算；崩溃周期比自身退避还短的进程
+        // 照常累积，最终走到 gave-up，UI 不会永远挂着等待
+        const expectedDelay = Math.min(
+          this.restartPolicy.baseDelayMs * 2 ** this.retryCount,
+          this.restartPolicy.maxDelayMs,
+        )
+        if (Date.now() - readyAt >= this.restartPolicy.stableRunMs + expectedDelay) {
+          this.retryCount = 0
         }
         this.scheduleRestart()
       })
@@ -313,33 +391,29 @@ export class AgentSupervisor extends EventEmitter {
     }, delay)
   }
 
-  private armStableTimer(child: ChildProcess): void {
-    this.clearStableTimer()
-    this.stableTimer = setTimeout(() => {
-      this.stableTimer = null
-      if (this.child === child && this.currentState === 'running') this.retryCount = 0
-    }, this.restartPolicy.stableRunMs)
-  }
-
-  private clearStableTimer(): void {
-    if (this.stableTimer === null) return
-    clearTimeout(this.stableTimer)
-    this.stableTimer = null
+  /**
+   * 当前日志文件 ≥ maxLogBytes 时轮转到 .1（与 spawn 时同一语义，运行期共用）。
+   *
+   * @returns 是否发生了轮转。
+   */
+  private rotateLogIfNeeded(logPath: string): boolean {
+    try {
+      if (!existsSync(logPath) || statSync(logPath).size < this.maxLogBytes) return false
+      const backupPath = `${logPath}.1`
+      rmSync(backupPath, { force: true })
+      renameSync(logPath, backupPath)
+      chmodSync(backupPath, 0o600)
+      return true
+    } catch {
+      // 轮转失败不能阻断 agent；仍尝试追加当前日志。
+      return false
+    }
   }
 
   private openLogStream(): WriteStream {
     mkdirSync(this.options.logDir, { recursive: true, mode: 0o700 })
     const logPath = join(this.options.logDir, LOG_FILENAME)
-    try {
-      if (existsSync(logPath) && statSync(logPath).size >= MAX_LOG_BYTES) {
-        const backupPath = `${logPath}.1`
-        rmSync(backupPath, { force: true })
-        renameSync(logPath, backupPath)
-        chmodSync(backupPath, 0o600)
-      }
-    } catch {
-      // 轮转失败不能阻断 agent；仍尝试追加当前日志。
-    }
+    this.rotateLogIfNeeded(logPath)
     const stream = createWriteStream(logPath, { flags: 'a', mode: 0o600 })
     stream.on('error', (error) => {
       console.warn(`[agent] 无法写入日志 ${logPath}`, error)
@@ -356,7 +430,8 @@ export class AgentSupervisor extends EventEmitter {
 
   /**
    * 整组 SIGTERM，超时后 SIGKILL；stdio 已关闭并完成清场后 resolve。
-   * win32 下 SIGTERM/SIGKILL 均表现为立即 TerminateProcess（无优雅期）。
+   * win32：taskkill /pid /T 杀整棵进程树（SIGTERM 无优雅期语义，立即树杀；
+   * SIGKILL 路径升级到 /T /F）。
    */
   private async terminate(child: ChildProcess): Promise<void> {
     const closed = child.exitCode !== null || child.signalCode !== null
@@ -400,10 +475,18 @@ export class AgentSupervisor extends EventEmitter {
   }
 
   private signal(child: ChildProcess, sig: NodeJS.Signals): void {
+    const pid = child.pid
     try {
-      if (process.platform !== 'win32' && child.pid !== undefined) {
+      if (process.platform !== 'win32' && pid !== undefined) {
         // 子进程 detached 为独立进程组，负 pid 整组发信号
-        process.kill(-child.pid, sig)
+        process.kill(-pid, sig)
+        return
+      }
+      if (process.platform === 'win32' && pid !== undefined) {
+        // child.kill 在 win32 只 TerminateProcess 单进程，dsh 的孙进程
+        // （工具执行/终端）会残留并继续持有端口/密钥；taskkill /T 整树收割。
+        // Job Object 是更彻底的长期方案（subtree 全杀 + 防逃逸），留作 backlog
+        killProcessTree(pid, sig)
         return
       }
       child.kill(sig)
