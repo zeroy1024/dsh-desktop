@@ -10,6 +10,7 @@
   "scripts": {
     "sync:upstream": "tsx scripts/sync-upstream.ts",
     "stage:plugins": "tsx scripts/stage-plugins.ts",
+    "rehearse:queue": "tsx scripts/rehearse-queue.ts",
     "test:upstream-patches": "tsx scripts/test-upstream-patches.ts",
     "test:scripts": "vitest run scripts/tests",
     "ci:verify-vendor-lock": "tsx scripts/verify-vendor-lock.ts",

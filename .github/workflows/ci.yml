@@ -125,6 +125,14 @@ jobs:
         if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: pnpm test:upstream-patches
 
+      - name: Rehearse patch-queue reversal
+        # 撤补丁纪律（撤 0005 须连撤 0008/0009 等）机器化校验：在 scratch worktree
+        # 上正序套用登记队列 → 校验 diff 一致 → 逆序撤销回到 HEAD。与上游补丁测试
+        # 同节奏：仅在缓存未命中（补丁刚重新套用）时运行；绝不改动真实 upstream
+        # 工作树。
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: pnpm rehearse:queue
+
       - name: Reject generated lockfile drift
         shell: bash
         run: |

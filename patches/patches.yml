@@ -11,7 +11,7 @@ patches:
   - file: 0001-session-row-archive-context-menu.patch
     reason: 上游 ui-workspace 无 session-row/action slot，客户端插件只能劫持 DOM 且不可靠；因此最小修改原生会话行交互（含右键菜单导出 Session log：同源 /api/session.export anchor 下载，下载动作纯浏览器行为故留在行组件内）
   - file: 0004-sidebar-default-width.patch
-    reason: 桌面侧栏默认宽度取 320；columns.ts 是契约常量且 layout 服务面刻意不暴露宽度写入（ILayout 仅 toggle/open/close），插件与配置层均不可达
+    reason: 桌面侧栏默认宽度取 320；columns.ts 是契约常量且 layout 服务面刻意不暴露宽度写入（ILayout 仅 toggle/open/close），插件与配置层均不可达。撤本补丁须连撤 0006，撤 0006 亦须连撤本补丁：columns 测试断言硬编码旧 280 默认值，其修正随 0006 附带（280→320），单独撤任一必留红测试——0004 依赖 0006 的测试修正才能绿
   - file: 0005-conversation-chat-group-seam.patch
     reason: 对话流活动分组缝（承载 @dsh-desktop/activity-group 插件）：conversation.chat.group 槽位声明 + chatFlowGrouping 可选装配服务（ctx.get 惰性读取）+ ChatNodeSeat 块区间渲染变体（renderMember 委托）；缝属 ui-conversation 内部装配，插件只能经槽位契约消费、无法自声明。摘自参考实现 dsh-desktop 同名缝，未含其去 tab 改动；上游未来若自带此缝应撤补丁；0008/0009 的 hunk context 锚定本补丁新增行，撤本补丁须连撤 0008/0009
   - file: 0006-ui-layout-panel-seam.patch
