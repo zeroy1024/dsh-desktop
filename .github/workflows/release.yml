@@ -27,7 +27,8 @@ concurrency:
 env:
   DSH_TELEMETRY_DISABLED: '1'
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-  VENDOR_ARTIFACT_NAME: dsh-vendor-${{ github.run_id }}
+  # Artifact names are scoped to the workflow run, so a fixed name is enough.
+  VENDOR_ARTIFACT_NAME: dsh-vendor
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   # github.sha is immutable for the run; every job packages and tags the same commit.
   RELEASE_SOURCE_REF: ${{ github.sha }}
@@ -150,7 +151,7 @@ jobs:
             vendor/dsh-cli/pnpm-lock.yaml
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 1
 
   package:
     name: Package / ${{ matrix.platform }} (${{ matrix.arch }})
@@ -362,7 +363,7 @@ jobs:
           path: .ci-artifacts/**
           include-hidden-files: true
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   publish:
     name: Publish prerelease

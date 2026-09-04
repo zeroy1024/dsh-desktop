@@ -35,7 +35,10 @@ upstream and platform results.
    files. `node_modules` is never uploaded.
 
 The artifact is intentionally small and platform-neutral. Native dependencies
-must not be copied from the Linux job to another operating system.
+must not be copied from the Linux job to another operating system. The vendor
+artifact uses a fixed per-run name (`dsh-vendor`) and is retained for 1 day —
+long enough to retry failed platform jobs, short enough not to accumulate
+gigabytes of identical tarballs. Failure diagnostics are retained for 3 days.
 
 ### `platform-check` (Linux, macOS, Windows)
 
@@ -103,7 +106,7 @@ drift while a newly regenerated vendor lockfile is still uncommitted.
 
 All smoke tests isolate `DSH_HOME` and require no model API key. Failures copy
 available logs into `.ci-artifacts/`; GitHub retains the uploaded diagnostics
-for a limited period.
+for 3 days.
 
 ## Security and reproducibility
 
@@ -115,7 +118,8 @@ for a limited period.
   updates into one scheduled weekly pull request.
 - pnpm stores are cached per OS, architecture, Node version, and all relevant
   lockfiles. `node_modules` and the platform-native vendor closure are not
-  cached as cross-job artifacts.
+  cached as cross-job artifacts. Vendor tarballs cross the job boundary as a
+  1-day Actions artifact; diagnostic uploads expire after 3 days.
 - Obsolete pull-request runs are cancelled; main and merge-queue runs finish.
 - Every job has an explicit timeout and the matrix uses explicit runner images.
 

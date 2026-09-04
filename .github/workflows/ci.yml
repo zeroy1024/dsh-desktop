@@ -21,9 +21,10 @@ concurrency:
 env:
   CI_ARTIFACT_DIR: .ci-artifacts
   DSH_TELEMETRY_DISABLED: '1'
-  # Stable across "re-run failed jobs": a successful upstream job from the
-  # previous attempt must remain downloadable by retried platform jobs.
-  VENDOR_ARTIFACT_NAME: dsh-vendor-${{ github.run_id }}
+  # Artifact names are scoped to the workflow run, so a fixed name is enough.
+  # Do not include run_attempt: "re-run failed jobs" must still download the
+  # vendor uploaded by the successful upstream attempt of this run.
+  VENDOR_ARTIFACT_NAME: dsh-vendor
 
 jobs:
   workflow-lint:
@@ -153,7 +154,7 @@ jobs:
             vendor/dsh-cli/pnpm-lock.yaml
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 1
 
       - name: Collect failure diagnostics
         if: ${{ failure() }}
@@ -173,7 +174,7 @@ jobs:
           path: .ci-artifacts/**
           include-hidden-files: true
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   platform-check:
     name: Platform / ${{ matrix.platform }}
@@ -303,7 +304,7 @@ jobs:
           path: .ci-artifacts/**
           include-hidden-files: true
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   # Keep one stable required-check name for branch protection even when the
   # platform matrix grows or runner labels are rotated.
