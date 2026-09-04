@@ -3,34 +3,14 @@
 # 边界铁律：能做成 dsh 插件的不动配置，能写成 cordis.patch.yml 配置叠层的不动源码。
 # 只有当前两条路都走不通时才允许新增补丁，且必须写明理由。
 #
+# ⚠️ 0.1.2 迁移期临时状态（upgrade/dsh-v0.1.2-rc.1 分支）：
+#   除 0004 外的全部补丁已暂摘，等待按 docs/upgrade-dsh-0.1.2-rc.1-phases.md
+#   的阶段计划在新版宿主上重做后逐个回归登记。原登记见 git 历史。
+#
 # 每条记录：
 #   file:     补丁文件名（相对本目录，建议 NNNN-描述.patch 命名）
 #   reason:   为什么必须改源码（而不是插件/配置）
 #   upstream: 对应的上游 issue/PR（有则填，上游修复后应移除本补丁）
 patches:
-  - file: 0001-session-row-archive-context-menu.patch
-    reason: 上游 ui-workspace 无 session-row/action slot，客户端插件只能劫持 DOM 且不可靠；因此最小修改原生会话行交互（含右键菜单导出 Session log：同源 /api/session.export anchor 下载，下载动作纯浏览器行为故留在行组件内）
   - file: 0004-sidebar-default-width.patch
-    reason: 桌面侧栏默认宽度取 320；columns.ts 是契约常量且 layout 服务面刻意不暴露宽度写入（ILayout 仅 toggle/open/close），插件与配置层均不可达。撤本补丁须连撤 0006，撤 0006 亦须连撤本补丁：columns 测试断言硬编码旧 280 默认值，其修正随 0006 附带（280→320），单独撤任一必留红测试——0004 依赖 0006 的测试修正才能绿
-  - file: 0005-conversation-chat-group-seam.patch
-    reason: 对话流活动分组缝（承载 @dsh-desktop/activity-group 插件）：conversation.chat.group 槽位声明 + chatFlowGrouping 可选装配服务（ctx.get 惰性读取）+ ChatNodeSeat 块区间渲染变体（renderMember 委托）；缝属 ui-conversation 内部装配，插件只能经槽位契约消费、无法自声明。摘自参考实现 dsh-desktop 同名缝，未含其去 tab 改动；上游未来若自带此缝应撤补丁；0008/0009 的 hunk context 锚定本补丁新增行，撤本补丁须连撤 0008/0009
-  - file: 0006-ui-layout-panel-seam.patch
-    reason: 右侧面板列缝（承载 @dsh-desktop/panel-shell 插件）：ui-layout 四列化（panel 让位步骤 3-5 + panel/panelExpanded store 状态 + ctx.layout 四个 panel 动作 + panel 槽声明与渲染点/拖拽手柄/全屏接管），panel 默认宽度为 480、最小宽度为 320且不设固定偏好上限；CENTER_MIN=360，当前可见最大宽度由 viewport 剩余空间经 concession chain 动态决定，非有限写入会被拒绝。槽位声明是框架渲染点的专属权力，插件只能消费无法自建。摘自参考实现 dsh-desktop 的 dsh-panel-kit P0 同名缝，仅取 panel 本体（未含其 sidebar 归零、shell.toolbar 行与主题桥改动）；含 columns/app-frame 测试中 0004 遗留的 SIDEBAR_DEFAULT 字面值修正（280→320）。**已并入原 0002 的折叠轨 CSS 变量缝**（--dsh-sidebar-collapsed-track 可覆盖折叠轨、desktop-frame 经 chrome.css 设 0px 收轨的语义保留，AppFrame grid 行与 tracks 正则一并重写为四列版）——0006 重写同一区域曾令 0002 的已套用判定（git apply --reverse --check）永久失败、sync 卡死，2026-08-31 合并修复。另含四处本仓自修（参照实现所无，撤补丁时随本体一并移除）：details 拖拽手柄让位右侧面板列（left 减去 panel 轨宽，否则双开时手柄漂进面板列内）；放大覆盖层目标宽改 `calc(100% - 侧栏轨表达式)`，跟随 --dsh-sidebar-collapsed-track 的桌面 0px 覆盖；.frame 声明 inline-size 容器（container-type），放大目标宽拆成两份拼写——panelCol 用 `calc(100% - …)`（包含块是 frame）、内层 panelColPin 用 `calc(100cqi - …)`（包含块是 panelCol 自身，沿用 100% 会二次扣减侧栏轨，展开后右缘露出一条侧栏宽的空白，2026-09-01 引入当日修复），cqi 锚定 frame 宽度在缓动中恒定，clip-box 零重排设计随之恢复，app-frame 测试补 pin 宽度断言防再回归；conversation/details/panel/shell.overlay 四个 owner 恒定的槽位经模块级 memo 边界承载，布局拖动的 store tick 不再逐帧重派发重型子树，并有 app-frame 调用次数测试锁定。上游未来自带 panel 列应整体撤补丁，插件改指上游契约
-  - file: 0007-ui-trajectory-panel-page.patch
-    reason: 轨迹视图呈现位迁移（对齐参考实现 dsh-desktop 同款改写，但保留 web 回退）：呈现位 panel 优先 + web 回退——panelShell 服务在场（桌面壳）注册 panel-shell.page 面板页双半；无 panelShell 服务时（上游 web）保留上游 conversation.view tab；panel 环后声明即接管并撤回回退 tab。可选服务按上游规则走 ctx.get 惰性读取、不进 inject（否则无面板服务的宿主整个 fiber 置 INACTIVE，数据管线一并消失）。数据管线六组定义与注入面逐字保留。插件层不可达——TrajectoryView 未从 client 入口导出，且 tab 注册内嵌于上游 apply 函数体无法从外部摘除；panel-shell 的类型面在补丁内本地声明合并（上游 workspace 无此包），owner 货币含 0008 的 inspect 交接字段（与插件侧 PanelPageOwnerProps 镜像同步）。依赖 0006 的 panel 缝，撤 0006 须连撤本补丁；上游自带面板页注册或开放导出后撤
-  - file: 0008-ui-conversation-panel-inspect-seam.patch
-    reason: 依赖 0005（hunk context 锚定其新增行）。面板侧 inspect 交接缝（修复轨迹迁入面板后 chat 的 Inspect 按钮失效）：inspectCall 内嵌于上游 apply 闭包，插件无任何拦截点；且面板列在 conversation 子树之外，chat store 里的 inspect 目标（setInspect 写入）对 panel 侧不可达。故最小修改 inspectCall——探测可选 panelShell 服务（ctx.get 惰性读取，同 0005 的 chatFlowGrouping 模式），在则整体委托（开列→开页→下发一次性选中目标），不在则上游 tab 路径原样保留（web 无此服务行为不变）。上游自带面板 inspect 集成后撤
-  - file: 0009-ui-conversation-file-browser-open-seam.patch
-    reason: 依赖 0005（hunk context 锚定其新增行）。ui-conversation 的 openFile 回调内嵌于 apply 闭包，插件没有可替换的拦截点；新增可选 fileBrowser.tryOpen 接缝，保留目录打开、服务缺席及未处理路径的原系统打开回退；上游提供可扩展 openFile service/middleware 后撤
-  - file: 0010-host-image-input-admission-seam.patch
-    reason: Web prompt 的图片准入内嵌于 host apiproxy，插件无法在附件持久化前表达“可转写”；包装 resolveModelInfo 会把插件桥接伪装成 Provider 原生 image 能力并误导 ACP/MCP，因此新增可选 imageInputAdmission.admit 准入缝，保持 inputModalities 原生事实、无服务时行为不变；上游提供正式图片桥接准入契约后撤
-  - file: 0011-llm-input-transform-seam.patch
-    reason: LlmRuntime 原先只提供 text-only 占位投影，插件无法在精确模型能力解析后、适配器分发前提供一次性图片转写；agent/pre-step 追加插件消息会污染 Session/UI，llm/stream 二次重发又绕过正式分发边界。新增 fiber-owned registerInputTransform，按 exact provider/model、inputModalities 与 signal 提供仅本次 adapter attempt 的消息投影；原生图片路由、无图请求和无注册行为保持不变，且转换故障不伪装为 provider failure。上游未来提供同等 pre-dispatch transform 契约后撤
-  - file: 0012-core-session-rewind-tombstone.patch
-    reason: 会话撤回（墓碑）的 core 解释层：'dsh-desktop/session-rewind' 事件由 @dsh-desktop/rewind 插件 append（写入侧零源码改动），但其折叠解释（surface truncate）内嵌于 dsh-session 的 planSurfaceEvent/applySurfacePlan 私有汇合点——live append、fromRestore、foldSurface 三条路径共用，插件无任何拦截面，与 0008 同性质。补丁同时把类型声明进 SessionEventMap 并重生成持久化目录：墓碑不可标 ignorable（跳过=重建出未截断的错误会话，违背信封契约），必须目录已知；官方 CLI 打开含墓碑会话会显式拒读（ADR-0007 记录的预期行为）。上游落地原生 rewind/truncate 原语后撤
-  - file: 0013-client-runtime-rewind-fold.patch
-    reason: 会话撤回的客户端解释层：conversation 视图的 ingest 三口（初始 history 窗口 installWindow、实时 session/event 的 appendLive、翻页 loadOlder prepend）内嵌于 dsh-client-runtime 的 Session 私有装配，且 assembler 增量路径对节点撤下一律抛错（withdrew materialized target）、无删除 API——插件无法让已物化节点从视图消失，只能借 replaceWindow 重建，而重建触发点同样在私有 ingest 内。可见性折叠常量刻意本地字面量（不 import dsh-session 构建产物，避免解析顺序耦合），语义与 0012 的 core fold 对齐（隐藏 [atSeq, marker)，墓碑事件本身保留可被 definition 认领渲染撤回标记）。上游落地原生 rewind 或开放 ingest 缝后撤
-  - file: 0014-settings-nav-archive-icon.patch
-    reason: 设置导航项图标由 ui-settings-general shell 的 navIcon(id) 按 section id 硬编码映射（未知 id 回退齿轮），settings.section 注册 options 仅透传 id/order/label，图标面插件层完全不可达（与 0004 的契约常量同性质）；为 @dsh-desktop/archive-manager 的归档页补一行 archive-manager → IconArchiveOutline20 映射。上游开放 section 图标贡献面（如 register options 收 icon 槽）后撤
-  - file: 0015-win32-dialog-sandbox-safe-utf16-read.patch
-    reason: Win32 目录选择器 worker 在 Electron 宿主（ELECTRON_RUN_AS_NODE）下 fatal：readUtf16 用 koffi.view 把 COM 内存零拷贝包成 external ArrayBuffer，Electron 全进程强制的 V8 Sandbox 禁止此操作（官方 Node 不开，故上游 Windows CI 测不出）；改为 koffi.decode.string16 的拷贝式读取（ffi.cc DecodeString16 → napi_create_string_utf16），真实 Node 与 Electron 下行为一致。函数内嵌于 directory-picker-native 包内部，插件与配置层均不可达。配套把 fake koffi 测试的 view mock 移除、decode 挂上 string16，旧实现必然红。上游修复后撤
+    reason: 桌面侧栏默认宽度取 320；columns.ts 是契约常量且 layout 服务面刻意不暴露宽度写入（ILayout 仅 toggle/open/close），插件与配置层均不可达。两版上游 columns.ts 逐字未变（仍 SIDEBAR_DEFAULT=280），是 0.1.2 实测唯一可原样套用的补丁；0006 重做回归后按新四列版重排，届时随 0006 一并更新本条
