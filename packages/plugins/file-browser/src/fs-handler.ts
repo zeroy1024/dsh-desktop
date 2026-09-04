@@ -200,8 +200,9 @@ const SENSITIVE_HOME_RELATIVES = [
 
 /**
  * 由运行时基座派生的拒绝前缀（每次现算：os.homedir() / %USERPROFILE% /
- * $DSH_HOME 都是进程环境的事实，测试可 stub）。POSIX 用家目录基座；
- * Windows 用 %USERPROFILE% 基座（未显式设置时以盘符形态 homedir 兜底），
+ * $DSH_HOME 都是进程环境的事实，测试可 stub）。家目录基座恒收；%USERPROFILE%
+ * 在真实 Windows 上与 os.homedir() 同源（去重后只留一份），被人为岔开时
+ * （如测试 stub 了 homedir）两个基座都拦——deny 面只增不减。
  * 匹配走 canonicalRealPath 的小写盘符归一化形态。
  */
 function deniedPrefixes(): Array<{ value: string; windows: boolean }> {
@@ -212,13 +213,13 @@ function deniedPrefixes(): Array<{ value: string; windows: boolean }> {
     }
   }
   const home = canonicalRealPath(homedir())
-  if (home !== undefined && !home.windows) add(home)
+  if (home !== undefined) add(home)
   const profile = process.env.USERPROFILE
   if (profile !== undefined) {
     const canonical = canonicalRealPath(profile)
-    if (canonical?.windows) add(canonical)
-  } else if (home?.windows) {
-    add(home)
+    if (canonical !== undefined && canonical.windows && canonical.value !== home?.value) {
+      add(canonical)
+    }
   }
   // $DSH_HOME 覆盖（上游 resolveDshHome：环境优先于 ~/.dsh）：凭据文档与
   // 回退 secrets 层同列，别被换根绕开。相对形态无法解析则跳过（兜底仍在）。

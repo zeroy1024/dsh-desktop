@@ -252,6 +252,7 @@ describe('abs 高敏凭据 denylist', () => {
 
   afterEach(async () => {
     homeControl.value = undefined
+    vi.unstubAllEnvs()
     await rm(credRoot, { recursive: true, force: true })
   })
 
@@ -308,5 +309,16 @@ describe('abs 高敏凭据 denylist', () => {
     // 换盘符/非家目录基座不误伤；POSIX 形态不受 Windows 基座影响。
     expect(isDeniedAbsolutePath('D:/Users/me/.ssh/id_rsa')).toBe(false)
     expect(isDeniedAbsolutePath('/home/me/.ssh/id_rsa')).toBe(false)
+  })
+
+  it('USERPROFILE 与 homedir 岔开：两个基座都拦（真实 Windows 主机回归）', () => {
+    // 真实 Windows 上 USERPROFILE 恒存在；此前实现只看 USERPROFILE、忽略
+    // homedir 基座，导致 Windows CI 上 stub 的家目录整条失效。两个基座
+    // 都应生效（deny 面只增不减），同名时实现侧去重。
+    homeControl.value = 'C:\\Users\\me'
+    vi.stubEnv('USERPROFILE', 'C:\\Users\\runneradmin')
+    expect(isDeniedAbsolutePath('C:/Users/me/.ssh/id_rsa')).toBe(true)
+    expect(isDeniedAbsolutePath('C:/Users/runneradmin/.aws/credentials')).toBe(true)
+    expect(isDeniedAbsolutePath('C:/Users/other/.ssh/id_rsa')).toBe(false)
   })
 })
