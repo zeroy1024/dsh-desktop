@@ -29,8 +29,9 @@
 
 - ✅ **阶段 5 大部完成**：commit `2146926`（0007/0008/0009）。**0005 未做**（活动分组缝迁 ui-chat，见下）。
 - ✅ **阶段 6 完成**：commit `a2bd925`（0010/0011 + sync 同版本刷新修复 + vision 集成测试恢复全绿）。sync 脚本修复：pnpm 对同版本 file: tarball 即使 --force 也沿用已安装实体，installCli 先移除本地包实体再安装。
-- ✅ **阶段 7 部分完成**：0012 重做并全绿（10 测试；surface.ts 冲突=import 区合并；测试访问器 `session.events`→`session.snapshotEvents()`；补丁文件已生成未登记 patches.yml、未 commit）。**0013 未做**——重大架构变化：session-controller 的 Session 重构为 `eventSource` 统一事件源（`prependWindow`/`appendLive` 走 `this.eventSource.prepend/append(entry)`，conversation 装配移到 feed 订阅链），旧 0013 的 `conversation.replaceWindow/append` 直接落点**不存在**；需要在 eventSource→装配管线中重新设计可见性过滤（研究 packages/api/session-controller/src/client/sessions/ 的 event-source 与装配订阅者）。
-- 🔧 **剩余项**：0013（架构重设计）、0005（活动分组缝迁 ui-chat——apply/slots/ChatNodeSeat 组员渲染变体/chatFlowGrouping 服务 + locales + 测试）、0001/0014/0015 外围、阶段 9/10。
+- ✅ **阶段 7 大部完成**：0012 重做全绿并已登记（commit 71299c5）。**经验教训**：生成含新文件的 patch 必须先 `git -C upstream add -N <path>` 再 `git diff HEAD`；`git diff`+`git diff --cached` 拼接会产生重复段；登记遗漏会让 sync 的「未登记修改」守卫拦截（根因排查路径：手动重放 registeredPatchDiff/actualUpstreamDiff 对比）。**0013 未做**——重大架构变化：session-controller 的 Session 重构为 `eventSource` 统一事件源（`prependWindow`/`appendLive` 走 `this.eventSource.prepend/append(entry)`，conversation 装配移到 feed 订阅链），旧 0013 的 `conversation.replaceWindow/append` 直接落点**不存在**；需要在 eventSource→装配管线中重新设计可见性过滤（研究 packages/api/session-controller/src/client/sessions/ 的 event-source 与装配订阅者）。
+- ✅ **阶段 8 大部完成**：0014（冲突=上游新增 ConnectionIndicator 导入合并）、0015（上游仍未修 koffi.view；string16 拷贝式读取重放并吸收上游双字节 NUL 语义；fake koffi 移除 view mock）已 commit（7e65522）。0001 已试套：冲突多（Rows.tsx 右键菜单/hover 结构 + WorkspaceBrowser 迁移 rows/），需完整手工移植，**未完成**。
+- 🔧 **剩余项**：0001（Rows.tsx 导出菜单+右键菜单完整移植 + locales/CSS/3 测试文件）、0013（架构重设计：eventSource→装配管线插可见性过滤）、0005（活动分组缝迁 ui-chat）、阶段 9/10。
 
 ## 阶段总览
 
