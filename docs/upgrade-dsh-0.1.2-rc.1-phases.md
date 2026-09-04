@@ -43,6 +43,34 @@
 - ✅ **0013 实现完成但暂摘**：`patches/0013-session-controller-rewind-fold.patch` 已写好（events.ts 装饰器 + session.ts raw/可见性双源接线 + 4 个单测绿；session.ts 内部走 rawEvents，对外 eventSource 为折叠视图）。**阻塞**：新增 spec 被 host tsconfig 通配捞入 host program，其 store 深链触发 TS6307 连锁；需把 spec 登记进包级检查面或改组织方式（登记后需同步核对 host include 白名单）。
 - ⏳ **剩余**：0001（Rows.tsx 完整移植）、0007/0013 恢复登记、阶段 9 打包与三平台 CI、阶段 10 文档终稿。
 
+
+## 最终完成状态（2026-09-05）
+
+- ✅ **阶段 0–4 全部完成**（M0/M1/M2）
+- ✅ **阶段 5**：0008/0009/0005 完成；**0007 两轮注入形态失败后维持摘除**（slots.inject 未声明槽的竞态 + cordis inject 元素=entry id 语义均实证；实现代码保留在 patches/0007-*.patch 与 git 历史）
+- ✅ **阶段 6**：0010/0011 完成 + sync 同版本刷新缺陷修复
+- 🔶 **阶段 7**：0012 完成；**0013 实现完成但暂摘**（events.ts 装饰器 + session.ts raw/可见性双源 + 4 单测绿；阻塞=新增 spec 被上游 host tsconfig 通配捞入引发 client-store 深链 TS6307 雪崩——需把 spec 登记进包级检查面或调整 spec 组织）
+- 🔶 **阶段 8**：0014/0015/0001 完成（0001=会话行导出菜单的最小移植：原生菜单追加导出项，右键触发未移植）
+- ✅ **阶段 9**：test/typecheck/lint/verify-vendor-lock/probe-native/smoke:dsh/smoke:electron 全绿；package:mac DMG 构建成功（269 MB）；ci:smoke:packaged 绿（tar 含 bin.js+@dsh-desktop、≤2 万成员、启动 READY）
+- ✅ **阶段 10**：本文档即终稿。ADR-0007 待补记 fork 决策（后续）。
+
+### 队列终态（patches.yml 登记序=apply 序）
+
+0006 → 0008 → 0009 → 0005 → 0010 → 0011 → 0012 → 0013 → 0014 → 0015 → 0001，共 **11 个补丁**（0004 已被 0006 吸收退役）。
+
+### 已知降级（当前绿态下）
+
+| 项 | 状态 | 恢复条件 |
+| --- | --- | --- |
+| 轨迹面板页（0007） | 摘除，trajectory 回 web 页签形态 | cordis/loader inject 装配语义排障（实验数据见上文与 git 历史） |
+| 面板页 inspect 交接（0008 后半） | 闲置无害 | 随 0007 |
+| 活动分组（0005 + activity-group） | 缝已重做、插件已装配 | 需一轮会话内人工验证折叠行为 |
+| 会话撤回客户端折叠（0013） | 摘除，core 墓碑（0012）在位 | spec 登记进包级检查面（TS6307 连锁的解法已定位） |
+
+### 三平台 CI
+
+三平台 CI 由 GitHub Actions 执行（push 后触发）。本地已完成 darwin 全量验证；Windows/Linux 的 WCO、0015、NSIS/AppImage 断言依赖 CI runner，合并前须在远程分支上确认绿。
+
 ## 阶段总览
 
 | 阶段 | 内容 | 里程碑 | 估算 |
