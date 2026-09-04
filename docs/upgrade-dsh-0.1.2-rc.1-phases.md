@@ -4,6 +4,21 @@
 > 已确认决策：**rewind 保留原地截断语义**（重做 0012/0013；上游 fork 留作后续增强）。
 > 分支：`upgrade/dsh-v0.1.2-rc.1`。工作量估算：**约 8–11 人日**（不含 CI 等待）。
 
+## 进度记录（实时更新）
+
+- ✅ **阶段 0 完成**：基线四项全绿（`.ci-artifacts/baseline-rc2/` 存档）；patches.yml 暂摘（留 0004）；commit `9a19ca0`。
+- ✅ **阶段 1 完成（M0）**：submodule → `dsh-v0.1.2-rc.1`（commit `ef32f87`）；sync 全量绿；vendor 锁重生成（commit 中）；`ci:verify-vendor-lock`/`ci:probe-native` 绿；bin.js ready 行带 token 实测确认。configTrees 缺 presets 数据**不致命**（观察项）。
+- ✅ **阶段 2 完成**：commit `56f0a52`。要点：inject 的 runtime → `dsh-client-ui-renderer`（+ desktop-frame 加 workspace-controller、file-browser/rewind 加 session-controller）；plugin-kit PLATFORM_MODULES 加 store、PRELOADED 清空；vision/web-search 迁 `SettingsProvider.installSection`（ns 直接字符串、ctx.get('settings') 可选服务）+ CSS 镜像同步；rewind/vision 各一个绑定 0011/0012 的集成 spec 加迁移期 skip（阶段 6/7 恢复）。
+- ✅ **阶段 3 完成（M1）**：commit `9259419`。要点：主进程 `loadURL(ready.url)` 透传 token（`agentReadyUrl` 模块状态、exit 清空）；smoke-dsh 实现 303+cookie 交接（undici 无 cookie jar）；CSP `base-uri 'none'→'self'`（0.1.2 主文档自带 `<base href="/">`，'none' 会拦截）。**M1 验收超预期**：smoke-electron startup+restart 双哨兵绿、desktop-frame 按钮簇断言绿（不依赖 0006）。
+- 🔧 **阶段 4 进行中（0006 重做）**——已验证的续做要点：
+  - **旧补丁认知修正**：`CENTER_MIN=640` 在 rc.2 就存在，0006 自己调成 360；`columns.ts`/`service.ts` 宿主两版逐字未变。
+  - columns.ts 目标全文已写好并验证（0004 的 320 已并入其中；含 PANEL_MIN=320/PANEL_DEFAULT=480/normalizePanelWidth/四参 computeColumns 五档让位链）。
+  - service.ts 可直接 `git apply --include='*/service.ts'` 套旧 0006（宿主未变）。
+  - 待重适配：`AppFrame.tsx`（PropsRenderSlots 加 'panel'、StaticSlot memo 四槽边界、DragHandle panel 侧、computeColumns 四参、panelExpanded/overlay 全屏覆盖语义、grid 四列）、`AppFrame.module.css`（四列轨 + 折叠轨变量缝 + overlay 呈现）、`index.ts`（SlotMap 声明 'panel'——新版 declaring-is-claiming 要求在同一 register() children 声明）、`stores.ts`（panel/panelExpanded + actions，defineStore 版）+ 4 个测试文件。
+  - **流程教训**：改完主进程源码必须 `pnpm --filter @dsh-desktop/desktop build` 再跑 smoke（M1 的挂载超时假象就是旧产物导致）；upstream 内做 0006 时注意 cwd（曾因 `git -C` 混用把进度 diff 写错路径——columns 内容可从本会话恢复，无实际损失）。
+  - 0004/0006 收束策略：columns 的 320 已并入 0006 目标状态，最终从 patches.yml 移除 0004 并在 0006 reason 写明吸收。
+
+
 ## 全局纪律（每阶段都适用）
 
 1. **commit 粒度**：每个补丁重做 = 一个独立 commit（补丁文件 + `patches.yml` reason 更新 + 上游测试适配）；每个阶段末尾是一个可回滚点。
