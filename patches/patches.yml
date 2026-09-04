@@ -68,6 +68,18 @@ patches:
       ctx.remote.session.openWorkspacePath），插件没有可替换的拦截点；新增可选
       fileBrowser.tryOpen 接缝，保留目录打开、服务缺席及未处理路径的原系统打开
       回退。上游提供可扩展 openFile service/middleware 后撤
+  - file: 0012-core-session-rewind-tombstone.patch
+    reason: |
+      会话撤回（墓碑）的 core 解释层（0.1.2 重做）：'dsh-desktop/session-rewind'
+      事件由 @dsh-desktop/rewind 插件 append（写入侧零源码改动），其折叠解释
+      （surface truncate）内嵌于 dsh-session 的 planSurfaceEvent/applySurfacePlan
+      私有汇合点——live append、fromRestore、foldSurface 三条路径共用，插件无
+      拦截面。0.1.2 适配：seq 类型品牌化（SessionSeq/SessionLogOffset）下重放；
+      known-event-types 仍为生成式硬编码集合（上游架构笔记明示否决可注册注册表），
+      墓碑按旧法登记目录与 SessionEventMap declaration-merge；测试访问器随新 API
+      改 snapshotEvents()。墓碑不可标 ignorable（跳过=重建出未截断的错误会话）；
+      官方 CLI 打开含墓碑会话显式拒读（ADR-0007）。持久化已改 JSONL，roundtrip
+      与拒读行为在阶段 7 专项测试覆盖。上游落地原生 rewind/truncate 原语后撤
   - file: 0014-settings-nav-archive-icon.patch
     reason: |
       设置导航项图标由 ui-settings-general shell 的 navIcon(id) 按 section id
