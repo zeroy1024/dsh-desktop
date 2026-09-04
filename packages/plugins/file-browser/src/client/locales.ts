@@ -41,6 +41,7 @@ export type FileBrowserKey =
   | 'error.bad-path'
   | 'error.forbidden'
   | 'error.symlink-escape'
+  | 'error.denied'
   | 'error.is-directory'
   | 'error.unreadable'
   | 'error.network'
@@ -80,6 +81,7 @@ export const zh: Record<FileBrowserKey, string> = {
   'error.bad-path': '非法路径',
   'error.forbidden': '请求被拒绝',
   'error.symlink-escape': '该符号链接指向工作区之外，无法读取',
+  'error.denied': '该路径不在预览允许范围（敏感凭据目录）',
   'error.is-directory': '这是一个目录',
   'error.unreadable': '无法读取文件',
   'error.network': '与本地服务的连接失败',
@@ -120,6 +122,7 @@ export const en: Record<FileBrowserKey, string> = {
   'error.bad-path': 'Invalid path',
   'error.forbidden': 'Request refused',
   'error.symlink-escape': 'This symlink escapes the workspace',
+  'error.denied': 'This path is outside the allowed preview scope (sensitive credentials)',
   'error.is-directory': 'This is a directory',
   'error.unreadable': 'Cannot read file',
   'error.network': 'Lost connection to the local agent',

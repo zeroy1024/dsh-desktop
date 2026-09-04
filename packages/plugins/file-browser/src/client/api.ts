@@ -9,7 +9,7 @@
 /** RPC/数据面错误的业务码（含 /fs 信封与 /api error.code 的并集子集）。 */
 export type FsErrorCode =
   | 'session-not-found' | 'not-found' | 'bad-path' | 'forbidden'
-  | 'symlink-escape' | 'is-directory' | 'unreadable' | 'network' | 'internal'
+  | 'symlink-escape' | 'is-directory' | 'denied' | 'unreadable' | 'network' | 'internal'
 
 export class FsApiError extends Error {
   constructor(readonly code: FsErrorCode) {

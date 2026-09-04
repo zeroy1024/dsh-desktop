@@ -17,6 +17,9 @@
  * 规范化绝对路径（POSIX / Windows 盘符 / UNC），跳过栅栏 2/3 的 root 边界
  * ——特性即"可读工作区外文件"。信任锚不变：仍要求有效会话 + 信任栅栏 +
  * 大小/二进制限量；list 不接受 abs（文件树仍严格锚定会话工作区）。
+ * 纵深防御：realpath 解析后仍对高敏感凭据目录（ssh/gnupg/aws/azure/
+ * gh/kube/dsh 凭据库等）做前缀拒读（403 denied），避免渲染层 XSS/注入被
+ * 放大成单 GET 凭据窃取——特性是"可读工作区外文件"，不是"可读任何文件"。
  *
  * 只读、限量：list 有界截断（maxEntries），read 大小短路（maxReadBytes）+
  * NUL 采样判二进制（前 8 KiB，与上游 fs-local 同法）。错误信封统一
@@ -24,6 +27,7 @@
  */
 import { opendir, readFile, realpath, stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { homedir } from 'node:os'
 import { isTrustedFsRequest, resolveWithinRoot } from '@dsh-desktop/bridge/fs-guard'
 
 /** 路由前缀；与 `index.ts` 的注册共用。 */
@@ -62,7 +66,7 @@ export interface FsHandlerDeps {
 /** fs 错误信封的码表：client 半按 code 出文案。 */
 type FsErrorCode =
   | 'forbidden' | 'bad-request' | 'bad-path' | 'session-not-found'
-  | 'not-found' | 'is-directory' | 'symlink-escape' | 'unreadable'
+  | 'not-found' | 'is-directory' | 'symlink-escape' | 'denied' | 'unreadable'
 
 /** 统一 JSON 发送：no-store（本地文件随时可改），charset 显式。 */
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -176,6 +180,114 @@ export function normalizeAbsoluteInput(input: string): string | undefined {
   return slashForm.startsWith('//')
     ? `//${segments.join('/')}`
     : `/${segments.join('/')}`
+}
+
+/**
+ * 高敏凭据路径 denylist 的条目（家目录相对；Windows 等价形态同表）。
+ *
+ * 只收"一看就是凭据"的形态——私钥、token、云凭据，不做宽泛隐私过滤。
+ * 前缀语义：目录条目覆盖其全部后代；文件条目只拦自身（如 Claude Code 的
+ * `.credentials.json` 与旧 LevelDB 形态 `.credentials` 是两处，需分别列出）。
+ * 上游凭据布局（credentials-local）：`$DSH_HOME/.credentials.yaml`（受管凭据
+ * 文档）+ `$DSH_HOME/.env`（回退 secrets 层），`$DSH_HOME` 默认 `~/.dsh`。
+ */
+const SENSITIVE_HOME_RELATIVES = [
+  '.ssh', '.gnupg', '.aws', '.azure',
+  '.config/gh', '.config/gcloud', '.kube',
+  '.claude/.credentials', '.claude/.credentials.json', '.codex/auth.json',
+  '.dsh/.credentials.yaml', '.dsh/.env',
+] as const
+
+/**
+ * 由运行时基座派生的拒绝前缀（每次现算：os.homedir() / %USERPROFILE% /
+ * $DSH_HOME 都是进程环境的事实，测试可 stub）。POSIX 用家目录基座；
+ * Windows 用 %USERPROFILE% 基座（未显式设置时以盘符形态 homedir 兜底），
+ * 匹配走 canonicalRealPath 的小写盘符归一化形态。
+ */
+function deniedPrefixes(): Array<{ value: string; windows: boolean }> {
+  const out: Array<{ value: string; windows: boolean }> = []
+  const add = (base: { value: string; windows: boolean }): void => {
+    for (const rel of SENSITIVE_HOME_RELATIVES) {
+      out.push({ value: `${base.value}/${rel}`, windows: base.windows })
+    }
+  }
+  const home = canonicalRealPath(homedir())
+  if (home !== undefined && !home.windows) add(home)
+  const profile = process.env.USERPROFILE
+  if (profile !== undefined) {
+    const canonical = canonicalRealPath(profile)
+    if (canonical?.windows) add(canonical)
+  } else if (home?.windows) {
+    add(home)
+  }
+  // $DSH_HOME 覆盖（上游 resolveDshHome：环境优先于 ~/.dsh）：凭据文档与
+  // 回退 secrets 层同列，别被换根绕开。相对形态无法解析则跳过（兜底仍在）。
+  const dshHome = process.env.DSH_HOME
+  if (dshHome !== undefined && dshHome.trim() !== '') {
+    const canonical = canonicalRealPath(dshHome)
+    if (canonical !== undefined) {
+      out.push({ value: `${canonical.value}/.credentials.yaml`, windows: canonical.windows })
+      out.push({ value: `${canonical.value}/.env`, windows: canonical.windows })
+    }
+  }
+  return out
+}
+
+/** 段边界的词法前缀判定：`a/b/c` 命中前缀 `a/b`，`a/bc` 不命中。 */
+function isWithinPath(prefix: string, path: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`)
+}
+
+/**
+ * 前缀基座的 realpath 归一（async）：被读文件已解析到最终目标
+ * （`~/.ssh` 若本身是 symlink 也要随之解析，否则词法比对会脱靶——
+ * `/tmp` 别名 / 家目录软链等真实布局），realpath 失败按原值比对兜底。
+ * 仅 server 端调用；纯函数判定（isDeniedAbsolutePath）走词法路径。
+ */
+async function resolvedPrefixes(): Promise<Array<{ value: string; windows: boolean }>> {
+  return Promise.all(deniedPrefixes().map(async prefix => {
+    try {
+      const real = canonicalRealPath(await realpath(prefix.value))
+      if (real !== undefined) return real
+    } catch { /* 前缀目录尚不存在（含纯测试路径）：按词法值比对。 */ }
+    return prefix
+  }))
+}
+
+/**
+ * abs 读端的高敏凭据路径判定（纯字符串，消费 realpath 之后的 canonical
+ * 形态——symlink 先解析再判定，不给你换条链子绕过）。前缀在段边界匹配：
+ * `~/.ssh/keys/x` 命中 `~/.ssh`，`~/.ssh2/x` 不命中；Windows 按
+ * canonicalRealPath 折叠大小写，POSIX 严格区分。
+ */
+export function isDeniedAbsolutePath(absReal: string): boolean {
+  const canonical = canonicalRealPath(absReal)
+  if (canonical === undefined) return false
+  for (const prefix of deniedPrefixes()) {
+    if (prefix.windows !== canonical.windows) continue
+    if (isWithinPath(prefix.value, canonical.value)) return true
+  }
+  return false
+}
+
+/**
+ * async 版判定：**目标与前缀都过 realpath**（目标自身解析失败按词法值
+ * 兜底），消除 `/var ↔ /private/var`、家目录软链等词法别名造成的漏判。
+ * server 端（目标已解析）与直接调用（词法路径）行为一致。
+ */
+export async function isDeniedResolvedPath(absReal: string): Promise<boolean> {
+  let target = absReal
+  try {
+    target = await realpath(absReal)
+  } catch { /* 目标不存在等：按词法值比对，仍能拦前缀直命。 */ }
+  const canonical = canonicalRealPath(target)
+  if (canonical === undefined) return false
+  const prefixes = await resolvedPrefixes()
+  for (const prefix of prefixes) {
+    if (prefix.windows !== canonical.windows) continue
+    if (isWithinPath(prefix.value, canonical.value)) return true
+  }
+  return false
 }
 
 /** dirent → 条目：dir/file 分类，symlink 跟随 stat 判真实类型（断链归 file）。 */
@@ -337,6 +449,9 @@ async function handleRead(
  * read op（工作区外单文件）：`abs` 参数承载规范化绝对路径。无 root 边界
  * 可言（特性本身），symlink 逃逸校验不适用——realpath 解析后的最终目标
  * 就是读取对象；信任锚降为：有效会话 + 信任栅栏 + 大小/二进制限量。
+ * 纵深防御：realpath 之后再过高敏凭据 denylist（`isDeniedResolvedPath`，
+ * 目标与前缀都取解析后形态），拦 `~/.ssh` 等凭据目录及其 symlink 别名
+ * （渲染层 XSS 单 GET 窃取场景）。
  */
 async function handleReadAbsolute(
   res: ServerResponse,
@@ -350,6 +465,10 @@ async function handleReadAbsolute(
   } catch (err) {
     if (err instanceof AbortedError) return
     sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  if (await isDeniedResolvedPath(absReal)) {
+    sendJson(res, 403, { ok: false, error: 'denied' satisfies FsErrorCode })
     return
   }
   await readFilePayload(res, deps, absReal, signal)

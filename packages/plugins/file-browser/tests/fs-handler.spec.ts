@@ -1,14 +1,26 @@
 /**
  * fs-handler 集成测：真 temp 目录 + 真 http server + fetch。
- * 覆盖信任栅栏、session 解析、路径沙箱、list/read 语义与 symlink 逃逸。
+ * 覆盖信任栅栏、session 解析、路径沙箱、list/read 语义、symlink 逃逸
+ * 与 abs 通道的高敏凭据 denylist（homedir 经 vi.mock 控制基座）。
  * 这是仓库首个 node 半测试先例（此前插件 node 半全是空 apply）。
  */
 import { createServer, request as httpRequest } from 'node:http'
 import { mkdtemp, mkdir, rm, symlink, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createFsHandler, FS_ROUTE_PREFIX, normalizeAbsoluteInput } from '../src/fs-handler'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createFsHandler, FS_ROUTE_PREFIX, isDeniedAbsolutePath, isDeniedResolvedPath, normalizeAbsoluteInput } from '../src/fs-handler'
+
+/**
+ * 测试可控的家目录：`~/.ssh` 等 denylist 前缀由运行时 homedir() 派生，
+ * stub 到临时目录即可断言，不碰真实 $HOME；默认回落真实 homedir()。
+ */
+const homeControl = vi.hoisted(() => ({ value: undefined as string | undefined }))
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>()
+  return { ...actual, homedir: () => homeControl.value ?? actual.homedir() }
+})
 
 const trustedHeaders = { host: '127.0.0.1:9', origin: 'http://127.0.0.1:9' }
 
@@ -68,6 +80,11 @@ function get(path: string, headers: Record<string, string> = trustedHeaders, met
     req.on('error', rejectPromise)
     req.end()
   })
+}
+
+/** abs 值需要 URL 编码（绝对路径含 `/`，Windows 盘符含 `:`）；两个 abs 用例共用。 */
+function readAbs(abs: string, sessionId = 's1'): ReturnType<typeof get> {
+  return get(`/read?sessionId=${sessionId}&abs=${encodeURIComponent(abs)}`)
 }
 
 describe('栅栏', () => {
@@ -169,10 +186,6 @@ describe('normalizeAbsoluteInput', () => {
 })
 
 describe('read op 工作区外单文件（abs）', () => {
-  /** abs 值需要 URL 编码（绝对路径含 `/`，Windows 盘符含 `:`）。 */
-  const readAbs = (abs: string, sessionId = 's1'): ReturnType<typeof get> =>
-    get(`/read?sessionId=${sessionId}&abs=${encodeURIComponent(abs)}`)
-
   it('工作区外文件可预览（特性主路径）', async () => {
     const { status, body } = await readAbs(join(outside, 'secret.txt'))
     expect(status).toBe(200)
@@ -207,5 +220,93 @@ describe('read op 工作区外单文件（abs）', () => {
       .toEqual({ ok: false, error: 'session-not-found' })
     expect((await readAbs(join(outside, 'secret.txt'), 's2')).body)
       .toEqual({ ok: false, error: 'session-not-found' })
+  })
+})
+
+describe('abs 高敏凭据 denylist', () => {
+  /** 与 beforeAll 同根的独立布局：denylist 目录 + 普通外部文件 + 绕道链。 */
+  let credRoot: string
+  let home: string
+  let sshDir: string
+  let bypass: string
+  let plainDir: string
+
+  beforeEach(async () => {
+    // macOS /var → /private/var：先 realpath 再派生，基座与目录树同源，
+    // 否则 denylist 前缀的 realpath 归一与词法 home 会对不上。
+    credRoot = await realpath(await mkdtemp(join(tmpdir(), 'dsh-fs-denied-')))
+    home = join(credRoot, 'home')
+    sshDir = join(home, '.ssh')
+    bypass = join(credRoot, 'bypass')
+    plainDir = join(credRoot, 'elsewhere')
+    await mkdir(sshDir, { recursive: true })
+    await mkdir(plainDir, { recursive: true })
+    await writeFile(join(sshDir, 'id_rsa'), 'PRIVATE KEY\n')
+    await mkdir(bypass)
+    // 绕道链：绝对路径自身与 ~/.ssh 无关，realpath 后才落入 .ssh ——
+    // 证明判定发生在 realpath 之后（服务端与 async 判定双端断言）。
+    await symlink(sshDir, join(bypass, 'ssh-alias'))
+    await writeFile(join(plainDir, 'notes.txt'), 'plain notes\n')
+    homeControl.value = home
+  })
+
+  afterEach(async () => {
+    homeControl.value = undefined
+    await rm(credRoot, { recursive: true, force: true })
+  })
+
+  it('homedir 基座：直接命中 .ssh 目录内 → 403 denied', async () => {
+    const body = (await readAbs(join(sshDir, 'id_rsa'))).body
+    expect(body).toEqual({ ok: false, error: 'denied' })
+  })
+
+  it('homedir 基座：.dsh 凭据文档与 .env 拒绝', async () => {
+    const dsh = join(home, '.dsh')
+    await mkdir(dsh)
+    await writeFile(join(dsh, '.credentials.yaml'), 'version: 1\nDEEPSEEK_API_KEY: redacted\n')
+    await writeFile(join(dsh, '.env'), 'DEEPSEEK_API_KEY=redacted\n')
+    expect((await readAbs(join(dsh, '.credentials.yaml'))).body).toEqual({ ok: false, error: 'denied' })
+    expect((await readAbs(join(dsh, '.env'))).body).toEqual({ ok: false, error: 'denied' })
+  })
+
+  it('前缀段边界匹配：同前缀不同段（.ssh2）不误伤', async () => {
+    const sshTwo = join(home, '.ssh2')
+    await mkdir(sshTwo)
+    await writeFile(join(sshTwo, 'notes.txt'), 'not a key\n')
+    const body = (await readAbs(join(sshTwo, 'notes.txt'))).body
+    expect(body).toMatchObject({ ok: true, text: 'not a key\n' })
+  })
+
+  it('subpath 命中（.config/gh 目录内）→ 403 denied', async () => {
+    const gh = join(home, '.config', 'gh')
+    await mkdir(gh, { recursive: true })
+    await writeFile(join(gh, 'hosts.yml'), 'oauth_token: redacted\n')
+    const body = (await readAbs(join(gh, 'hosts.yml'))).body
+    expect(body).toEqual({ ok: false, error: 'denied' })
+  })
+
+  it('symlink 解析进 .ssh → 403 denied（判定在 realpath 之后）', async () => {
+    const viaBypass = join(bypass, 'ssh-alias', 'id_rsa')
+    // 先 async 判定后 HTTP：同一 canonical 输入，行为必须一致。
+    expect(await isDeniedResolvedPath(viaBypass)).toBe(true)
+    expect(isDeniedAbsolutePath(viaBypass)).toBe(false) // 词法上确实不在 .ssh 下
+    const { status, body } = await readAbs(viaBypass)
+    expect(status).toBe(403)
+    expect(body).toEqual({ ok: false, error: 'denied' })
+  })
+
+  it('denylist 外的工作区外文件仍可读（特性未收缩）', async () => {
+    expect((await readAbs(join(plainDir, 'notes.txt'))).body).toMatchObject({
+      ok: true, text: 'plain notes\n',
+    })
+  })
+
+  it('Windows 盘符形态：homedir 基座下 C:/Users/me/.ssh/id_rsa 拒绝', () => {
+    homeControl.value = 'C:\\Users\\me'
+    expect(isDeniedAbsolutePath('C:/Users/me/.ssh/id_rsa')).toBe(true)
+    expect(isDeniedAbsolutePath('C:/users/ME/.aws/credentials')).toBe(true)
+    // 换盘符/非家目录基座不误伤；POSIX 形态不受 Windows 基座影响。
+    expect(isDeniedAbsolutePath('D:/Users/me/.ssh/id_rsa')).toBe(false)
+    expect(isDeniedAbsolutePath('/home/me/.ssh/id_rsa')).toBe(false)
   })
 })
