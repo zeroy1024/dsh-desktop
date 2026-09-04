@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -89,7 +89,9 @@ describe('rehearseQueue', () => {
     const list = spawnCommandSync('git', ['worktree', 'list'], { cwd: upstreamDir, encoding: 'utf8', stdio: 'pipe' })
     const entries = list.stdout.trim().split('\n').filter(line => line !== '')
     expect(entries).toHaveLength(1)
-    // Windows 的 git worktree list 会打印 8.3 短路径（RUNNER~1），realpath 归一后比较
-    expect(realpathSync(entries[0]!.split(' ')[0]!)).toBe(realpathSync(upstreamDir))
+    // 路径形态不可字符串比较（Windows 的 8.3 短名/长名因 API 而异），
+    // 两侧都过 git 规范化再比
+    const topLevel = spawnCommandSync('git', ['rev-parse', '--show-toplevel'], { cwd: upstreamDir, encoding: 'utf8', stdio: 'pipe' }).stdout.trim()
+    expect(entries[0]!.split(' ')[0]).toBe(topLevel)
   })
 })

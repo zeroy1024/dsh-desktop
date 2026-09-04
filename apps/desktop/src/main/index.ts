@@ -20,7 +20,7 @@ import {
   nativeTheme,
   type WebContents,
 } from 'electron'
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentPageUrl } from '@dsh-desktop/bridge'
 import { createSupervisor } from './agent'
@@ -643,12 +643,15 @@ export async function bootstrap(): Promise<void> {
     app.dock?.setIcon(nativeImage.createFromPath(appIconPath()))
   }
   // 收割上一代残留 agent：主进程被 SIGKILL/崩溃时 before-quit 不执行，
-  // detached 子进程会独活并继续持有 ~/.dsh 与 API key。dev 态 vendor 未构建
-  // 时 resolveCliEntry 会抛，与收割异常一样只告警，不阻断启动。
-  try {
-    await reapOrphanedAgent(agentPidPath(), resolveCliEntry(), defaultReapDeps())
-  } catch (error) {
-    console.warn('[agent] 收割残留 agent 失败', error)
+  // detached 子进程会独活并继续持有 ~/.dsh 与 API key。只在 pid 记录存在时
+  // 收割——首启与干净退出后无记录，此时 resolveCliEntry 在打包态首启会因
+  // 运行时尚未解压而抛（ensureDshRuntime 在 runStartup 里才跑）。
+  if (existsSync(agentPidPath())) {
+    try {
+      await reapOrphanedAgent(agentPidPath(), resolveCliEntry(), defaultReapDeps())
+    } catch (error) {
+      console.warn('[agent] 收割残留 agent 失败', error)
+    }
   }
   // win32 在 createMainWindow 里装自绘菜单体系；macOS/Linux 打包态不能裸露
   // Electron 默认菜单的 reload/devtools，这里装最小菜单（见 application-menu.ts）
