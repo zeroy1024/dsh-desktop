@@ -1,8 +1,8 @@
 diff --git a/packages/host/directory-picker-native/src/win32-dialog-bindings.ts b/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
-index 654bbc5a74..c56b229e15 100644
+index ef7795cf95..cc1b610fca 100644
 --- a/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
 +++ b/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
-@@ -16,29 +16,33 @@ import type { Win32DialogBindings, Win32FolderDialog } from './win32-dialog-logi
+@@ -16,31 +16,34 @@ import type { Win32DialogBindings, Win32FolderDialog } from './win32-dialog-logi
  
  interface KoffiFunction { (...args: unknown[]): unknown }
  interface KoffiLibrary { func(convention: string, name: string, result: string, args: string[]): KoffiFunction }
@@ -36,18 +36,21 @@ index 654bbc5a74..c56b229e15 100644
 + * which fatal-crashes under the V8 Sandbox that Electron (unlike stock Node)
 + * force-enables in every process. `koffi.decode.string16` is the copy-based
 + * reader: it builds a fresh V8 string from the bytes, safe in both runtimes.
++ * (It also owns the two-byte NUL scan, so U+XX00 code units survive.)
   */
  function readUtf16(koffi: Koffi, address: unknown): string {
 -  const bytes = Buffer.from(koffi.view(address, 32768))
 -  let end = 0
--  while (end + 1 < bytes.length && bytes[end] !== 0) end += 2
+-  // UTF-16LE NUL is two zero bytes. A single zero low byte is a valid BMP
+-  // code unit (U+XX00, e.g. 开 = U+5F00) and must not terminate the scan.
+-  while (end + 1 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0)) end += 2
 -  return bytes.toString('utf16le', 0, end)
 +  return koffi.decode.string16(address)
  }
  
  const COINIT_APARTMENTTHREADED = 0x2
 diff --git a/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts b/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
-index b8ff4c3f1a..3a76fd8a3a 100644
+index 85d4aed48b..df3ed88bdf 100644
 --- a/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
 +++ b/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
 @@ -127,25 +127,25 @@ function installFakeKoffi(world: ComWorld): void {

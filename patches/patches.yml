@@ -68,3 +68,19 @@ patches:
       ctx.remote.session.openWorkspacePath），插件没有可替换的拦截点；新增可选
       fileBrowser.tryOpen 接缝，保留目录打开、服务缺席及未处理路径的原系统打开
       回退。上游提供可扩展 openFile service/middleware 后撤
+  - file: 0014-settings-nav-archive-icon.patch
+    reason: |
+      设置导航项图标由 ui-settings-general shell 的 navIcon(id) 按 section id
+      硬编码映射（未知 id 回退齿轮），settings.section 注册 options 仅透传
+      id/order/label，图标面插件层完全不可达；为 @dsh-desktop/archive-manager
+      的归档页补一行 archive-manager → IconArchiveOutline20 映射（0.1.2 重放：
+      上游新版同区域新增了 ConnectionIndicator 导入，冲突合并保留）。
+      上游开放 section 图标贡献面后撤
+  - file: 0015-win32-dialog-sandbox-safe-utf16-read.patch
+    reason: |
+      Win32 目录选择器 worker 在 Electron 宿主（ELECTRON_RUN_AS_NODE）下 fatal：
+      readUtf16 用 koffi.view 把 COM 内存零拷贝包成 external ArrayBuffer，
+      Electron 全进程强制的 V8 Sandbox 禁止此操作（官方 Node 不开，上游 Windows
+      CI 测不出）。0.1.2 实测上游仍未修（仅修了 NUL 扫描的双字节边界），本补丁
+      继续改为 koffi.decode.string16 的拷贝式读取并吸收上游双字节语义（string16
+      原生按两字节 NUL 终止）；fake koffi 移除 view mock 以防回退。上游修复后撤
