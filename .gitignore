@@ -28,3 +28,14 @@ apps/desktop/.runtime-archive/
 
 # 本地开发数据（DSH_HOME 隔离目录的本地覆盖）
 .dsh-home-dev/
+
+# 敏感文件兜底（security_best_practices_report.md 行动项 #1）：防未来误提交密钥。
+# 模式与报告建议一致；!.env.example / !patches/*.patch 为模板与补丁队列放行。
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!patches/*.patch
+*.p12
+*.pfx
