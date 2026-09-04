@@ -1,5 +1,5 @@
 diff --git a/packages/client/ui-trajectory/src/client/index.ts b/packages/client/ui-trajectory/src/client/index.ts
-index 118f3b2c28..8a2bb8e8fe 100644
+index 118f3b2c28..c42d301901 100644
 --- a/packages/client/ui-trajectory/src/client/index.ts
 +++ b/packages/client/ui-trajectory/src/client/index.ts
 @@ -1,7 +1,20 @@
@@ -8,17 +8,17 @@ index 118f3b2c28..8a2bb8e8fe 100644
 - * slot without defining a service.
 + * Browser trajectory plugin without defining a service. Presentation is
 + * panel-first with a web fallback: with the desktop shell's panelShell
-+ * service the view registers as the panel page 'trajectory'; without it
-+ * (the upstream web host) the view keeps the upstream conversation.view
-+ * tab, and a late panel-ring declaration takes over and retracts the
-+ * fallback tab. Every piece of the data pipeline stays live either way.
++ * service the view registers as the panel page 'trajectory' (via the
++ * trajectoryPanelPage registration service consumed by panel-shell);
++ * without it (the upstream web host) the view keeps the upstream
++ * conversation.view tab, which is retracted when the panel arrives.
 + *
-+ * 桌面壳改写（patches/0007）：呈现位 panel 优先 + web 回退——panelShell
-+ * 服务在场（桌面壳）注册 panel-shell.page 面板页；不在场（上游 web）
-+ * 回退上游 conversation.view tab；panel 环后声明时接管并撤回回退 tab。
-+ * 上游 workspace 没有 panel-shell 包，故其类型面（SlotMap 行与
-+ * registerPage 服务）在下方本地声明合并/结构镜像——仅描述
-+ * @dsh-desktop/panel-shell 已提供的契约，撤补丁时一并移除。
++ * 桌面壳改写（patches/0007）：呈现位 panel 优先 + web 回退。注册控制反转：
++ * trajectory provide 'trajectoryPanelPage' 注册服务，panel-shell 声明
++ * 对 trajectory 包的服务依赖（cordis inject 元素=entry id）并代为注册
++ * 双半——slots.inject('panel-shell.page') 的声明驱动在多插件组合下有
++ * apply 竞态（P0 实测），故不再使用。上游 workspace 无 panel-shell 包，
++ * 其类型面在下方本地声明合并，撤补丁时一并移除。
   */
 +import { createElement } from 'react'
 +import type { ReactNode } from 'react'
@@ -51,11 +51,7 @@ index 118f3b2c28..8a2bb8e8fe 100644
 +export interface TrajectoryPanelPageOwnerProps {
 +  /** Whether this page is the active panel tab; inactive seats stay mounted. */
 +  active: boolean
-+  /**
-+   * Cross-view inspect handoff (patches/0008): one-shot selection target;
-+   * null/absent when idle. TrajectoryView consumes it via its own
-+   * same-named props.
-+   */
++  /** Cross-view inspect handoff (patches/0008): one-shot selection target. */
 +  inspect?: { callId: string } | null
 +  /** Acknowledge the consumed (or unresolvable) request; the container clears the handoff. */
 +  onInspectDone?: () => void
@@ -66,16 +62,31 @@ index 118f3b2c28..8a2bb8e8fe 100644
 +  registerPage(meta: { id: string; title: () => string; order?: number; icon?: ReactNode }): () => void
 +}
 +
++/** Provide 给 panel-shell 的注册服务面（0007 反转控制）。 */
++export interface TrajectoryPanelPageService {
++  /** 注册面板页双半（元数据 + 槽占用），返回反向拆除的组合 disposer。 */
++  register(host: PanelPageRegistry): () => void
++}
++
 +/**
 + * Required services: the conversation slot, registries, ordinary Session
-+ * paging, and the locale service. The optional panelShell service is read
-+ * lazily through ctx.get and so stays out of this list — injecting it would
-+ * park the whole fiber (data pipeline included) on hosts without a panel.
++ * paging, and the locale service.
 + */
  export const inject = ['slots', 'sessions', 'uiSession', 'uiConversation', 'locale']
  
  /**
-@@ -74,34 +121,108 @@ export function apply(ctx: Context): void {
+@@ -45,6 +92,10 @@ export const inject = ['slots', 'sessions', 'uiSession', 'uiConversation', 'loca
+  * @param ctx - client root context.
+  */
+ export function apply(ctx: Context): void {
++  // panel-first takeover bookkeeping: the fallback tab is retracted once the
++  // panel page has been seated (see the provide below).
++  let panelTookOver = false
++  let disposeFallbackTab: (() => void) | undefined
+   const trajectorySources = new WeakMap<SessionBinding, ObservableSnapshot<TrajectorySnapshot>>()
+   const trajectorySource = (binding: SessionBinding): ObservableSnapshot<TrajectorySnapshot> => {
+     let source = trajectorySources.get(binding)
+@@ -74,34 +125,90 @@ export function apply(ctx: Context): void {
      hooks: ['trajectory'],
      resolve: binding => ({ hooks: { trajectory: trajectorySource(binding) } }),
    })
@@ -100,13 +111,7 @@ index 118f3b2c28..8a2bb8e8fe 100644
 -          const before = trajectory.getSnapshot()
 -          await session.loadOlder()
 -          return trajectory.getSnapshot() !== before
-+  // 桌面壳改写（patches/0007）：呈现位 panel 优先——panelShell 服务在场
-+  // （桌面壳）注册面板页双半；不在场（上游 web）回退上游 conversation.view
-+  // tab。可选服务按上游规则走 ctx.get 惰性读取，不进 inject（否则无面板
-+  // 服务的宿主整个 fiber 停摆，数据管线一并消失）。panel 环后声明时接管：
-+  // 撤掉已落下的回退 tab，避免双份。
-+  let disposeFallbackTab: (() => void) | undefined
-+  let panelTookOver = false
++  // 共享注入面：web 回退 tab 与桌面面板页两条呈现位使用同一数据管线。
 +  const viewInject = (sessionId: SessionId): TrajectoryViewInjected => {
 +    const session = ctx.sessions.binding(sessionId)?.session
 +    if (session === undefined) {
@@ -127,22 +132,10 @@ index 118f3b2c28..8a2bb8e8fe 100644
 +      setActualDuration: (value) => { duration.set(value) },
 +    }
 +  }
-+  // The side panel page: both registration halves in one transactional
-+  // generator effect — metadata (the tab strip's source of truth) and the
-+  // slot occupancy wrap the existing TrajectoryView, and reverse-order
-+  // teardown removes the slot half before the metadata half. The duration
-+  // hook, loadOlder, and the actual-duration injection ride the page
-+  // registration's inject face; `inspect`/`onInspectDone` stay
-+  // conversation-owned and stay unwired here. The panel page's `active`
-+  // prop reaches the component through the owner share (unused by the view
-+  // — the ledger is cheap to keep mounted).
-+  // 桌面壳改写（patches/0007，0.1.2 反转控制版）：面板页注册从「trajectory
-+  // 向 slots.inject 声明」反转为「trajectory 提供注册服务、panel-shell 声明
-+  // 服务依赖并代为注册」。原因：0.1.2 的 ui-slots 对「当前无宿主声明的槽」的
-+  // inject 在多插件组合下有 apply 竞态（desktop 冒烟实测，见 phases 文档 P0），
-+  // 且 slots.inject 的声明驱动时序不可靠；cordis 服务依赖的拓扑排序保证
-+  // panel-shell 消费时 trajectory 已先行。web 宿主（无 panel-shell）无人消费，
-+  // 本服务闲置无副作用。
++
++  // 桌面壳改写（patches/0007）：提供面板页注册服务，panel-shell 声明依赖后
++  // 消费（cordis inject 元素=entry id，拓扑保证 trajectory 的 apply——即本
++  // provide——先于 panel-shell 的消费）。web 宿主无人消费，服务闲置。
 +  ctx.reflect.provide('trajectoryPanelPage', {
 +    register(host: PanelPageRegistry): () => void {
 +      panelTookOver = true
@@ -150,9 +143,9 @@ index 118f3b2c28..8a2bb8e8fe 100644
 +      // view never occupies both presentation seats.
 +      disposeFallbackTab?.()
 +      disposeFallbackTab = undefined
-+      // panel-shell.page 的槽类型面在 panel-shell 插件本地（上游 workspace
-+      // 无此包），register 经最小结构断言对齐框架运行时：list+session 槽的
-+      // inject 由框架按 seat 注入 sessionId。
++      // panel-shell.page 的槽类型面在 panel-shell 插件本地，register 经最小
++      // 结构断言对齐框架运行时：list+session 槽的 inject 由框架按 seat 注入
++      // sessionId。
 +      const registerPanelPage = ctx.slots.register as unknown as (
 +        options: {
 +          name: 'panel-shell.page'
@@ -191,11 +184,11 @@ index 118f3b2c28..8a2bb8e8fe 100644
      },
 -  }, TrajectoryView))
 +  })
-+  // Web fallback tab: skipped once the panel page has taken over, so the
-+  // view never occupies both presentation seats.
++
++  // Web fallback tab: registered on the host's conversation.view declaration;
++  // retracted when the panel page takes over so the view never occupies both
++  // presentation seats.
 +  ctx.slots.inject('conversation.view', () => {
-+    // Already taken over by the panel page: contribute a no-op so the
-+    // declaration lifetime owns nothing.
 +    if (panelTookOver) return () => {}
 +    const dispose = ctx.slots.register({
 +      name: 'conversation.view',

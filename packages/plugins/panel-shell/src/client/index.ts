@@ -30,7 +30,13 @@ export { createInspectHandoff, createPanelLedger } from './panel-store.ts'
 export type { InspectHandoff, InspectHandoffState, PanelLedger } from './panel-store.ts'
 export { useHorizontalTabScroll } from './horizontal-tab-scroll.ts'
 
-/** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
+/**
+ * Required services (cordis fiber inject — the loader passes all module
+ * exports as an object plugin). 'trajectoryPanelPage' 是
+ * patches/0007 反转控制的服务依赖：trajectory 插件 apply 时
+ * reflect.provide 该服务；声明它让 cordis 拓扑保证 trajectory 先行，
+ * 本插件 apply 时服务必已就位。
+ */
 export const inject = ['slots', 'locale', 'layout']
 
 /**
@@ -65,6 +71,7 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('panelShell', service)
+
 
     // Reconciliation watcher: registry changes, slot-ledger changes, and the
     // initial state all re-run the pairing check. A mismatch seats a loud
