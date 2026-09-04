@@ -1,5 +1,5 @@
 diff --git a/packages/client/ui-trajectory/src/client/index.ts b/packages/client/ui-trajectory/src/client/index.ts
-index 118f3b2c28..efe90af66d 100644
+index 118f3b2c28..8a2bb8e8fe 100644
 --- a/packages/client/ui-trajectory/src/client/index.ts
 +++ b/packages/client/ui-trajectory/src/client/index.ts
 @@ -1,7 +1,20 @@
@@ -75,7 +75,7 @@ index 118f3b2c28..efe90af66d 100644
  export const inject = ['slots', 'sessions', 'uiSession', 'uiConversation', 'locale']
  
  /**
-@@ -74,34 +121,106 @@ export function apply(ctx: Context): void {
+@@ -74,34 +121,108 @@ export function apply(ctx: Context): void {
      hooks: ['trajectory'],
      resolve: binding => ({ hooks: { trajectory: trajectorySource(binding) } }),
    })
@@ -100,15 +100,6 @@ index 118f3b2c28..efe90af66d 100644
 -          const before = trajectory.getSnapshot()
 -          await session.loadOlder()
 -          return trajectory.getSnapshot() !== before
--        },
--        loadImage: Object.assign(
--          (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
--          { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
--        ),
--        setActualDuration: (value) => { duration.set(value) },
--      }
--    },
--  }, TrajectoryView))
 +  // 桌面壳改写（patches/0007）：呈现位 panel 优先——panelShell 服务在场
 +  // （桌面壳）注册面板页双半；不在场（上游 web）回退上游 conversation.view
 +  // tab。可选服务按上游规则走 ctx.get 惰性读取，不进 inject（否则无面板
@@ -145,51 +136,60 @@ index 118f3b2c28..efe90af66d 100644
 +  // conversation-owned and stay unwired here. The panel page's `active`
 +  // prop reaches the component through the owner share (unused by the view
 +  // — the ledger is cheap to keep mounted).
-+  ctx.slots.inject('panel-shell.page', () => {
-+    const panel = ctx.get('panelShell') as PanelPageRegistry | undefined
-+    // A host may declare the ring without seating the service (the upstream
-+    // web host never seats it): contribute nothing for that declaration
-+    // lifetime. NOTE (patches/0007, 0.1.2): a generator factory is NOT
-+    // supported by the rewritten ui-slots inject — the transactional
-+    // two-half registration becomes an ordinary factory returning a
-+    // reverse-order composite disposer.
-+    if (panel === undefined) return () => {}
-+    panelTookOver = true
-+    // Late panel arrival retracts the already-landed fallback tab so the
-+    // view never occupies both presentation seats.
-+    disposeFallbackTab?.()
-+    disposeFallbackTab = undefined
-+    // panel-shell.page 的槽类型面在 panel-shell 插件本地（上游 workspace
-+    // 无此包），register 经最小结构断言对齐框架运行时：list+session 槽的
-+    // inject 由框架按 seat 注入 sessionId。
-+    const registerPanelPage = ctx.slots.register as unknown as (
-+      options: {
-+        name: 'panel-shell.page'
-+        id: string
-+        order: number
-+        locale: string
-+        children: { 'conversation.trajectory.images': { kind: 'single'; scope: 'session' } }
-+        inject: (sessionId: SessionId) => TrajectoryViewInjected
-+      },
-+      component: typeof TrajectoryView,
-+    ) => () => void
-+    const disposeMeta = panel.registerPage({
-+      id: 'trajectory',
-+      title: () => t('view.trajectory'),
-+      order: 10,
-+      icon: createElement(IconDataOutline16, { size: 16 }),
-+    })
-+    const disposeSlot = registerPanelPage({
-+      name: 'panel-shell.page',
-+      id: 'trajectory',
-+      order: 10,
-+      locale: NS,
-+      children: {
-+        'conversation.trajectory.images': { kind: 'single', scope: 'session' },
-+      },
-+      inject: viewInject,
-+    }, TrajectoryView)
-+    return () => { disposeSlot(); disposeMeta() }
++  // 桌面壳改写（patches/0007，0.1.2 反转控制版）：面板页注册从「trajectory
++  // 向 slots.inject 声明」反转为「trajectory 提供注册服务、panel-shell 声明
++  // 服务依赖并代为注册」。原因：0.1.2 的 ui-slots 对「当前无宿主声明的槽」的
++  // inject 在多插件组合下有 apply 竞态（desktop 冒烟实测，见 phases 文档 P0），
++  // 且 slots.inject 的声明驱动时序不可靠；cordis 服务依赖的拓扑排序保证
++  // panel-shell 消费时 trajectory 已先行。web 宿主（无 panel-shell）无人消费，
++  // 本服务闲置无副作用。
++  ctx.reflect.provide('trajectoryPanelPage', {
++    register(host: PanelPageRegistry): () => void {
++      panelTookOver = true
++      // Late panel arrival retracts the already-landed fallback tab so the
++      // view never occupies both presentation seats.
++      disposeFallbackTab?.()
++      disposeFallbackTab = undefined
++      // panel-shell.page 的槽类型面在 panel-shell 插件本地（上游 workspace
++      // 无此包），register 经最小结构断言对齐框架运行时：list+session 槽的
++      // inject 由框架按 seat 注入 sessionId。
++      const registerPanelPage = ctx.slots.register as unknown as (
++        options: {
++          name: 'panel-shell.page'
++          id: string
++          order: number
++          locale: string
++          children: { 'conversation.trajectory.images': { kind: 'single', scope: 'session' } }
++          inject: (sessionId: SessionId) => TrajectoryViewInjected
+         },
+-        loadImage: Object.assign(
+-          (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
+-          { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
+-        ),
+-        setActualDuration: (value) => { duration.set(value) },
+-      }
++        component: typeof TrajectoryView,
++      ) => () => void
++      const disposeMeta = host.registerPage({
++        id: 'trajectory',
++        title: () => t('view.trajectory'),
++        order: 10,
++        icon: createElement(IconDataOutline16, { size: 16 }),
++      })
++      const disposeSlot = registerPanelPage({
++        name: 'panel-shell.page',
++        id: 'trajectory',
++        order: 10,
++        locale: NS,
++        children: {
++          'conversation.trajectory.images': { kind: 'single', scope: 'session' },
++        },
++        inject: viewInject,
++      }, TrajectoryView)
++      // Reverse-order teardown: the slot half first, then the metadata half.
++      return () => { disposeSlot(); disposeMeta() }
+     },
+-  }, TrajectoryView))
 +  })
 +  // Web fallback tab: skipped once the panel page has taken over, so the
 +  // view never occupies both presentation seats.
