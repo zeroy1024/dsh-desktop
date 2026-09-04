@@ -27,6 +27,11 @@
 4. **合入策略**：全部阶段完成后不直接合 main；跟随上游 rc 序列（`pnpm view @deepseek-ai/dsh versions`）至 **0.1.2 stable** 后重跑阶段 9 回归，再合入。若上游发 rc.2+，按「阶段 1 重基 + 受影响补丁增量适配」处理。
 5. upstream 工作树的补丁套用产物是可再生的（补丁文件在 `patches/` 留底），还原操作（阶段 0）无数据丢失风险。
 
+- ✅ **阶段 5 大部完成**：commit `2146926`（0007/0008/0009）。**0005 未做**（活动分组缝迁 ui-chat，见下）。
+- ✅ **阶段 6 完成**：commit `a2bd925`（0010/0011 + sync 同版本刷新修复 + vision 集成测试恢复全绿）。sync 脚本修复：pnpm 对同版本 file: tarball 即使 --force 也沿用已安装实体，installCli 先移除本地包实体再安装。
+- ✅ **阶段 7 部分完成**：0012 重做并全绿（10 测试；surface.ts 冲突=import 区合并；测试访问器 `session.events`→`session.snapshotEvents()`；补丁文件已生成未登记 patches.yml、未 commit）。**0013 未做**——重大架构变化：session-controller 的 Session 重构为 `eventSource` 统一事件源（`prependWindow`/`appendLive` 走 `this.eventSource.prepend/append(entry)`，conversation 装配移到 feed 订阅链），旧 0013 的 `conversation.replaceWindow/append` 直接落点**不存在**；需要在 eventSource→装配管线中重新设计可见性过滤（研究 packages/api/session-controller/src/client/sessions/ 的 event-source 与装配订阅者）。
+- 🔧 **剩余项**：0013（架构重设计）、0005（活动分组缝迁 ui-chat——apply/slots/ChatNodeSeat 组员渲染变体/chatFlowGrouping 服务 + locales + 测试）、0001/0014/0015 外围、阶段 9/10。
+
 ## 阶段总览
 
 | 阶段 | 内容 | 里程碑 | 估算 |

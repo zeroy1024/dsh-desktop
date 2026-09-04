@@ -1,10 +1,58 @@
+diff --git a/packages/core/session/tests/rewind.spec.ts b/packages/core/session/tests/rewind.spec.ts
+index 743c2816fe..3a6cd6c075 100644
+--- a/packages/core/session/tests/rewind.spec.ts
++++ b/packages/core/session/tests/rewind.spec.ts
+@@ -72,7 +72,7 @@ describe('rewind tombstone surface fold', () => {
+ 
+     // [5, 8) withdrawn: turn 2's messages leave the surface, turn 3 (seq 9..12
+     // rebuilt from the marker) stays visible alongside the turn 1 prefix.
+-    expect(foldSurface(session.events).nodes).toEqual([1, 2, 10, 11])
++    expect(foldSurface(session.snapshotEvents()).nodes).toEqual([1, 2, 10, 11])
+   })
+ 
+   it('keeps the incremental SurfaceManager replay equal to the full fold', () => {
+@@ -81,8 +81,8 @@ describe('rewind tombstone surface fold', () => {
+     appendTurn(session, 3, 'retry')
+     session.append(REWIND_EVENT_TYPE, { atSeq: 0 })
+ 
+-    const full = foldSurface(session.events)
+-    const incremental = new SurfaceManager(session.events)
++    const full = foldSurface(session.snapshotEvents())
++    const incremental = new SurfaceManager(session.snapshotEvents())
+     expect(incremental.nodes).toEqual(full.nodes)
+     expect(incremental.nodes).toEqual([])
+     expect(incremental.replaceGeneration).toBe(2)
+@@ -127,19 +127,19 @@ describe('rewind tombstone surface fold', () => {
+     const marker = good.session.append(REWIND_EVENT_TYPE, { atSeq: good.secondUserSeq })
+     // Contiguous seq but an atSeq beyond the marker: the seed's surface
+     // validation must reject the malformed marker itself.
+-    const seed = [...good.session.events, { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
++    const seed = [...good.session.snapshotEvents(), { ...marker, seq: marker.seq + 1, data: { atSeq: marker.seq + 999 } } as SessionEvent]
+     expect(() => Session.create(SessionId('rewind-seed'), seed)).toThrow(/invalid seed event/)
+   })
+ 
+   it('reconstructs the truncated surface from a seed replay', () => {
+     const { session, secondUserSeq } = twoTurnSession()
+     session.append(REWIND_EVENT_TYPE, { atSeq: secondUserSeq })
+-    const markerSeq = session.events.at(-1)!.seq
++    const markerSeq = session.snapshotEvents().at(-1)!.seq
+     appendTurn(session, 3, 'retry')
+ 
+-    const replayed = Session.create(SessionId('rewind-replay'), session.events)
++    const replayed = Session.create(SessionId('rewind-replay'), session.snapshotEvents())
+     expect(replayed.deriveMessages()).toHaveLength(4)
+-    expect(replayed.events.at(-1)!.seq).toBeGreaterThan(markerSeq)
++    expect(replayed.snapshotEvents().at(-1)!.seq).toBeGreaterThan(markerSeq)
+   })
+ 
+   it('catalogues the tombstone type so persistence reads accept it', () => {
 diff --git a/docs/persistence-catalog.md b/docs/persistence-catalog.md
-index aaedabf93d..9083335ce4 100644
+index 2fb2b02084..c317412f5c 100644
 --- a/docs/persistence-catalog.md
 +++ b/docs/persistence-catalog.md
 @@ -393,6 +393,23 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
  
- Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
+ Source: [`packages/compaction/compaction/src/types.ts:34`](../packages/compaction/compaction/src/types.ts)
  
 +### `dsh-desktop/*`
 +
@@ -27,10 +75,10 @@ index aaedabf93d..9083335ce4 100644
  
  <a id="feedbackrecord--log-only"></a>
 diff --git a/packages/core/session/src/known-event-types.ts b/packages/core/session/src/known-event-types.ts
-index 098743dd8a..6cfdd7e873 100644
+index 774e1a55cb..9bd3e853b3 100644
 --- a/packages/core/session/src/known-event-types.ts
 +++ b/packages/core/session/src/known-event-types.ts
-@@ -30,6 +30,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
+@@ -33,6 +33,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
    'compaction/prune',
    'compaction/start',
    'compaction/summary',
@@ -76,30 +124,35 @@ index 0000000000..2d46c4cb8d
 +  }
 +}
 diff --git a/packages/core/session/src/surface.ts b/packages/core/session/src/surface.ts
-index ba6c2dda80..eff47baef0 100644
+index bfb331eb22..25ea012ab8 100644
 --- a/packages/core/session/src/surface.ts
 +++ b/packages/core/session/src/surface.ts
-@@ -9,8 +9,11 @@
-  */
+@@ -10,6 +10,7 @@
  
  import type { Message } from '@deepseek-ai/dsh-llm'
+ import { SessionLogOffset, SessionSeq } from './types.ts'
 +import { REWIND_EVENT_TYPE } from './rewind.ts'
- import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
+ import type {
+   SessionEvent,
+   SessionSeqCursor,
+@@ -18,6 +19,8 @@ import type {
+   SurfaceOp,
+ } from './types.ts'
  
 +export { REWIND_EVENT_TYPE }
 +
  /** Runtime counterpart of the message-producing event union. */
  const SURFACE_EVENT_TYPES = new Set<string>([
    'user/message',
-@@ -158,6 +161,7 @@ interface SurfaceReplacePlan extends SurfaceFoldReplacement {
+@@ -165,6 +168,7 @@ interface SurfaceReplacePlan extends SurfaceFoldReplacement {
  type SurfacePlan =
-   | { kind: 'append'; seq: number }
+   | { kind: 'append'; seq: SessionSeq }
    | SurfaceReplacePlan
 +  | { kind: 'truncate'; atSeq: number }
  
  /** Create an empty surface fold state. */
  function createFoldState(): SurfaceFoldState {
-@@ -317,6 +321,22 @@ function assertToolResultRewrite(
+@@ -327,6 +331,22 @@ function assertToolResultRewrite(
    }
  }
  
@@ -122,7 +175,7 @@ index ba6c2dda80..eff47baef0 100644
  /** Validate one event at its replay boundary and prepare its atomic fold transition. */
  function planSurfaceEvent(
    state: SurfaceFoldState,
-@@ -329,7 +349,7 @@ function planSurfaceEvent(
+@@ -339,7 +359,7 @@ function planSurfaceEvent(
      throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
    }
    const surfaceOp = surfaceOpOf(event)
@@ -131,7 +184,7 @@ index ba6c2dda80..eff47baef0 100644
    if (surfaceOp === 'append') {
      assertProvenance(event, [])
      return { kind: 'append', seq: event.seq }
-@@ -368,6 +388,12 @@ function applySurfacePlan(
+@@ -378,6 +398,12 @@ function applySurfacePlan(
    } else if (plan?.kind === 'replace') {
      state.nodes.splice(plan.startIdx, plan.endIdx - plan.startIdx + 1, plan.seq)
      state.replaceGeneration += 1
