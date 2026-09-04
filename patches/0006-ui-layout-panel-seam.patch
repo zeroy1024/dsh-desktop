@@ -1,5 +1,5 @@
 diff --git a/packages/client/ui-layout/src/client/AppFrame.module.css b/packages/client/ui-layout/src/client/AppFrame.module.css
-index ae56780133..e119aebc15 100644
+index 9ba4e82be6..aafd09db99 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
 @@ -4,6 +4,15 @@
@@ -101,7 +101,7 @@ index ae56780133..e119aebc15 100644
     centered on the column border via inline left, above column content. Details
     adds a visible 12x32 pill at vertical center; sidebar keeps only the hit strip. */
 diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
-index 2696dc91fa..2c07e096c6 100644
+index cbef893aed..b4e57e1d10 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.tsx
 +++ b/packages/client/ui-layout/src/client/AppFrame.tsx
 @@ -1,16 +1,19 @@
@@ -131,15 +131,16 @@ index 2696dc91fa..2c07e096c6 100644
 -import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 +import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
  import type { ReactNode } from 'react'
- import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
- import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
-@@ -20,9 +23,26 @@ import css from './AppFrame.module.css'
+ import type {
+   PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
+@@ -23,10 +26,27 @@ import css from './AppFrame.module.css'
  /** Full composed props: runtime share + child-slot render share + store share. */
  export type AppFrameProps =
    & PropsRuntime<'root'>
 -  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay'>
 +  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'panel' | 'shell.overlay'>
    & PropsStore<ReturnType<typeof createLayoutStore>>
+   & PropsLocale<'common'>
  
 +type StaticSlotKey = 'conversation' | 'details' | 'panel' | 'shell.overlay'
 +
@@ -161,7 +162,7 @@ index 2696dc91fa..2c07e096c6 100644
  /** Center column grid item (session-body building block). */
  function CenterColumn(props: { children?: ReactNode }) {
    return <div className={css.centerCol}>{props.children}</div>
-@@ -37,7 +57,7 @@ function DetailsColumn(props: { children?: ReactNode }) {
+@@ -41,7 +61,7 @@ function DetailsColumn(props: { children?: ReactNode }) {
   * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
   * `side` keys the hover-reveal CSS to the owning column.
   */
@@ -170,7 +171,7 @@ index 2696dc91fa..2c07e096c6 100644
    const [dragging, setDragging] = useState(false)
    const origin = useRef(0)
    const latest = useRef(0)
-@@ -139,35 +159,103 @@ export function AppFrame({
+@@ -149,36 +169,102 @@ export function AppFrame({
    const sidebarPreference = sidebarCollapsed
      ? 0
      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -261,9 +262,8 @@ index 2696dc91fa..2c07e096c6 100644
 +  const onPanelDrag = useCallback((dx: number) => {
 +    actions.setPanel(panelBase.current - dx)
 +  }, [actions])
+   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
  
-+  // Collapsed rail stays SIDEBAR_COLLAPSED unless a shell sets
-+  // --dsh-sidebar-collapsed-track (desktop overlay uses 0).
    return (
      <div
        ref={frameRef}
@@ -278,8 +278,8 @@ index 2696dc91fa..2c07e096c6 100644
 +      data-panel-overlay={overlay || undefined}
        data-dragging={dragging || undefined}
      >
-       <div className={css.sidebarCol}>
-@@ -175,10 +263,11 @@ export function AppFrame({
+       <DocumentTitle
+@@ -190,10 +276,11 @@ export function AppFrame({
              sidebar keeps the mounted slot at the compact-rail width, and the
              component sees its rendered state as owner params decided here
              (collapsed follows the resolved rail, so a derived auto-collapse
@@ -293,14 +293,18 @@ index 2696dc91fa..2c07e096c6 100644
          })}
        </div>
        <>
-@@ -187,15 +276,45 @@ export function AppFrame({
+@@ -202,17 +289,50 @@ export function AppFrame({
              the shell's own pending rendering. The conversation
-             is session-maybe; the strict details entry naturally renders
-             empty while no session is current. */}
+             is session-maybe; SessionProvider withholds the strict details
+             entry while no session is current. */}
 -        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
--        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
 +        <CenterColumn><StaticSlot renderSlot={renderSlot} slotKey="conversation" /></CenterColumn>
-+        <DetailsColumn><StaticSlot renderSlot={renderSlot} slotKey="details" /></DetailsColumn>
+         <DetailsColumn>
++          {/* Eager slot call (upstream contract): the SessionProvider may
++              withhold the entry from the DOM while no session is current,
++              but the slot registration itself must still happen. */}
+           <SessionProvider>{renderSlot('details', {})}</SessionProvider>
+         </DetailsColumn>
 +        {/* Panel column grid item; width 0 keeps the subtree mounted (never
 +            unmount on close). The inner layer pins to the column's LEFT
 +            edge at the target width, so the eased track motion (open,
@@ -346,10 +350,10 @@ index 2696dc91fa..2c07e096c6 100644
    )
  }
 diff --git a/packages/client/ui-layout/src/client/columns.ts b/packages/client/ui-layout/src/client/columns.ts
-index a038f6726b..6a2fedf12c 100644
+index 374ce64703..6a2fedf12c 100644
 --- a/packages/client/ui-layout/src/client/columns.ts
 +++ b/packages/client/ui-layout/src/client/columns.ts
-@@ -1,24 +1,25 @@
+@@ -1,30 +1,31 @@
  /**
 - * Pure concession-chain column solver for the three-column AppFrame.
 - * Chain order is fixed by contract: keep center >= CENTER_MIN by shrinking
@@ -387,6 +391,13 @@ index a038f6726b..6a2fedf12c 100644
  /** Sidebar drag clamp floor. */
  export const SIDEBAR_MIN = 264
  /** Sidebar drag clamp ceiling. */
+ export const SIDEBAR_MAX = 420
+ /** Sidebar width before any user drag. */
+-export const SIDEBAR_DEFAULT = 280
++export const SIDEBAR_DEFAULT = 320
+ /** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
+ export const SIDEBAR_COLLAPSED = 56
+ /** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
 @@ -37,6 +38,16 @@ export const DETAILS_MIN = 300
  export const DETAILS_MAX = 520
  /** Details width before any user drag. */
@@ -464,7 +475,7 @@ index a038f6726b..6a2fedf12c 100644
 +  return { sidebar: s, center: Math.max(0, viewport - s), details: 0, panel: 0 }
  }
 diff --git a/packages/client/ui-layout/src/client/index.ts b/packages/client/ui-layout/src/client/index.ts
-index c56d83bfbb..bdc3cbd130 100644
+index 56afec15e3..3eb4521f09 100644
 --- a/packages/client/ui-layout/src/client/index.ts
 +++ b/packages/client/ui-layout/src/client/index.ts
 @@ -1,7 +1,7 @@
@@ -476,7 +487,7 @@ index c56d83bfbb..bdc3cbd130 100644
   * layout store (panel geometry), and wires the panel-action service face.
   * ctx.layout is the cross-plugin panel-action contract; navigation state lives
   * with the runtime sessions service. A second effect seats the theme
-@@ -33,7 +33,7 @@ declare module '@deepseek-ai/cordis' {
+@@ -36,7 +36,7 @@ declare module '@deepseek-ai/cordis' {
  declare module '@deepseek-ai/dsh-client-ui-slots' {
    interface SlotMap {
      // The 'root' entry itself is the runtime's built-in slot (declared
@@ -485,7 +496,7 @@ index c56d83bfbb..bdc3cbd130 100644
      // register() call that contributes AppFrame. Session owners never pass
      // sessionId: the framework injects it as a standard prop.
      /**
-@@ -70,6 +70,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+@@ -73,6 +73,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       * `session` scope, and `ctx.layout` owns whether the column is open.
       */
      'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
@@ -504,7 +515,7 @@ index c56d83bfbb..bdc3cbd130 100644
      /**
       * Frame-wide floating layer, above every column and outside their scroll
       * containers. Deliberately generic and unowned by any feature: a badge, a
-@@ -104,12 +116,15 @@ export interface ConvOwnerProps {}
+@@ -107,12 +119,15 @@ export interface ConvOwnerProps {}
  /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
  export interface DetailsOwnerProps {}
  
@@ -512,7 +523,7 @@ index c56d83bfbb..bdc3cbd130 100644
 +export interface PanelOwnerProps {}
 +
  /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
- export const inject = ['slots', 'theme']
+ export const inject = ['slots', 'theme', 'locale']
  
  /**
   * Client plugin body: provide ctx.layout, then one register() call — AppFrame
@@ -521,7 +532,7 @@ index c56d83bfbb..bdc3cbd130 100644
   * and the inject hook that hands the store's bound actions to the service.
   * @param ctx - client root context.
   */
-@@ -123,6 +138,7 @@ export function apply(ctx: ClientContext): void {
+@@ -127,6 +142,7 @@ export function apply(ctx: ClientContext): void {
          'sidebar': { kind: 'single', scope: 'root' },
          'conversation': { kind: 'single', scope: 'session-maybe' },
          'details': { kind: 'single', scope: 'session' },
@@ -582,11 +593,11 @@ index 2b2e50e5d5..310c0fe44e 100644
      // Callers are UI gestures, which cannot fire before the root entry
      // rendered (the inject hook runs in its first render) — reaching this
 diff --git a/packages/client/ui-layout/src/client/stores.ts b/packages/client/ui-layout/src/client/stores.ts
-index d2de668a9c..13ed15bdd8 100644
+index 7b6e2807ee..5cc65646dd 100644
 --- a/packages/client/ui-layout/src/client/stores.ts
 +++ b/packages/client/ui-layout/src/client/stores.ts
 @@ -10,17 +10,27 @@
- import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
  import {
    clampWidth, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
 +  normalizePanelWidth, PANEL_DEFAULT,
@@ -668,33 +679,12 @@ index d2de668a9c..13ed15bdd8 100644
    })
    return handle
 diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-index d865a5c186..cf69a7930e 100644
+index a640480360..94fd7c8555 100644
 --- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
 +++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-@@ -5,8 +5,8 @@
-  * path), a recording renderSlot stub, and a render-prop SessionProvider stub
-  * (the real one is framework-wired to the renderer host; its own behavior is
-  * ui-renderer's spec territory). Drag sequences (pointer capture + rAF flush),
-- * concession response to viewport change, and details staying mounted at
-- * zero width are the preserved behavior assertions. jsdom has no layout
-+ * concession response to viewport change, and details/panel staying mounted
-+ * at zero width are the preserved behavior assertions. jsdom has no layout
-  * engine, so the frame width comes from a mocked getBoundingClientRect and
-  * resizes are driven through the ResizeObserver stub.
-  */
-@@ -61,6 +61,7 @@ function mountFrame() {
-     if (key === 'sidebar') return <div data-testid="sidebar-content" />
-     if (key === 'conversation') return <div data-testid="center-content" />
-     if (key === 'details') return <div data-testid="details-content" />
-+    if (key === 'panel') return <div data-testid="panel-content" />
-     if (key === 'conversation.empty') return <div data-testid="empty-content" />
-     return <div data-testid="other-content" />
-   }) as AppFrameProps['renderSlot']
-@@ -95,10 +96,11 @@ function mountFrame() {
-   return { instance, frame, slotCalls, rerenderFrame: () => { utils.rerender(element()) }, ...utils }
+@@ -109,9 +109,9 @@ function mountFrame() {
  }
  
-+/** [sidebar, details, panel] rendered widths from the live template string. */
  function tracks(frame: HTMLElement): number[] {
 -  const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px$/.exec(frame.style.gridTemplateColumns)
 +  const m = /^(?:var\(--dsh-sidebar-collapsed-track, )?(\d+)px(?:\))? minmax\(0, 1fr\) (\d+)px (\d+)px$/.exec(frame.style.gridTemplateColumns)
@@ -704,31 +694,16 @@ index d865a5c186..cf69a7930e 100644
  }
  
  function drag(handle: Element, fromX: number, toX: number): void {
-@@ -137,9 +139,9 @@ afterEach(() => {
- })
+@@ -175,7 +175,7 @@ describe('AppFrame', () => {
  
- describe('AppFrame', () => {
--  it('renders three tracks from store state', () => {
-+  it('renders four tracks from store state', () => {
+   it('renders three tracks from store state', () => {
      const { frame } = mountFrame()
 -    expect(tracks(frame)).toEqual([280, 0])
 +    expect(tracks(frame)).toEqual([320, 0, 0])
    })
  
    it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
-@@ -149,9 +151,11 @@ describe('AppFrame', () => {
-     const keys = slotCalls.map(c => c.key)
-     expect(keys).toContain('conversation')
-     expect(keys).toContain('details')
-+    expect(keys).toContain('panel')
-     expect(keys).not.toContain('conversation.empty')
-     expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
-     expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({})
-+    expect(slotCalls.find(c => c.key === 'panel')!.props).toEqual({})
-   })
- 
-   it('keeps the conversation slot mounted while no session is current', () => {
-@@ -174,59 +178,73 @@ describe('AppFrame', () => {
+@@ -212,56 +212,56 @@ describe('AppFrame', () => {
  
    it('ignores unselected states and closes only when the Session id changes', () => {
      const { frame, instance, rerenderFrame } = mountFrame()
@@ -785,20 +760,6 @@ index d865a5c186..cf69a7930e 100644
      const { slotCalls } = mountFrame()
 -    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
 +    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 320 })
-+  })
-+
-+  it('does not redispatch static slot subtrees on layout-only store ticks', () => {
-+    const { instance, slotCalls } = mountFrame()
-+    const staticKeys = ['conversation', 'details', 'panel', 'shell.overlay']
-+    const before = new Map(staticKeys.map(key => [key, slotCalls.filter(call => call.key === key).length]))
-+
-+    act(() => { instance.actions.openPanel() })
-+    act(() => { instance.actions.setPanel(520) })
-+
-+    for (const key of staticKeys) {
-+      expect(slotCalls.filter(call => call.key === key)).toHaveLength(before.get(key) ?? 0)
-+    }
-+    expect(slotCalls.filter(call => call.key === 'sidebar').length).toBeGreaterThan(1)
    })
  
    it('sidebar drag widens through rAF-batched pointer moves', () => {
@@ -810,37 +771,10 @@ index d865a5c186..cf69a7930e 100644
 +    expect(tracks(frame)[0]).toBe(390)
    })
  
--  it('details drag widens leftward (negative dx grows the panel)', () => {
-+  it('details drag widens leftward (negative dx grows the column)', () => {
-     const { frame, instance } = mountFrame()
-     act(() => { instance.actions.openDetails() })
-     const handles = frame.querySelectorAll('[class*="handle"]')
-@@ -234,19 +252,41 @@ describe('AppFrame', () => {
-     expect(tracks(frame)[1]).toBe(420)
+   it('details drag widens leftward (negative dx grows the panel)', () => {
+@@ -273,18 +273,18 @@ describe('AppFrame', () => {
    })
  
-+  it('panel drag widens leftward through its own handle', () => {
-+    const { frame, instance } = mountFrame()
-+    act(() => { instance.actions.togglePanel() })
-+    const handles = frame.querySelectorAll('[class*="handle"]')
-+    expect(handles).toHaveLength(2)
-+    drag(handles[1]!, 1440, 1380)
-+    expect(tracks(frame)[2]).toBe(540)
-+  })
-+
-+  it('details handle yields to the open panel column', () => {
-+    const { frame, instance } = mountFrame()
-+    act(() => { instance.actions.openDetails() })
-+    act(() => { instance.actions.togglePanel() })
-+    const handles = frame.querySelectorAll<HTMLElement>('[class*="handle"]')
-+    expect(handles).toHaveLength(3)
-+    // 1920 frame: sidebar 320 | center | details 360 | panel 480. The panel
-+    // opens to the RIGHT of details, so the center|details seam sits at
-+    // viewport - details - panel; the panel seam stays at viewport - panel.
-+    expect(handles[1]!.style.left).toBe('1080px')
-+    expect(handles[2]!.style.left).toBe('1440px')
-+  })
-+
    it('drag base is the rendered (concession-clamped) width, not the preference', () => {
 -    frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
 +    frameWidth = 1030 // step-2 squeeze: details renders 350 while preference is 360
@@ -849,9 +783,8 @@ index d865a5c186..cf69a7930e 100644
 -    expect(tracks(frame)).toEqual([280, 330])
 +    expect(tracks(frame)).toEqual([320, 350, 0])
      const handles = frame.querySelectorAll('[class*="handle"]')
--    drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
+     drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
 -    expect(instance.getSnapshot().details).toBe(320)
-+    drag(handles[1]!, 680, 690) // shrink by 10 from the rendered width
 +    expect(instance.getSnapshot().details).toBe(340)
    })
  
@@ -862,7 +795,7 @@ index d865a5c186..cf69a7930e 100644
      expect(getByTestId('details-content')).toBeTruthy()
      expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
    })
-@@ -254,22 +294,85 @@ describe('AppFrame', () => {
+@@ -292,7 +292,7 @@ describe('AppFrame', () => {
    it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
      const { frame, instance, slotCalls, getByTestId } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -871,72 +804,7 @@ index d865a5c186..cf69a7930e 100644
      expect(getByTestId('sidebar-content')).toBeTruthy()
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
-     expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
-   })
- 
-+  it('togglePanel opens the panel at the contract default with mounted content', () => {
-+    const { frame, instance, getByTestId } = mountFrame()
-+    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
-+    act(() => { instance.actions.togglePanel() })
-+    expect(tracks(frame)).toEqual([320, 0, 480])
-+    expect(frame.hasAttribute('data-panel-collapsed')).toBe(false)
-+    expect(getByTestId('panel-content')).toBeTruthy()
-+    act(() => { instance.actions.togglePanel() })
-+    expect(tracks(frame)).toEqual([320, 0, 0])
-+    // The subtree stays mounted at zero width (never unmount on close).
-+    expect(getByTestId('panel-content')).toBeTruthy()
-+    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
-+  })
-+
-+  it('panel fullscreen is an overlay: tracks untouched, eased exact restore', () => {
-+    const { frame, instance } = mountFrame()
-+    act(() => { instance.actions.togglePanelExpanded() })
-+    // No-op while the panel is closed.
-+    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
-+    act(() => { instance.actions.togglePanel() })
-+    act(() => { instance.actions.togglePanelExpanded() })
-+    expect(frame.hasAttribute('data-panel-expanded')).toBe(true)
-+    // Overlay presentation: the grid tracks are untouched (the center gets
-+    // covered, never re-wrapped) and the column leaves the flow at the
-+    // content-area width.
-+    expect(tracks(frame)).toEqual([320, 0, 480])
-+    // The presentation flag rides the frame root (same anchor family as the
-+    // collapsed/expanded markers); the column is found via its CSS-module
-+    // class — the established [class*=…] anchor for hashed names.
-+    expect(frame.hasAttribute('data-panel-overlay')).toBe(true)
-+    const col = frame.querySelector<HTMLElement>('[class*="panelCol"]')
-+    expect(col).toBeTruthy()
-+    expect(col!.style.width).toBe('calc(100% - 320px)')
-+    // The interior pin resolves against the FRAME, not the column: its
-+    // containing block is panelCol, so a `100%` here would subtract the
-+    // sidebar twice (blank strip at the right edge) and re-wrap the content
-+    // on every eased frame. `100cqi` keeps the clip-box design exact.
-+    const pin = frame.querySelector<HTMLElement>('[class*="panelColPin"]')
-+    expect(pin).toBeTruthy()
-+    // (cssstyle reorders calc terms; assert the semantics, not the spelling.)
-+    expect(pin!.style.width).toContain('100cqi')
-+    expect(pin!.style.width).not.toContain('%')
-+    // The overlay covers the details handle and the panel handle; the
-+    // sidebar handle survives at the overlay's left edge.
-+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-+    act(() => { instance.actions.togglePanelExpanded() })
-+    // The presentation outlives the intent so the width can ease back down.
-+    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
-+    expect(col!.style.width).toBe('480px')
-+    // Mid-restore the pin is already at the track width: the interior rides
-+    // the column's left edge (translation), never its animated width.
-+    expect(pin!.style.width).toBe('480px')
-+    const end = new Event('transitionend', { bubbles: true })
-+    Object.assign(end, { propertyName: 'width' })
-+    act(() => { col!.dispatchEvent(end) })
-+    // Released back into the flow at the track width — a seamless switch.
-+    expect(frame.hasAttribute('data-panel-overlay')).toBe(false)
-+    expect(tracks(frame)).toEqual([320, 0, 480])
-+    // Closing the panel resets the flag in the store.
-+    act(() => { instance.actions.closePanel() })
-+    expect(instance.getSnapshot().panelExpanded).toBe(false)
-+  })
-+
+@@ -302,12 +302,12 @@ describe('AppFrame', () => {
    it('viewport shrink triggers the concession chain via ResizeObserver', () => {
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
@@ -952,18 +820,7 @@ index d865a5c186..cf69a7930e 100644
    })
  
    it('drag handles disappear for collapsed columns', () => {
-@@ -279,6 +382,10 @@ describe('AppFrame', () => {
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
-     act(() => { instance.actions.closeDetails() })
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-+    act(() => { instance.actions.togglePanel() })
-+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
-+    act(() => { instance.actions.closePanel() })
-+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-     act(() => { instance.actions.toggleSidebar() })
-     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-   })
-@@ -288,7 +395,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -326,7 +326,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
    it('mounts collapsed below the breakpoint with no sidebar handle', () => {
      frameWidth = 980
      const { frame, slotCalls } = mountFrame()
@@ -972,7 +829,7 @@ index d865a5c186..cf69a7930e 100644
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -298,11 +405,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -336,11 +336,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -986,7 +843,7 @@ index d865a5c186..cf69a7930e 100644
    })
  
    it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -312,7 +419,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -350,7 +350,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      act(() => { instance.actions.toggleSidebar() })
@@ -995,7 +852,7 @@ index d865a5c186..cf69a7930e 100644
      expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
    })
  
-@@ -321,10 +428,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -359,10 +359,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      act(() => { instance.actions.setSidebar(400) })
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
@@ -1008,7 +865,7 @@ index d865a5c186..cf69a7930e 100644
    })
  })
  
-@@ -345,28 +452,28 @@ describe('AppFrame — guard branches', () => {
+@@ -383,28 +383,28 @@ describe('AppFrame — guard branches', () => {
    it('two moves inside one frame coalesce through the pending rAF', () => {
      const { frame, instance } = mountFrame()
      const handle = frame.querySelectorAll('[class*="handle"]')[0]!
@@ -1046,7 +903,7 @@ index d865a5c186..cf69a7930e 100644
    })
  
    it('zero-width resize reports are ignored (display:none window)', () => {
-@@ -374,7 +481,7 @@ describe('AppFrame — guard branches', () => {
+@@ -412,7 +412,7 @@ describe('AppFrame — guard branches', () => {
      frameWidth = 0
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      // Track template still reflects the last non-zero viewport.
@@ -1055,7 +912,7 @@ index d865a5c186..cf69a7930e 100644
    })
  })
  
-@@ -391,8 +498,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
+@@ -429,8 +429,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
    it('double resize inside one frame rides the pending rAF (??= guard)', () => {
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
@@ -1352,19 +1209,10 @@ index c6f0069197..61cc3f6fc0 100644
        narrowExpanded: false,
      })
 diff --git a/packages/client/ui-layout/tests/service.client.spec.ts b/packages/client/ui-layout/tests/service.client.spec.ts
-index e1267b4f49..1129d657f9 100644
+index ea4118927c..3a60eabc68 100644
 --- a/packages/client/ui-layout/tests/service.client.spec.ts
 +++ b/packages/client/ui-layout/tests/service.client.spec.ts
-@@ -1,7 +1,7 @@
- /**
-  * LayoutController behavior: the cross-plugin panel-action face. Geometry
-  * lives in the entry store (layout-store.spec.ts) — here we assert the
-- * delegation contract: attachPanels wiring, the three actions forwarding, the
-+ * delegation contract: attachPanels wiring, the action forwarding, the
-  * unwired fail-loud, and re-attach overwriting a stale action set.
-  */
- import { describe, expect, it, vi } from 'vitest'
-@@ -12,15 +12,20 @@ function fakePanels(): PanelActions {
+@@ -6,10 +6,15 @@ function fakePanels(): PanelActions {
    return {
      setSidebar: vi.fn(),
      setDetails: vi.fn(),
@@ -1380,54 +1228,3 @@ index e1267b4f49..1129d657f9 100644
    }
  }
  
- describe('LayoutController', () => {
--  it('forwards the three panel actions to the attached set', () => {
-+  it('forwards the panel actions to the attached set', () => {
-     const service = new LayoutController()
-     const panels = fakePanels()
-     service.attachPanels(panels)
-@@ -28,12 +33,21 @@ describe('LayoutController', () => {
-     service.toggleSidebar()
-     service.openDetails()
-     service.closeDetails()
-+    service.togglePanel()
-+    service.openPanel()
-+    service.closePanel()
-+    service.togglePanelExpanded()
- 
-     expect(panels.toggleSidebar).toHaveBeenCalledTimes(1)
-     expect(panels.openDetails).toHaveBeenCalledTimes(1)
-     expect(panels.closeDetails).toHaveBeenCalledTimes(1)
-+    expect(panels.togglePanel).toHaveBeenCalledTimes(1)
-+    expect(panels.openPanel).toHaveBeenCalledTimes(1)
-+    expect(panels.closePanel).toHaveBeenCalledTimes(1)
-+    expect(panels.togglePanelExpanded).toHaveBeenCalledTimes(1)
-     expect(panels.setSidebar).not.toHaveBeenCalled()
-     expect(panels.setDetails).not.toHaveBeenCalled()
-+    expect(panels.setPanel).not.toHaveBeenCalled()
-   })
- 
-   it('fails loud before the root entry wired its actions', () => {
-@@ -41,6 +55,10 @@ describe('LayoutController', () => {
-     expect(() => { service.toggleSidebar() }).toThrow(/panel actions not wired/)
-     expect(() => { service.openDetails() }).toThrow(/panel actions not wired/)
-     expect(() => { service.closeDetails() }).toThrow(/panel actions not wired/)
-+    expect(() => { service.togglePanel() }).toThrow(/panel actions not wired/)
-+    expect(() => { service.openPanel() }).toThrow(/panel actions not wired/)
-+    expect(() => { service.closePanel() }).toThrow(/panel actions not wired/)
-+    expect(() => { service.togglePanelExpanded() }).toThrow(/panel actions not wired/)
-   })
- 
-   it('re-attach overwrites the stale action set (entry re-register)', () => {
-@@ -51,8 +69,11 @@ describe('LayoutController', () => {
-     service.attachPanels(fresh)
- 
-     service.toggleSidebar()
-+    service.togglePanel()
- 
-     expect(stale.toggleSidebar).not.toHaveBeenCalled()
-     expect(fresh.toggleSidebar).toHaveBeenCalledTimes(1)
-+    expect(stale.togglePanel).not.toHaveBeenCalled()
-+    expect(fresh.togglePanel).toHaveBeenCalledTimes(1)
-   })
- })
