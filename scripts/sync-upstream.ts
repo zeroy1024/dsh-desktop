@@ -244,6 +244,33 @@ function registeredPatchDiff(patches: readonly PatchEntry[]): string {
  * 未跟踪内容一并纳入对比，「登记 diff === 实际 diff」的判定对新建文件才成立。
  * 被 .gitignore 忽略的产物（lib/、node_modules）不进 index，行为与此前一致。
  */
+
+/**
+ * Normalize a full-tree diff for equality comparison: git emits diff sections
+ * in index insertion order, which differs between `add --all` (worktree
+ * walk) and a sequence of `apply --cached` (queue order). Sorting whole
+ * `diff --git` sections makes the comparison order-insensitive without
+ * weakening it — every section must still match byte-for-byte.
+ */
+function sortDiffSections(diff: string): string {
+  const head: string[] = []
+  const sections: string[] = []
+  let current: string[] | null = null
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      if (current !== null) sections.push(current.join('\n'))
+      current = [line]
+    } else if (current !== null) {
+      current.push(line)
+    } else {
+      head.push(line)
+    }
+  }
+  if (current !== null) sections.push(current.join('\n'))
+  sections.sort()
+  return [...head, ...sections].join('\n')
+}
+
 function actualUpstreamDiff(): string {
   return withScratchIndex('dsh-worktree-index-', (indexEnv) => {
     capture('git', ['add', '--all'], upstreamDir, indexEnv)
@@ -255,7 +282,7 @@ function actualUpstreamDiff(): string {
 function appliedRegisteredPrefix(patches: readonly PatchEntry[]): number | null {
   const actual = actualUpstreamDiff()
   for (let length = patches.length; length >= 0; length -= 1) {
-    if (actual === registeredPatchDiff(patches.slice(0, length))) return length
+    if (sortDiffSections(actual) === sortDiffSections(registeredPatchDiff(patches.slice(0, length)))) return length
   }
   return null
 }
@@ -307,7 +334,7 @@ function applyPatches(patches: readonly PatchEntry[]): void {
  * 则通过，否则 diff 不等即拒绝（报错时列出未跟踪文件便于定位）。
  */
 function verifyOnlyRegisteredPatches(patches: readonly PatchEntry[]): void {
-  if (actualUpstreamDiff() !== registeredPatchDiff(patches)) {
+  if (sortDiffSections(actualUpstreamDiff()) !== sortDiffSections(registeredPatchDiff(patches))) {
     const untracked = upstreamUntrackedFiles()
     const hint = untracked.length > 0 ? `\n当前未跟踪文件：\n${untracked.join('\n')}` : ''
     throw new Error(
