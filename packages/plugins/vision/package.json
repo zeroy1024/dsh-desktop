@@ -18,10 +18,10 @@
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings",
+        "slots",
+        "settingsScope",
         "@deepseek-ai/dsh-client-ui-settings-plugins",
-        "@deepseek-ai/dsh-api-remotes"
+        "remote"
       ],
       "platform": "web"
     }

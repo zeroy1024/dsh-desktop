@@ -71,6 +71,28 @@
 
 三平台 CI 由 GitHub Actions 执行（push 后触发）。本地已完成 darwin 全量验证；Windows/Linux 的 WCO、0015、NSIS/AppImage 断言依赖 CI runner，合并前须在远程分支上确认绿。
 
+
+### 追加修复（inject 服务名语义，2026-09-05）
+
+**用户实测暴露的 P0**：模型选择器消失、vision/web-search 插件设置不显示。根因：阶段 2
+的 inject 迁移把 **包名**（@deepseek-ai/dsh-client-ui-renderer 等）写进了 cordis 的
+inject 数组——**cordis 的 inject 元素是「服务名」（Context 属性名）**，包名在服务表中
+不存在，插件 fiber 永久 PENDING（`web boot: N entries did not activate` 的
+`waiting for service: X` 诊断即此）。
+
+**修正映射**（包名 → Context 服务名，依据各包 super(ctx, '…') / reflect.provide）：
+- `@deepseek-ai/dsh-client-ui-renderer` → `slots`
+- `@deepseek-ai/dsh-api-session-controller` → `sessions`
+- `@deepseek-ai/dsh-api-workspace-controller` → `workspaces`
+- `@deepseek-ai/dsh-api-remotes` → `remote`
+- `@deepseek-ai/dsh-client-ui-settings` → `settingsScope`
+- `@deepseek-ai/dsh-client-ui-conversation` → `uiConversation`
+
+**教训**：cordis 的 inject 元素=Context 属性名（服务名），不是包名/entry id；跨插件的
+运行时服务共享不能靠 inject 声明（静态插件面），panel-shell↔trajectory 的注册服务
+消费用轮询握手表达。上游惯例参照 ui-settings-plugins 的
+`['slots', 'locale', 'remote', 'remote.credentials', 'remote.session', 'settingsScope']`。
+
 ## 阶段总览
 
 | 阶段 | 内容 | 里程碑 | 估算 |
