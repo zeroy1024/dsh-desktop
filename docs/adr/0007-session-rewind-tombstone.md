@@ -1,6 +1,6 @@
 # ADR-0007：会话撤回 —— 墓碑事件 + 上游 fold 最小补丁
 
-- 状态：已接受
+- 状态：已接受；原始决定中的客户端 fold 已被下文 0.1.2 修订替代，当前功能范围见 [Rewind 说明](../../packages/plugins/rewind/README.md)
 - 日期：2026-09-03
 
 ## 背景
@@ -98,7 +98,7 @@ Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓�
   无处安放）。
 
 **决策**：rewind 维持原地截断语义，0012/0013 在 0.1.2 上重做（见
-`docs/upgrade-dsh-0.1.2-rc.1-phases.md` 阶段 7）；fork 作为「从此处分支继续」
+[迁移总结](../history/dsh-0.1.2-rc.1-migration.md)）；fork 作为「从此处分支继续」
 的独立增强另立，不与 rewind 合并。
 
 ### 0.1.2 适配要点

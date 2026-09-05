@@ -3,7 +3,9 @@
 The repository CI is defined in `.github/workflows/ci.yml`. It is a
 correctness gate for the pinned upstream patch queue and for the desktop
 runtime on Linux, macOS, and Windows; release signing and installer publishing
-remain part of P4 and deliberately do not run in pull requests.
+do not run in pull requests. Unsigned installers and archives are built and
+published by the separate `.github/workflows/release.yml` workflow; signing,
+notarization, and automatic updates remain deferred.
 
 ## Toolchain
 
@@ -74,19 +76,22 @@ Lint and TypeScript checking run once on Linux because their results are not
 OS-dependent. The matrix uses `fail-fast: false` so every platform reports its
 result even if another platform fails.
 
-### `packaged-smoke` (Linux)
+### `packaged-smoke` (Linux, macOS, Windows)
 
-`platform-check` launches the app from `node_modules`; the packaged artifact
-could regress independently (missing resources, broken runtime archive,
-broken sandbox helper) without any test noticing. This job therefore runs the
-real electron-builder Linux packaging and the packaged smoke once per CI run
-on Linux only — the expensive all-3-OS packaging gate remains release-only:
+The unpackaged app can pass while packaged resources or runtime extraction fail.
+Each platform therefore builds and launches a native application directory in
+ordinary CI, with `fail-fast: false`:
 
-1. Downloads the upstream contract and installs workspace dependencies.
-2. Builds the desktop app (`package:ci:linux`: `--linux dir tar.gz`, skipping
-   the AppImage/installer stages of the release job).
-3. Configures the unpacked `chrome-sandbox` helper and runs
-   `pnpm ci:smoke:packaged` against `linux-unpacked` under Xvfb.
+1. Downloads the upstream contract and installs platform-native dependencies.
+2. Builds plugins and the desktop shell, then stages the runtime archive.
+3. Linux uses `package:ci:linux` (`--linux dir tar.gz`); macOS and Windows use
+   electron-builder `--dir --publish never`. CI disables signing discovery.
+4. Runs `pnpm ci:smoke:packaged` against the release directory. Linux first
+   configures the unpacked `chrome-sandbox` helper and launches under Xvfb.
+
+Full installers and portable release archives are checked separately by the
+release workflow. A directory-package smoke does not verify installer upgrades,
+signing, or notarization.
 
 ### Coverage gate (Linux)
 
@@ -167,6 +172,10 @@ for 3 days.
 - Obsolete pull-request runs are cancelled; main and merge-queue runs finish.
 - Every job has an explicit timeout and the matrix uses explicit runner images.
 
-When P4 packaging lands, signed macOS/Windows releases and Linux checksums must
-live in a separate protected tag workflow. That workflow should smoke the
-exact signed artifacts and publish them without rebuilding in the release job.
+The separate `release.yml` workflow accepts version tags and manual dispatch,
+builds all three platforms, validates assets, runs packaged smoke, and generates
+SHA256SUMS before publishing a GitHub prerelease. Current artifacts are unsigned.
+Future signing/notarization should validate the exact artifacts to be published
+and keep release credentials outside pull-request jobs.
+
+See the [documentation index](README.md) for architecture and plugin guides.

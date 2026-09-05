@@ -109,14 +109,17 @@ spawn: --profile desktop --no-open --port 0
 - **P0 仓库骨架 + 上游同步链路**（已完成）：submodule 锁版、patch 队列机制、`sync-upstream.ts`、CI 演练。
 - **P1 MVP 桌面壳**（已完成）：`dsh web` 子进程 + `loadURL`，零上游改动跑通全功能。
 - **P2 插件工作流**（已完成通道）：`@dsh-desktop/hello-panel` 走通「构建 → 物化 `~/.dsh/profiles/desktop` → `--profile desktop` 启动 → `shell.overlay` 出现徽章」（ADR-0004）；此后功能一律走 `packages/plugins/`。
-- **P3 传输**（自定义协议已撤销）：渲染进程直连 `http://127.0.0.1:<port>/`。`dsh://` + `net.fetch` 代理曾落地，因 Chromium 自定义协议（forbidden `Host`、流式 Response）把主 JS 弄丢，且隔离收益（token 不进 URL）配不上代理表面；上游当前 ready 行已无 launch token。真 IPC / `__DSH_TRANSPORT__` 仍等上游 webserver 有实现再做。
+- **P3 传输**（自定义协议已撤销）：渲染进程直连 loopback HTTP；当前首载通过 ready token 交换 Cookie，再进入干净 URL（见上文数据流）。自定义协议代理的撤销原因见 ADR-0002；真 IPC 仍等上游正式实现。
 - **P4 打包分发**（部分实施）：electron-builder 打包 + `dsh-cli.tar` 随包携带、首启解压到 `userData/dsh-runtime/<version>/` 已落地；捆绑 Node 24 运行时（`scripts/bundle-node.ts`）、签名/公证、自动更新未做（运行时改用 `ELECTRON_RUN_AS_NODE` 复用 Electron 内嵌 Node，见 [ADR-0003 修订](adr/0003-node-runtime.md)）。
 
 ## 决策记录
 
 - [ADR-0001 上游源码获取：submodule + patch 队列](adr/0001-upstream-sourcing.md)
-- [ADR-0002 MVP 走 HTTP 内嵌，P3 迁 IPC 桥](adr/0002-mvp-transport.md)
+- [ADR-0002 HTTP 内嵌，真 IPC 暂缓](adr/0002-mvp-transport.md)
 - [ADR-0003 Node 运行时策略](adr/0003-node-runtime.md)
 - [ADR-0004 内置插件分发：app 托管 desktop profile + 闭包解析](adr/0004-bundled-plugins.md)
-- [ADR-0005 归档管理插件：webServer 注册路由 + registry 运行时 setState](adr/0005-archive-manager-plugin.md)
+- [ADR-0005 归档管理插件与公开取消归档 API](adr/0005-archive-manager-plugin.md)
 - [ADR-0006 审查插件：会话事件流聚合的面板页 + 行级评论回灌](adr/0006-review-plugin.md)
+- [ADR-0007 会话撤回墓碑](adr/0007-session-rewind-tombstone.md)
+
+全部维护说明与插件用法见[文档索引](README.md)。

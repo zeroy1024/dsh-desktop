@@ -22,7 +22,7 @@ packages/plugin-kit/  客户端插件打包（ModuleLoader 工厂，镜像上游
 packages/plugins/   我们的 dsh 插件群（功能大头；app 内置分发，ADR-0004，不走 dsh plugin add 装用户 profile）
 scripts/            sync-upstream / dev
 vendor/             上游包 tarball + dsh-cli 独立安装（gitignore，可重新生成）
-docs/               architecture.md + adr/
+docs/               README.md 索引 + 当前维护说明 + adr/ 决策 + history/ 历史记录
 ```
 注：`packages/webui`（自组 WebUI 构建）为预留，尚未创建；真 IPC 接入时才建（ADR-0002）。
 

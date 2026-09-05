@@ -20,4 +20,4 @@
 
 - 升级上游的动作固定为：先确认目标版本已发布到 npm（`pnpm view @deepseek-ai/dsh versions`），再 `git -C upstream fetch && git -C upstream checkout <new-tag>` → 跑 `pnpm sync:upstream` → 修失效补丁。
 - 补丁是最后手段：能插件化的不动配置，能配置叠层的不动源码。
-- `vendor/` 不入库（可由锁定的 submodule 经 `pnpm sync:upstream` 确定性重建）：含上游包 tarball 与 `dsh-cli` 独立安装产物。桌面运行时只使用 `vendor/dsh-cli` 的完整 node_modules 布局——monorepo 里直接跑 `apps/cli/lib/bin.js` 无法解析动态加载的插件包（源码形态靠 tsx 的 tsconfig paths，构建形态按 npm 安装布局设计）。
+- `vendor/` 生成产物不入库，`vendor/dsh-cli/pnpm-lock.yaml` 作为依赖契约入库（其余可由锁定的 submodule 经 `pnpm sync:upstream` 重建）：含上游包 tarball 与 `dsh-cli` 独立安装产物。桌面运行时只使用 `vendor/dsh-cli` 的完整 node_modules 布局——monorepo 里直接跑 `apps/cli/lib/bin.js` 无法解析动态加载的插件包（源码形态靠 tsx 的 tsconfig paths，构建形态按 npm 安装布局设计）。

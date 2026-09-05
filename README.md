@@ -45,7 +45,7 @@ DeepSeek Harness Desktop 是基于 [DeepSeek Harness](https://github.com/deepsee
 
 ### 会话管理与能力补全
 
-- **撤回编辑（Rewind）**：在原会话中撤回某条用户消息之前的上下文，原文放回输入框。
+- **撤回编辑（Rewind）**：在原会话中撤回某条用户消息之前的上下文，原文与图片放回输入框。
 - **归档管理**：查看、排序、按工作区分组并恢复归档会话。
 - **Vision**：为不支持图片输入的文本模型提供可配置的图片证据桥接。
 - **Web Search**：通过辅助模型和原生搜索工具，为 dsh 的 `web_search` 补充结构化来源。
@@ -126,7 +126,7 @@ pnpm dev
 
 ## 内置插件
 
-以下 11 个插件默认随应用装配（详见 [`packages/plugins/`](packages/plugins/)）：
+以下 12 个内置插件由应用管理（详见 [`packages/plugins/`](packages/plugins/)）：
 
 | 插件 | 作用 |
 | --- | --- |
@@ -137,13 +137,14 @@ pnpm dev
 | `file-browser` | 工作区只读文件树、源码和 Markdown 预览 |
 | `review` | 会话/Git 改动 diff、人审标记、行级评论和单文件撤销 |
 | `archive-manager` | 查看、排序、分组和恢复归档会话 |
-| `rewind` | 撤回用户消息之前的会话上下文并回填原文 |
+| `session-actions` | 会话行快速归档与含后代的 ZIP 日志导出 |
+| `rewind` | 撤回用户消息之前的会话上下文并回填原文与图片 |
 | `vision` | 为文本模型桥接图片理解能力 |
 | `web-search` | 为现有 `web_search` 工具提供结构化搜索来源 |
 | `fps-overlay` | 开发态 FPS HUD（仅 unpackaged 开发模式显示） |
 
 > [!NOTE]
-> Vision 需单独配置视觉 API，Web Search 需配置辅助 endpoint/key；`hello-panel`、`panel-page-stub` 仅作开发验收用，不装配进桌面运行时。
+> Vision 需单独配置视觉 API，Web Search 需配置辅助 endpoint/key；`hello-panel` 默认禁用，`panel-page-stub` 仅在开发模式装配。
 
 ## 架构
 
@@ -183,7 +184,7 @@ pnpm dev
 - 安装包签名、公证和自动更新；
 - AI 自动代码审查、GitHub PR bot、Review 的 base branch / 指定 commit / PR 评论；
 - 归档会话删除（上游暂未提供所需能力）；
-- Rewind 仅支持 live 且 agent 空闲的会话，图片附件不回填；
+- Rewind 仅支持 live 且 agent 空闲的会话，不跨压缩替换边界；未打补丁的官方 CLI 会拒读含撤回墓碑的会话（见 [Rewind 说明](packages/plugins/rewind/README.md)）；
 - Vision 的视频理解；Web Search 的内置免费搜索。
 
 下一阶段重点：跟随上游正式扩展点减少本地 patch → 完善 Review 体验 → 评估独立 Node runtime → 完成签名公证与正式发行 → 上游支持后评估真 IPC。
@@ -208,10 +209,10 @@ pnpm dev
 
 ## 文档
 
-- [架构总览](docs/architecture.md) / [窗口与标题栏设计](docs/overlay-titlebar.md)
+- [文档索引](docs/README.md)：开发说明、插件用法、全部 ADR 与历史记录的统一入口
+- [架构总览](docs/architecture.md) / [窗口与标题栏](docs/overlay-titlebar.md)
 - [CI 与可复现构建](docs/ci.md)
-- [Review 功能清单](docs/review-feature-list.md) / [Review 方案分析](docs/review-feature-analysis.md)
-- ADR：[0001 上游源码获取](docs/adr/0001-upstream-sourcing.md) · [0002 MVP 传输方案](docs/adr/0002-mvp-transport.md) · [0003 Node 运行时策略](docs/adr/0003-node-runtime.md) · [0004 内置插件分发](docs/adr/0004-bundled-plugins.md) · [0005 归档管理插件](docs/adr/0005-archive-manager-plugin.md) · [0006 Review 插件](docs/adr/0006-review-plugin.md) · [0007 会话撤回墓碑](docs/adr/0007-session-rewind-tombstone.md)
+- [Review 插件说明](packages/plugins/review/README.md) / [Rewind 插件说明](packages/plugins/rewind/README.md)
 
 ## 致谢
 

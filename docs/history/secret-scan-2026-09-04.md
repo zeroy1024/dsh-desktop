@@ -1,5 +1,7 @@
 # API Key / Secret 泄漏安全检查报告
 
+> 历史记录：仅反映文中所述检查或调研时点，不代表当前功能、缺陷或验证状态。当前入口见[文档索引](../README.md)。
+
 - 检查时间：2026-09-04
 - 检查对象：`deepseek-harness-desktop` 仓库（含工作树、全部 git 历史、未跟踪文件、悬空对象、submodule `upstream`）
 - 检查范围：API key / secret key / 私钥 / 高熵凭据的泄漏

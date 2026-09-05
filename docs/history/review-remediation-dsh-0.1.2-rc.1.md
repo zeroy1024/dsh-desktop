@@ -1,5 +1,7 @@
 # 0.1.2-rc.1 Review 整改记录
 
+> 历史记录：仅反映文中所述检查或调研时点，不代表当前功能、缺陷或验证状态。当前入口见[文档索引](../README.md)。
+
 日期：2026-09-05。对应 [整改前审查](review-dsh-0.1.2-rc.1-2026-09-05.md)。
 上游仍 pin `a66e4702047846cdaa10c66c9d3df3951f5ea70d`。没有直接编辑 upstream 源码；
 新队列由 `sync:upstream --replace-patches-from` 核验旧队列后统一迁移。
@@ -51,7 +53,7 @@ OS/CPU 的可选包，见 [pnpm 官方说明](https://pnpm.io/cli/install#--forc
 
 0015 有整 provider 替代路径，但没有 decoder/COM bindings/worker 的局部注入接口。
 零补丁需复制约 576 行原生后端及生命周期。保留最小兼容修复维护成本更低，并不声称
-“插件完全不可达”。保留原因与退役条件见 [patches.yml](../patches/patches.yml)。
+“插件完全不可达”。保留原因与退役条件见 [patches.yml](../../patches/patches.yml)。
 
 0016–0019 全部合回对应原始补丁。队列 **16 → 12 条**；相对上游 pin，`src/` 变动
 从 `+1255/-150` 变为 `+1220/-149`。通用接口拆分和回归增加了文件数，总 patch 文本

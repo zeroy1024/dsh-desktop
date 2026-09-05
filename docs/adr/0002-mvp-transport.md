@@ -21,6 +21,12 @@ MVP 用 A（`--no-open --port 0`，AgentSupervisor 解析 ready 行）。真 IPC
 >
 > 更新（2026-08-30）：P3 曾落地 C（`dsh://127.0.0.1` + `net.fetch` 代理，WS 经 IPC）。随后证实：抄浏览器 `Host` + 流式 passthrough 会让模块脚本 `net::ERR_FAILED`，页面停在空 `#root`；自定义协议还要永久承担 Chromium 代理表面。C 买到的隔离（token 不进 URL）配不上成本——上游当前 ready 行已无 launch token，鉴权是 Host/Origin fence；即便 XSS 也仍能 `fetch('/api')`。P3 的自定义协议已撤销，回到 A：`loadURL(http://127.0.0.1:<port>/)`，导航锁死这一代端口，token 不进文档 URL、不进 preload。
 
+## 当前鉴权（0.1.2-rc.1 修订）
+
+上述 2026-08-30 的 Host/Origin-only 描述属于历史状态。当前首载使用 ready URL 的一次性
+token 换取签名 Cookie，再导航至干净 URL；重启时仅清理旧端口鉴权 Cookie。
+传输仍为 loopback HTTP，完整数据流见[架构总览](../architecture.md#数据流)。
+
 ## 后果
 
 - 端口只绑 127.0.0.1（上游禁止 `--host 0.0.0.0`）。

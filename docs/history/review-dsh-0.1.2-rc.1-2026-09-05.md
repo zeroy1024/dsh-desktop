@@ -1,5 +1,7 @@
 # 0.1.2-rc.1 迁移全面审查
 
+> 历史记录：仅反映文中所述检查或调研时点，不代表当前功能、缺陷或验证状态。当前入口见[文档索引](../README.md)。
+
 > 以下为整改前发现。14 项问题的处理、最终补丁边界和验证结果见
 > [Review 整改记录](review-remediation-dsh-0.1.2-rc.1.md)。
 
@@ -15,7 +17,7 @@
 
 ### F01 · P1 · 迁移新增：Remote 命名空间缺少 inject 声明
 
-位置：[vision/index.ts:13](../packages/plugins/vision/src/client/index.ts#L13)、[web-search/index.ts:10](../packages/plugins/web-search/src/client/index.ts#L10)、[file-browser/index.ts:18](../packages/plugins/file-browser/src/client/index.ts#L18)。
+位置：[vision/index.ts:13](../../packages/plugins/vision/src/client/index.ts#L13)、[web-search/index.ts:10](../../packages/plugins/web-search/src/client/index.ts#L10)、[file-browser/index.ts:18](../../packages/plugins/file-browser/src/client/index.ts#L18)。
 
 vision 和 web-search 只声明 `remote`，实际 `credentialAdapter` 在 describe/set 时访问 `remote.credentials`；file-browser 实际访问 `remote.session.openWorkspacePath`。0.1.2 的命名空间是独立 Cordis service，父级 `remote` 的注入不授予子服务访问权。
 
@@ -32,7 +34,7 @@ session cannot get property "remote.session" without inject
 
 ### F02 · P1 · 既有：旧会话的撤销回调会覆盖新会话 Git 面板
 
-位置：[ReviewPage.tsx:348](../packages/plugins/review/src/client/ReviewPage.tsx#L348)。
+位置：[ReviewPage.tsx:348](../../packages/plugins/review/src/client/ReviewPage.tsx#L348)。
 
 `restoreGitFile(sessionId, path).then(() => loadGit(epochRef.current))` 中，`loadGit` 捕获旧 sessionId，却被传入当前会话的 epoch。A 的恢复请求尚未完成时切换 B，A 请求完成后会重新读取 A，并通过 B 的 epoch 检查，把 A 的文件显示在 B 面板中。
 
@@ -42,7 +44,7 @@ session cannot get property "remote.session" without inject
 
 ### F03 · P1 · 既有：单文件恢复把文件名当成 Git 通配表达式
 
-位置：[git-handler.ts:261](../packages/plugins/review/src/git-handler.ts#L261)。
+位置：[git-handler.ts:261](../../packages/plugins/review/src/git-handler.ts#L261)。
 
 虽然请求 path 必须匹配真实 status 条目，`git restore ... -- rawPath` 中的 `--` 只结束选项解析，仍保留 Git pathspec 的通配语义。macOS/Linux 合法文件名可以包含 `*`、`?`、`[]` 等字符，不能据此假设它是单个精确路径。[Git literal pathspec 文档](https://git-scm.com/docs/git#Documentation/git.txt---literal-pathspecs)
 
@@ -52,7 +54,7 @@ session cannot get property "remote.session" without inject
 
 ### F04 · P1 · 既有：会话位于仓库子目录时，恢复/删除会指向另一个文件
 
-位置：[git-handler.ts:236](../packages/plugins/review/src/git-handler.ts#L236)、同文件 254 和 261 行。
+位置：[git-handler.ts:236](../../packages/plugins/review/src/git-handler.ts#L236)、同文件 254 和 261 行。
 
 `git status --porcelain=v1 -z` 返回仓库根相对路径，但 handler 用会话 cwd 作为拼接和 Git 命令的基准。若会话在 `repo/sub`，status 中 `sub/tracked.txt` 指的是 `repo/sub/tracked.txt`，当前 restore 实际指向 `repo/sub/sub/tracked.txt`。[Git porcelain 路径约定](https://git-scm.com/docs/git-status#_porcelain_format_version_1)
 
@@ -62,7 +64,7 @@ session cannot get property "remote.session" without inject
 
 ### F05 · P2 · 迁移新增：多代鉴权 Cookie 累积导致启动返回 431
 
-位置：[index.ts:555](../apps/desktop/src/main/index.ts#L555)，恢复导航同文件 424 行；默认 WebContents 会话见 [splash.ts:51](../apps/desktop/src/main/splash.ts#L51)。
+位置：[index.ts:555](../../apps/desktop/src/main/index.ts#L555)，恢复导航同文件 424 行；默认 WebContents 会话见 [splash.ts:51](../../apps/desktop/src/main/splash.ts#L51)。
 
 上游 BrowserAuth 根据含端口的 authority 生成不同 `dsh-auth-*` Cookie 名，Cookie 的作用域却为主机、`Path=/`，默认有效 30 天。Electron 使用持久 defaultSession，agent 每代使用 `--port 0`，没有清理旧鉴权 Cookie。Cookie 同主机跨端口共享，因此每次新请求都可能携带前面各代的 Cookie。[RFC 6265 §8.5](https://www.rfc-editor.org/rfc/rfc6265#section-8.5)
 
@@ -72,7 +74,7 @@ session cannot get property "remote.session" without inject
 
 ### F06 · P2 · 迁移遗漏：自定义数据路由未接入新版鉴权
 
-位置：[file-browser/index.ts:67](../packages/plugins/file-browser/src/index.ts#L67)、[review/index.ts:57](../packages/plugins/review/src/index.ts#L57)、[archive-manager/index.ts:205](../packages/plugins/archive-manager/src/index.ts#L205)、rewind 的 `registerRewindRoute`。
+位置：[file-browser/index.ts:67](../../packages/plugins/file-browser/src/index.ts#L67)、[review/index.ts:57](../../packages/plugins/review/src/index.ts#L57)、[archive-manager/index.ts:205](../../packages/plugins/archive-manager/src/index.ts#L205)、rewind 的 `registerRewindRoute`。
 
 四个插件直接注册 `webServer` 路由，只检查 Host/Origin 等请求头。新版签名 Cookie 校验由 `connection.requestRejection()` 施加到 Connection 路由上，WebServer 本身没有全局鉴权。因此原生 `/api` 需要登录，自定义文件读取、Git 恢复、撤回、取消归档等路由仍可被无 Cookie 请求调用。
 
@@ -82,7 +84,7 @@ session cannot get property "remote.session" without inject
 
 ### F07 · P2 · 既有：file-browser 和 review 卸载后遗留 HTTP 路由
 
-位置：[file-browser/index.ts:67](../packages/plugins/file-browser/src/index.ts#L67)、[review/index.ts:55](../packages/plugins/review/src/index.ts#L55)。
+位置：[file-browser/index.ts:67](../../packages/plugins/file-browser/src/index.ts#L67)、[review/index.ts:55](../../packages/plugins/review/src/index.ts#L55)。
 
 两处丢弃 `webServer.register()` 返回的 disposer，注释却称生命周期随 fiber。实际上该方法是普通 Map 注册，不自行创建 effect。archive-manager 和 rewind 已正确显式管理 disposer。
 
@@ -92,7 +94,7 @@ session cannot get property "remote.session" without inject
 
 ### F08 · P2 · 迁移新增：0013 破坏所有流式事件的增量处理
 
-位置：[0013:94](../patches/0013-session-controller-rewind-fold.patch#L94)。
+位置：[0013:94](../../patches/0013-session-controller-rewind-fold.patch#L94)。
 
 每个 raw append 都读取整个 `rawWindow.entries`、扫描墓碑并复制过滤窗口，包括从未发生撤回的会话。上游 event source 采用 rope 与惰性物化，conversation 正常只读取 `change.entries`；包装器把它变为每次 O(n)、累计 O(n²)，同步占用渲染线程。
 
@@ -111,7 +113,7 @@ session cannot get property "remote.session" without inject
 
 ### F09 · P2 · 迁移新增：撤回遗漏 turnOutline 投影
 
-位置：[0013:94](../patches/0013-session-controller-rewind-fold.patch#L94)；上游 `ui-chat/.../ChatView.tsx:293`、`turn-rail-items.ts:68`、`session-turn-outline/src/projection.ts:96`。
+位置：[0013:94](../../patches/0013-session-controller-rewind-fold.patch#L94)；上游 `ui-chat/.../ChatView.tsx:293`、`turn-rail-items.ts:68`、`session-turn-outline/src/projection.ts:96`。
 
 补丁只折叠事件窗口，0.1.2 新增的 host `turnOutline` 对墓碑走 default、原样返回。ChatView 又把该投影与本地导航合并，即使本地节点已删除，仍把已撤回的 prompt/response 和失效 anchor 加回轮次导航。
 
@@ -121,7 +123,7 @@ session cannot get property "remote.session" without inject
 
 ### F10 · P2 · 迁移新增：历史分页失败被显示为完整审查结果
 
-位置：[session-data.ts:24](../packages/plugins/review/src/client/session-data.ts#L24)、[ReviewPage.tsx:101](../packages/plugins/review/src/client/ReviewPage.tsx#L101)。
+位置：[session-data.ts:24](../../packages/plugins/review/src/client/session-data.ts#L24)、[ReviewPage.tsx:101](../../packages/plugins/review/src/client/ReviewPage.tsx#L101)。
 
 真实 `Session.loadOlder()` 在已有分页进行时直接返回，在请求失败时也内部捕获、不 reject。适配层可能得到 `events: []`、`hasMore: true`，页面却直接结束循环，设置 `ready` 且 `truncated=false`。
 
@@ -131,7 +133,7 @@ session cannot get property "remote.session" without inject
 
 ### F11 · P2 · 既有：取消视觉转写会把 rejected Promise 留在缓存
 
-位置：[vision/index.ts:675](../packages/plugins/vision/src/index.ts#L675)。
+位置：[vision/index.ts:675](../../packages/plugins/vision/src/index.ts#L675)。
 
 `failureResult` 对 VISION_ABORTED 重新抛错。pending Promise 已入缓存，而删除缓存的逻辑在 `await` 之后，拒绝时无法执行。此后相同图片命中同一个 rejected Promise，新的请求也立即取消。
 
@@ -141,7 +143,7 @@ session cannot get property "remote.session" without inject
 
 ### F12 · P2 · 既有：子进程 exit 与流 close 混用导致恢复/退出卡住
 
-位置：[supervisor.ts:438](../packages/agent-host/src/supervisor.ts#L438)，同文件 313、476 行。
+位置：[supervisor.ts:438](../../packages/agent-host/src/supervisor.ts#L438)，同文件 313、476 行。
 
 CLI 已退出、孙进程仍继承 stdout/stderr 时，exit 已发生但 close 未发生。当前退出状态和重启依赖 close；stop 又以 exitCode/signalCode 非空认定已 closed，跳过升级终止，最后无限等待日志关闭任务。
 
@@ -151,7 +153,7 @@ CLI 已退出、孙进程仍继承 stdout/stderr 时，exit 已发生但 close �
 
 ### F13 · P2 · 既有：升级时无法回收旧版本孤儿 agent
 
-位置：[index.ts:665](../apps/desktop/src/main/index.ts#L665)、[orphan-reaper.ts:97](../apps/desktop/src/main/orphan-reaper.ts#L97)。
+位置：[index.ts:665](../../apps/desktop/src/main/index.ts#L665)、[orphan-reaper.ts:97](../../apps/desktop/src/main/orphan-reaper.ts#L97)。
 
 PID 记录保存了旧 `record.cliEntry`，回收却用当前版本入口比较。新版本 runtime 尚未解压时，resolveCliEntry 先失败导致跳过；若已解压，旧命令行不包含新入口，被视为 PID 复用并删掉记录。旧 agent 可能继续运行，新 agent 覆盖唯一 PID 记录。
 
@@ -159,7 +161,7 @@ PID 记录保存了旧 `record.cliEntry`，回收却用当前版本入口比较�
 
 ### F14 · P2 · 既有：archive 剪枝删除运行时 Markdown 资源
 
-位置：[stage-runtime-archive.ts:38](../apps/desktop/stage-runtime-archive.ts#L38)，实际删除判定 60–66 行。
+位置：[stage-runtime-archive.ts:38](../../apps/desktop/stage-runtime-archive.ts#L38)，实际删除判定 60–66 行。
 
 脚本删除所有 `.md`，但上游 dsh-skill-badge 在运行时读取 `assets/dsh-badge.md`。vendor 中存在该文件，现有 `.runtime-archive/dsh-cli.tar` 中确认缺失，只有 PNG、lib/index.js 和 package.json。启用默认关闭的 badge skill 后，打包版会因 ENOENT 失败，开发态不会。
 
