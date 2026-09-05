@@ -78,6 +78,16 @@ patches:
       改 snapshotEvents()。墓碑不可标 ignorable（跳过=重建出未截断的错误会话）；
       官方 CLI 打开含墓碑会话显式拒读（ADR-0007）。持久化已改 JSONL，roundtrip
       与拒读行为在阶段 7 专项测试覆盖。上游落地原生 rewind/truncate 原语后撤
+  - file: 0013-session-controller-rewind-fold.patch
+    reason: |
+      会话撤回的客户端解释层（0.1.2 重设计）：session-controller 的 Session
+      已重构为 MutableSessionEventSource 统一事件源（conversation 装配经 feed
+      订阅消费），旧 0013 的 replaceWindow/append 调用点不复存在。改为
+      createRewindVisibilitySource 装饰器（contract/events.ts）：Session 内部
+      写 raw 源（seq 连续性/分页/去重不受影响），对外发布的窗口按
+      [atSeq, markerSeq) 折叠可见性——marker 本身始终放行，墓碑写重发布为
+      全窗口 replace 以驱动装配增量重建。折叠常量本地字面量。上游落地原生
+      rewind 后撤
   - file: 0014-settings-nav-archive-icon.patch
     reason: |
       设置导航项图标由 ui-settings-general shell 的 navIcon(id) 按 section id

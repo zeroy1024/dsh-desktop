@@ -19,10 +19,18 @@ index af0f535b68..878b5ee32a 100644
    'sessions.count.other': '{n} sessions',
    'actions.workspace.aria': 'Workspace actions for {name}',
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index 0f917100ff..7b02557fcd 100644
+index 0f917100ff..d906dcca25 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-@@ -12,6 +12,7 @@ import {
+@@ -5,13 +5,14 @@
+  * except workspace Rename/Delete and session Rename/Fork/Archive; the session
+  * and workspace hover cards are suppressed while a menu is open.
+  */
+-import { useState } from 'react'
++import { useCallback, useState } from 'react'
+ import clsx from 'clsx'
+ import {
+   HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
    IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
    IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
    StateDot,
@@ -55,7 +63,28 @@ index 0f917100ff..7b02557fcd 100644
  /** Hover-card variant: distances wrap in the ago template; the now bucket stays bare (no "now ago"). */
  function hoverTimeLabel(updatedAt: number, now: number, t: RowTranslate): string {
    const { unit, n } = relativeTime(updatedAt, now)
-@@ -407,6 +426,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -170,7 +189,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+               if (id === 'rename') actions.rename()
+               else actions.delete()
+             }}
+-            portal
+             closeOnPointerLeave
+             anchor={(
+               <button
+@@ -399,6 +417,12 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+   const primaryStatus = statuses[0]
+   const showStatus = primaryStatus.state !== 'done' || row.completed
+   const [menuOpen, setMenuOpen] = useState(false)
++  // 右键锚点（patches/0001）：contextmenu 的指针位置，菜单以此为锚打开。
++  const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
++  const closeSessionMenu = useCallback(() => {
++    setMenuOpen(false)
++    setMenuPoint(null)
++  }, [])
+   // Archive hides the row through the registry-global archive set and never
+   // touches the session log, so it is not styled as destructive and needs no
+   // confirmation dialog.
+@@ -407,6 +431,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
      { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
      // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
      { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
@@ -63,14 +92,57 @@ index 0f917100ff..7b02557fcd 100644
    ]
    // Figma session cell: pad 8, status slot 16, then a 4px title gap.
    const ownRow = (
-@@ -470,6 +490,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -419,6 +444,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+       role="treeitem"
+       aria-selected={selected}
+       onClick={() => { onOpen(node.id) }}
++      onContextMenu={(e) => {
++        e.preventDefault()
++        e.stopPropagation()
++        if (row.blank) {
++          closeSessionMenu()
++          return
++        }
++        setMenuPoint({ x: e.clientX, y: e.clientY })
++        setMenuOpen(true)
++      }}
+       draggable={drag !== undefined}
+       onDragStart={drag === undefined
+         ? undefined
+@@ -463,22 +498,30 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+         <span className={css.rowActions}>
+           <Menu
+             open={menuOpen}
+-            onClose={() => { setMenuOpen(false) }}
++            onClose={() => { setMenuOpen(false); setMenuPoint(null) }}
++            portal
++            getAnchorRect={() => menuPoint === null ? null : new DOMRect(menuPoint.x, menuPoint.y, 0, 0)}
+             items={sessionMenuItems}
+             onSelect={(id) => {
+               setMenuOpen(false)
++              setMenuPoint(null)
                if (id === 'rename') onRename(node.id, row.title)
                if (id === 'fork') onFork(node.id)
                if (id === 'archive') onArchive(node.id)
-+          if (id === 'export') downloadSessionLog(node.id)
++              if (id === 'export') downloadSessionLog(node.id)
              }}
-             portal
+-            portal
              closeOnPointerLeave
+             anchor={(
+               <button
+                 type="button"
+                 className={css.iconButton}
+                 aria-label={t('actions.session.aria', { name: title })}
+-                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
++                onClick={(e) => {
++                  e.stopPropagation()
++                  const rect = e.currentTarget.getBoundingClientRect()
++                  setMenuPoint({ x: rect.left, y: rect.bottom })
++                  setMenuOpen(v => !v)
++                }}
+               >
+                 <IconEllipsisOutline16 />
+               </button>
 diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
 index 7865c31c22..ffe0999539 100644
 --- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
