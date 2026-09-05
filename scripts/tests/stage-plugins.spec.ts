@@ -70,3 +70,18 @@ describe('stagePlugins version alignment', () => {
     expect(() => stage(fx)).toThrow(/version/u)
   })
 })
+
+it('includes development-only plugins in dev and removes them on a subsequent production stage', () => {
+  const fx = fixture()
+  const manifestPath = join(fx.pluginsDir, 'plugin-a', 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest, dshDesktop: { developmentOnly: true } }))
+  const output = join(fx.cliModulesDir, '@dsh-desktop', 'plugin-a')
+  stagePlugins(fx)
+  expect(existsSync(output)).toBe(false)
+  stagePlugins({ ...fx, development: true })
+  expect(existsSync(join(output, 'lib', 'client.js'))).toBe(true)
+  expect(existsSync(join(fx.cliModulesDir, '@dsh-desktop', 'plugin-b'))).toBe(false)
+  stagePlugins(fx)
+  expect(existsSync(output)).toBe(false)
+})

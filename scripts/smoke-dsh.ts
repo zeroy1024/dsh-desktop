@@ -4,8 +4,8 @@
  * This is intentionally an HTTP smoke rather than an Electron test: it
  * exercises the same installed CLI closure that the desktop shell launches,
  * while remaining runnable on Linux, macOS, and Windows GitHub runners.
- * AgentSupervisor owns process-group termination on POSIX and the direct
- * child termination path on Windows.
+ * AgentSupervisor owns process-group termination on POSIX and a Windows Job
+ * Object for the CLI and its descendants.
  *
  * The agent runs under the desktop profile, so the app's bundled plugins are
  * loaded by dsh itself instead of being bypassed by the smoke. This requires
@@ -22,7 +22,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { AgentSupervisor, type AgentReadyInfo } from '../packages/agent-host/src/supervisor'
+import { AgentSupervisor, redactSecrets, type AgentReadyInfo } from '../packages/agent-host/src/supervisor'
 import type { BundledPlugin } from '../packages/agent-host/src/desktop-profile'
 import { materializeDesktopProfile } from '../packages/agent-host/src/desktop-profile'
 
@@ -69,7 +69,7 @@ const defaultCliEntry = join(
 const stagedPluginsDir = join(rootDir, 'vendor', 'dsh-cli', 'node_modules', '@dsh-desktop')
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return redactSecrets(error instanceof Error ? error.message : String(error))
 }
 
 /**
@@ -161,9 +161,9 @@ async function getWebPage(url: string, timeoutMs: number): Promise<WebSmokeRespo
     return validateWebResponse(response.status, response.headers.get('content-type') ?? '', body)
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error(`dsh Web GET 超时（${String(timeoutMs)}ms）：${url}`, { cause: error })
+      throw new Error(`dsh Web GET 超时（${String(timeoutMs)}ms）：${redactSecrets(url)}`, { cause: error })
     }
-    throw new Error(`dsh Web GET 失败（${url}）：${errorMessage(error)}`, { cause: error })
+    throw new Error(`dsh Web GET 失败（${redactSecrets(url)}）：${errorMessage(error)}`, { cause: error })
   } finally {
     clearTimeout(timer)
   }
@@ -174,10 +174,10 @@ function assertLoopbackReady(ready: AgentReadyInfo): void {
   try {
     parsed = new URL(ready.url)
   } catch {
-    throw new Error(`dsh ready URL 无效：${ready.url}`)
+    throw new Error(`dsh ready URL 无效：${redactSecrets(ready.url)}`)
   }
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' || ready.port <= 0) {
-    throw new Error(`dsh ready URL 非预期（必须为 127.0.0.1 的随机 HTTP 端口）：${ready.url}`)
+    throw new Error(`dsh ready URL 非预期（必须为 127.0.0.1 的随机 HTTP 端口）：${redactSecrets(ready.url)}`)
   }
 }
 
@@ -204,7 +204,7 @@ export async function runDshSmoke(options: DshSmokeOptions = {}): Promise<DshSmo
 
   const dshHome = mkdtempSync(join(tmpdir(), 'dsh-desktop-ci-'))
   const logDir = join(dshHome, 'logs')
-  // dsh 级 smoke 默认走 desktop profile：13 个内置插件在 dsh 子进程里同样装配，
+  // dsh 级 smoke 默认走 desktop profile：启用的内置插件在 dsh 子进程里同样装配，
   // 避免 CI 只覆盖裸 web profile、把插件旁路。staged 闭包缺失时给出可操作错误。
   if (options.noProfile !== true) {
     materializeDesktopProfile({
@@ -241,7 +241,7 @@ export async function runDshSmoke(options: DshSmokeOptions = {}): Promise<DshSmo
     result = { ...response, url: ready.url, port: ready.port }
   } catch (error) {
     failure = new Error(
-      `dsh Web smoke failed${ready === null ? '' : ` after ready at ${ready.url}`}: ${errorMessage(error)}`,
+      `dsh Web smoke failed${ready === null ? '' : ` after ready at ${redactSecrets(ready.url)}`}: ${errorMessage(error)}`,
       { cause: error },
     )
   }
@@ -334,7 +334,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const options = parseCliOptions(argv)
   if (options.help) return
   const result = await runDshSmoke(options)
-  console.log(`[dsh-smoke] OK ${result.url} HTTP ${String(result.status)} (${String(result.bodyBytes)} bytes)`)
+  console.log(`[dsh-smoke] OK ${redactSecrets(result.url)} HTTP ${String(result.status)} (${String(result.bodyBytes)} bytes)`)
 }
 
 const invokedPath = process.argv[1] === undefined ? null : resolve(process.argv[1])

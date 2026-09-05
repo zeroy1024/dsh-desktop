@@ -5,7 +5,7 @@
   "type": "module",
   "description": "面板页协议的活文档与诊断页：演练 owner 契约全部字段（active 翻转、sessionId、badge 回调），并渲染已注册页面清单。",
   "dshDesktop": {
-    "enabled": false
+    "developmentOnly": true
   },
   "main": "./lib/index.js",
   "exports": {
@@ -19,7 +19,7 @@
     },
     "client": {
       "inject": [
-        "slots",
+        "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-locale",
         "@dsh-desktop/panel-shell"
       ],

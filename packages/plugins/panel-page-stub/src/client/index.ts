@@ -19,13 +19,13 @@ export const inject = ['slots', 'locale', 'panelShell']
 // (registration-time closures read them; the page mutates them through the
 // inject face). Plain closures — diagnostics state is deliberately not a
 // store; the registry version counter carries the re-render signal.
-let demoBadge = 0
 
 /**
  * Client plugin body: one inject call, two registration halves.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  let demoBadge = 0
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'panel-page-stub: dictionaries')
   // Registration-time text (the tab title) reads through the bound translate
   // as a thunk, so it follows the active locale without re-registration.
@@ -33,6 +33,7 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('panel-shell.page', () => {
     const disposeMeta = ctx.panelShell.registerPage({
       id: 'stub',
+      sessionMode: 'required',
       title: () => t('page.title'),
       icon: createElement(IconCordisPluginOutline14, { size: 14 }),
       // Deliberate: no order — the stub sorts after every ordered page.

@@ -8,10 +8,10 @@
 
 - **node 半**（`src/index.ts`）：把 `POST /dsh-desktop/archive-manager/unarchive` 经
   `ctx.webServer.register()` 挂进 dsh 自带的 web 服务（同源访问）。恢复调用
-  `WorkspaceRegistry` 运行时存在的 private `setState`，走官方链路完成内存态、
-  `~/.dsh/storages/workspace.json` 持久化与 `host/archived-sessions-changed` 广播，
-  侧边栏因此实时刷新。handler 做方法 / 同源（Origin↔Host）/ 载荷三重校验；上游重构
-  内部面时返回 501，客户端降级为只读列表。
+  `WorkspaceRegistry.unarchiveSession` 公共 API，由 registry 的同一写入队列完成
+  内存态、持久化与 `domain/changed` 广播，
+  侧边栏因此实时刷新。handler 做方法 / 同源（Origin↔Host）/ 载荷三重校验；
+  宿主 API 缺席时返回 501，客户端降级为只读列表。
 - **时间侧车**（`src/timestamps.ts`）：上游 `archivedSessionIds` 只有 ID、无时间戳，
   归档时间由本插件自记——监听 `domain/changed`（workspace 域 global 写入携带完整
   快照），把归档集合与自有 `archive_timestamps` 域（storage-domain 表，
@@ -28,8 +28,8 @@
 ## 边界
 
 - 不做删除：上游无会话删除 API，插件删文件会留下 registry 死槽位（ADR-0005）。
-- as-any `setState` 是"越过类型使用"而非修改上游：submodule bump 时若
-  `WorkspaceRegistry` 的 `state` / `setState` 面变更，路由自动 501 降级，不损坏数据。
+- 取消归档 API 由 `patches/0016-workspace-unarchive-api.patch` 补充，公开类型取自
+  vendor 包；插件不读取私有状态、排队方法或存储。上游有等价 API 后移除该补丁。
 - 归档时间只覆盖插件装载后发生的归档；更早的历史归档无时间戳，行内省略该字段。
-- 设置导航的归档图标来自补丁 `patches/0014-settings-nav-archive-icon.patch`
-  （上游 navIcon 按 section id 硬编码，图标面插件不可达）。
+- 设置导航图标由本插件注册到 `settings.section.icon`，补丁
+  `patches/0014-settings-nav-archive-icon.patch` 仅提供通用图标槽。

@@ -60,23 +60,64 @@ afterEach(() => {
 })
 
 describe('reapOrphanedAgent', () => {
+  it('升级首启按记录的旧版本核身，无需新版本运行时存在', async () => {
+    const runtimeRoot = join(workDir, 'dsh-runtime')
+    const oldEntry = join(runtimeRoot, '0.0.7', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    writeAgentPidRecord(pidPath, { pid: PID, cliEntry: oldEntry })
+    let probed = false
+    const { deps, kills } = makeDeps(() => {
+      const result = probed ? null : `/Electron --expose-internals "${oldEntry}" --profile desktop --no-open --port 0`
+      probed = true
+      return Promise.resolve(result)
+    })
+    expect(existsSync(runtimeRoot)).toBe(false)
+    expect(await reapOrphanedAgent(pidPath, { runtimeRoot }, deps)).toBe('reaped')
+    expect(kills).toEqual([{ pid: PID, group: true, sig: 'SIGTERM' }])
+  })
+
+  it('拒绝托管根目录之外的入口，即使命令行与记录完全一致', async () => {
+    writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
+    const { deps, kills } = makeDeps(() => Promise.resolve(AGENT_CMDLINE))
+    expect(await reapOrphanedAgent(pidPath, { runtimeRoot: join(workDir, 'dsh-runtime') }, deps)).toBe('skipped')
+    expect(kills).toHaveLength(0)
+  })
+
+  it.each([
+    `/Electron ${CLI_ENTRY}.backup --profile desktop`,
+    `/Electron ${CLI_ENTRY} --profile web`,
+    `/Electron /prefix${CLI_ENTRY} --profile desktop`,
+  ])('不把入口前缀匹配或其他 profile 当成托管 agent：%s', async (command) => {
+    writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
+    const { deps, kills } = makeDeps(() => Promise.resolve(command))
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('skipped')
+    expect(kills).toHaveLength(0)
+  })
+
+  it('等待退出期间 pid 身份改变时不再发送 SIGKILL', async () => {
+    writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
+    let calls = 0
+    const { deps, kills } = makeDeps(() => Promise.resolve(calls++ === 0 ? AGENT_CMDLINE : '/usr/bin/other-service'))
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('skipped')
+    expect(kills).toEqual([{ pid: PID, group: true, sig: 'SIGTERM' }])
+  })
+
   it('无 pid 文件 → none，零 kill', async () => {
     const { deps, kills } = makeDeps(() => Promise.resolve(AGENT_CMDLINE))
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('none')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('none')
     expect(kills).toHaveLength(0)
   })
 
   it('坏 JSON 文件 → none，零 kill', async () => {
     writeFileSync(pidPath, '{not json')
     const { deps, kills } = makeDeps(() => Promise.resolve(AGENT_CMDLINE))
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('none')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('none')
     expect(kills).toHaveLength(0)
   })
 
   it('进程已死（probe 返回 null）→ 删文件、none、零 kill', async () => {
     writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
     const { deps, kills } = makeDeps(() => Promise.resolve(null))
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('none')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('none')
     expect(kills).toHaveLength(0)
     expect(existsSync(pidPath)).toBe(false)
   })
@@ -84,7 +125,7 @@ describe('reapOrphanedAgent', () => {
   it('pid 被复用（命令行不含 cliEntry）→ 删文件、skipped、绝不发信号', async () => {
     writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
     const { deps, kills } = makeDeps(() => Promise.resolve('/usr/sbin/sshd -D'))
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('skipped')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('skipped')
     // 核心安全性质：核身失败时一次 kill 都不允许发生
     expect(kills).toHaveLength(0)
     expect(existsSync(pidPath)).toBe(false)
@@ -98,7 +139,7 @@ describe('reapOrphanedAgent', () => {
       // 首次探活用于核身；SIGTERM 后的探活返回 null（已退出）
       return Promise.resolve(probed === 1 ? AGENT_CMDLINE : null)
     })
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('reaped')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('reaped')
     expect(kills).toEqual([{ pid: PID, group: true, sig: 'SIGTERM' }])
     expect(existsSync(pidPath)).toBe(false)
   })
@@ -106,7 +147,7 @@ describe('reapOrphanedAgent', () => {
   it('顽固进程：SIGTERM 后 2s 仍活 → 补整组 SIGKILL', async () => {
     writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
     const { deps, kills, sleeps } = makeDeps(() => Promise.resolve(AGENT_CMDLINE))
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('reaped')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('reaped')
     expect(kills).toEqual([
       { pid: PID, group: true, sig: 'SIGTERM' },
       { pid: PID, group: true, sig: 'SIGKILL' },
@@ -120,13 +161,13 @@ describe('reapOrphanedAgent', () => {
   it('探测抛异常 → skipped 且不删文件（留待下次核身）', async () => {
     writeAgentPidRecord(pidPath, { pid: PID, cliEntry: CLI_ENTRY })
     const { deps, kills } = makeDeps(() => Promise.reject(new Error('ps failed')))
-    expect(await reapOrphanedAgent(pidPath, CLI_ENTRY, deps)).toBe('skipped')
+    expect(await reapOrphanedAgent(pidPath, { cliEntry: CLI_ENTRY }, deps)).toBe('skipped')
     expect(kills).toHaveLength(0)
     expect(existsSync(pidPath)).toBe(true)
   })
 
   it('win32 进程树 kill 命令形态：SIGTERM 常规 /T，SIGKILL 升级 /T /F', () => {
-    // 与 supervisor.signal 共用同一 taskkill 构造（win32 分支），非 Windows 主机也能
+    // 旧版孤儿清理的 taskkill 构造（win32 分支），非 Windows 主机也能
     // 精确断言 argv——单 pid 的 TerminateProcess 会漏掉 dsh 的孙进程（工具执行/终端）
     expect(killProcessTreeCommand(4321, 'SIGTERM'))
       .toEqual(['taskkill', '/pid', '4321', '/T'])

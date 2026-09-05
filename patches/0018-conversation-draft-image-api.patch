@@ -1,0 +1,88 @@
+diff --git a/packages/client/ui-conversation/src/client/service.ts b/packages/client/ui-conversation/src/client/service.ts
+index 27a4c3e..084926d 100644
+--- a/packages/client/ui-conversation/src/client/service.ts
++++ b/packages/client/ui-conversation/src/client/service.ts
+@@ -32,6 +32,10 @@ import type { InputSubmitMode } from './contract/composer-submission.ts'
+  * test fake must supply.
+  */
+ export interface IConversation {
++  /** Register validated browser Files before attaching their ids to a SessionInput. */
++  createDraftImages(files: readonly File[]): readonly ComposerAttachment[]
++  /** Release a prepared batch that was cancelled or could not enter a SessionInput. */
++  releaseDraftImages(attachments: readonly ComposerAttachment[]): void
+   /** The per-session input machine registry (SessionInputResolver face). */
+   readonly input: SessionInputResolver
+   /**
+@@ -254,12 +258,19 @@ export class ConversationController extends Service implements IConversation {
+    */
+   createDraftImages(files: readonly File[]): readonly ComposerAttachment[] {
+     for (const file of files) imageMediaType(file.type)
+-    return files.map((file) => {
+-      const attachment = browserDraftAttachment(file)
+-      this.draftAttachments.set(attachment.id, attachment)
+-      probeDimensions(attachment)
+-      return attachment
+-    })
++    const attachments: ComposerAttachment[] = []
++    try {
++      for (const file of files) {
++        const attachment = browserDraftAttachment(file)
++        attachments.push(attachment)
++        this.draftAttachments.set(attachment.id, attachment)
++        probeDimensions(attachment)
++      }
++      return attachments
++    } catch (error) {
++      this.releaseDraftImages(attachments)
++      throw error
++    }
+   }
+ 
+   /**
+diff --git a/packages/client/ui-conversation/tests/service-orchestration.client.spec.ts b/packages/client/ui-conversation/tests/service-orchestration.client.spec.ts
+index 7ff7924..74e0372 100644
+--- a/packages/client/ui-conversation/tests/service-orchestration.client.spec.ts
++++ b/packages/client/ui-conversation/tests/service-orchestration.client.spec.ts
+@@ -136,6 +136,42 @@ describe('ConversationController', () => {
+     await b.runtime.dispose()
+   })
+ 
++  it('registers and releases prepared images through the public conversation face', async () => {
++    const b = await bench()
++    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:public-draft')
++    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
++    try {
++      const conversation = b.runtime.ctx.get('conversation')!
++      const attachments = conversation.createDraftImages([new File([Uint8Array.of(1)], 'a.png', { type: 'image/png' })])
++      expect(attachments).toHaveLength(1)
++      expect(conversation.input.for(b.runtime.sessions.scope('s1')!).addImages(attachments.map(image => image.id))).toBe(true)
++      conversation.releaseDraftImages(attachments)
++      conversation.releaseDraftImages(attachments)
++      expect(revoked).toHaveBeenCalledExactlyOnceWith('blob:public-draft')
++    } finally {
++      await b.runtime.dispose()
++      created.mockRestore(); revoked.mockRestore()
++    }
++  })
++
++  it('rolls back an entire prepared batch when a later preview allocation fails', async () => {
++    const b = await bench()
++    const created = vi.spyOn(URL, 'createObjectURL')
++      .mockReturnValueOnce('blob:partial-draft').mockImplementationOnce(() => { throw new Error('allocation failed') })
++    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
++    try {
++      expect(() => b.runtime.ctx.get('conversation')!.createDraftImages([
++        new File([Uint8Array.of(1)], 'a.png', { type: 'image/png' }),
++        new File([Uint8Array.of(2)], 'b.png', { type: 'image/png' }),
++      ])).toThrow('allocation failed')
++      expect(revoked).toHaveBeenCalledExactlyOnceWith('blob:partial-draft')
++      await b.runtime.dispose()
++      expect(revoked).toHaveBeenCalledOnce()
++    } finally {
++      created.mockRestore(); revoked.mockRestore()
++    }
++  })
++
+   it('fails loudly from the root scope, on an unbound session, or without Client Sessions', async () => {
+     const b = await bench()
+     await expect(b.root.send('x')).rejects.toThrow(/requires a session scope/)

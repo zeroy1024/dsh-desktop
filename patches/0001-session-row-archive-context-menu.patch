@@ -1,28 +1,112 @@
-diff --git a/packages/client/ui-workspace/src/client/locales.ts b/packages/client/ui-workspace/src/client/locales.ts
-index af0f535b68..878b5ee32a 100644
---- a/packages/client/ui-workspace/src/client/locales.ts
-+++ b/packages/client/ui-workspace/src/client/locales.ts
-@@ -45,6 +45,7 @@ export const zh = {
-   'delete.pending': '正在删除工作区…',
-   'menu.fork': '分叉会话',
-   'menu.archiveSession': '归档会话',
-+  'menu.exportSessionLog': '导出会话日志',
-   'sessions.count.one': '{n} 个会话',
-   'sessions.count.other': '{n} 个会话',
-   'actions.workspace.aria': '工作区“{name}”的操作',
-@@ -115,6 +116,7 @@ export const en = {
-   'delete.pending': 'Deleting workspace…',
-   'menu.fork': 'Fork session',
-   'menu.archiveSession': 'Archive session',
-+  'menu.exportSessionLog': 'Export session log',
-   'sessions.count.one': '{n} session',
-   'sessions.count.other': '{n} sessions',
-   'actions.workspace.aria': 'Workspace actions for {name}',
+diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
+index df17251..8c48671 100644
+--- a/packages/client/ui-workspace/src/client/contract/slots.ts
++++ b/packages/client/ui-workspace/src/client/contract/slots.ts
+@@ -1,3 +1,4 @@
++import type { SessionRowActionFactory } from '../row-actions.ts'
+ /**
+  * ui-workspace contracts. Two registrations share this package:
+  *
+@@ -96,6 +97,7 @@ export type WorkspaceBrowserInjected = {
+      * saw. Select the field the surface needs (`info => info.home`).
+      */
+     hostInfo: HostObservable<RemoteHostFacts>
++    rowActions: HostObservable<readonly SessionRowActionFactory[]>
+   }
+   /**
+    * Start a New Session in a Workspace: reuse-or-create its blank session and
+diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
+index 7c8e110..3454c39 100644
+--- a/packages/client/ui-workspace/src/client/index.ts
++++ b/packages/client/ui-workspace/src/client/index.ts
+@@ -1,3 +1,4 @@
++import { createSessionRowActions } from './row-actions.ts'
+ /**
+  * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
+  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
+@@ -30,12 +31,17 @@ import { WorkspacePicker } from './WorkspacePicker.tsx'
+ import { en, zh, type WorkspaceKey } from './locales.ts'
+ 
+ export type { UiWorkspace } from './navigation.ts'
++export type { SessionRowAction, SessionRowActionFactory } from './row-actions.ts'
+ export type {
+   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
+   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
+ } from './contract/slots.ts'
+ export type { WorkspaceKey } from './locales.ts'
+ 
++declare module '@deepseek-ai/cordis' {
++  interface Context { sessionRowActions: ReturnType<typeof createSessionRowActions> }
++}
++
+ declare module '@deepseek-ai/dsh-client-ui-slots' {
+   interface GlobalStandardProps {
+     /** Selector hook over the pure Workspace Controller snapshot. */
+@@ -70,6 +76,8 @@ export const inject = [
+  * @param ctx - client root context.
+  */
+ export function apply(ctx: Context): void {
++  const rowActions = createSessionRowActions()
++  ctx.reflect.provide('sessionRowActions', rowActions)
+   const sessions = ctx.get('sessions') as ISessions
+   const workspaces = ctx.get('workspaces') as IWorkspaces
+   const uiWorkspace = new UiWorkspaceService(
+@@ -127,7 +135,7 @@ export function apply(ctx: Context): void {
+       await workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
+     },
+     createWorkspace: input => workspaces.create(input),
+-    hooks: { directoryFlow: browserFlowSource, hostInfo },
++    hooks: { directoryFlow: browserFlowSource, hostInfo, rowActions: rowActions.source },
+   })
+   const pickerInjected = (): WorkspacePickerInjected => ({
+     createWorkspace: input => workspaces.create(input),
+diff --git a/packages/client/ui-workspace/src/client/row-actions.ts b/packages/client/ui-workspace/src/client/row-actions.ts
+new file mode 100644
+index 0000000..77b6d57
+--- /dev/null
++++ b/packages/client/ui-workspace/src/client/row-actions.ts
+@@ -0,0 +1,31 @@
++/** Additive per-session row actions; each plugin owns its callbacks and copy. */
++import type { ReactNode } from 'react'
++import type { SessionId } from '@deepseek-ai/dsh-session/types'
++import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
++
++export interface SessionRowAction {
++  /** Namespaced action identity, distinct from native rename/fork/archive. */
++  id: string
++  label: string
++  icon: ReactNode
++  placement: 'menu' | 'inline'
++  run(): void
++}
++
++export type SessionRowActionFactory = (row: {
++  sessionId: SessionId
++  title: string
++  archive(): void
++}) => readonly SessionRowAction[]
++
++/** The registering plugin retains the returned disposer in its effect. */
++export function createSessionRowActions() {
++  const source = createSnapshotStore<readonly SessionRowActionFactory[]>([])
++  return {
++    source,
++    register(factory: SessionRowActionFactory): () => void {
++      source.set([...source.getSnapshot(), factory])
++      return () => { source.set(source.getSnapshot().filter(value => value !== factory)) }
++    },
++  }
++}
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index 0f917100ff..d906dcca25 100644
+index 0f91710..d655bd8 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-@@ -5,13 +5,14 @@
+@@ -1,3 +1,4 @@
++import type { SessionRowActionFactory } from '../row-actions.ts'
+ /**
+  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
+  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
+@@ -5,7 +6,7 @@
   * except workspace Rename/Delete and session Rename/Fork/Archive; the session
   * and workspace hover cards are suppressed while a menu is open.
   */
@@ -31,39 +115,7 @@ index 0f917100ff..d906dcca25 100644
  import clsx from 'clsx'
  import {
    HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
-   IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
-   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
-   StateDot,
-+  IconDownloadOutline16,
- } from '@deepseek-ai/dsh-client-ui-primitives'
- import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
- import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
-@@ -33,6 +34,24 @@ function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
-   return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
- }
- 
-+/**
-+ * Export one Session log as a Host-generated ZIP (patches/0001: session-row
-+ * context-menu export). The page origin is the Host origin, so the relative
-+ * URL reaches the same endpoint the Session Header's download capsule uses;
-+ * the browser download manager owns progress and failures, so no dialog
-+ * state rides along. Pure browser verb — no runtime service, hence local to
-+ * the row instead of a prop-threaded callback.
-+ */
-+function downloadSessionLog(sessionId: SessionNode['id']): void {
-+  const url = new URL('/api/session.export', window.location.origin)
-+  url.searchParams.set('sessionId', sessionId)
-+  url.searchParams.set('includeDescendants', 'true')
-+  const anchor = document.createElement('a')
-+  anchor.href = url.toString()
-+  anchor.download = `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`
-+  anchor.click()
-+}
-+
- /** Hover-card variant: distances wrap in the ago template; the now bucket stays bare (no "now ago"). */
- function hoverTimeLabel(updatedAt: number, now: number, t: RowTranslate): string {
-   const { unit, n } = relativeTime(updatedAt, now)
-@@ -170,7 +189,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+@@ -170,7 +171,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
                if (id === 'rename') actions.rename()
                else actions.delete()
              }}
@@ -71,7 +123,24 @@ index 0f917100ff..d906dcca25 100644
              closeOnPointerLeave
              anchor={(
                <button
-@@ -399,6 +417,12 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -375,7 +375,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
+  * @param props.t - the browser root's locale seat.
+  * @returns the session row.
+  */
+-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
++export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, rowActions, drag, flat = false, t }: {
+   node: SessionNode
+   currentId: string | undefined
+   now: number
+@@ -386,6 +386,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+   onFork: (id: SessionNode['id']) => void
+   /** Archive this session (row menu action; commits without a dialog). */
+   onArchive: (id: SessionNode['id']) => void
++  rowActions?: readonly SessionRowActionFactory[] | undefined
+   /** Present only on draggable rows (workspace-group sessions outside search). */
+   drag?: RowDragProps | undefined
+   /** The row is rendered without a parent Workspace header. */
+@@ -399,14 +400,22 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
    const primaryStatus = statuses[0]
    const showStatus = primaryStatus.state !== 'done' || row.completed
    const [menuOpen, setMenuOpen] = useState(false)
@@ -84,15 +153,17 @@ index 0f917100ff..d906dcca25 100644
    // Archive hides the row through the registry-global archive set and never
    // touches the session log, so it is not styled as destructive and needs no
    // confirmation dialog.
-@@ -407,6 +431,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
++  const contributed = rowActions?.flatMap(factory => factory({ sessionId: node.id, title, archive: () => { onArchive(node.id) } })) ?? []
+   const sessionMenuItems = [
+     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
      { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
      // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
      { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
-+    { id: 'export', label: t('menu.exportSessionLog'), icon: <IconDownloadOutline16 /> },
++    ...contributed.filter(action => action.placement === 'menu'),
    ]
    // Figma session cell: pad 8, status slot 16, then a 4px title gap.
    const ownRow = (
-@@ -419,6 +444,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -419,6 +428,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
        role="treeitem"
        aria-selected={selected}
        onClick={() => { onOpen(node.id) }}
@@ -109,8 +180,17 @@ index 0f917100ff..d906dcca25 100644
        draggable={drag !== undefined}
        onDragStart={drag === undefined
          ? undefined
-@@ -463,22 +498,30 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -461,24 +480,40 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+       {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
+       {!row.blank && (
          <span className={css.rowActions}>
++          {contributed.filter(action => action.placement === 'inline').map(action => (
++            <button key={action.id} type="button" className={css.iconButton}
++              aria-label={action.label}
++              onClick={(event) => { event.stopPropagation(); action.run() }}>
++              {action.icon}
++            </button>
++          ))}
            <Menu
              open={menuOpen}
 -            onClose={() => { setMenuOpen(false) }}
@@ -121,10 +201,11 @@ index 0f917100ff..d906dcca25 100644
              onSelect={(id) => {
                setMenuOpen(false)
 +              setMenuPoint(null)
++              const action = contributed.find(action => action.id === id)
++              if (action !== undefined) { action.run(); return }
                if (id === 'rename') onRename(node.id, row.title)
                if (id === 'fork') onFork(node.id)
                if (id === 'archive') onArchive(node.id)
-+              if (id === 'export') downloadSessionLog(node.id)
              }}
 -            portal
              closeOnPointerLeave
@@ -143,37 +224,137 @@ index 0f917100ff..d906dcca25 100644
                >
                  <IconEllipsisOutline16 />
                </button>
+diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
+index 9d9dd37..f855a7a 100644
+--- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
++++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
+@@ -1,3 +1,4 @@
++import type { SessionRowActionFactory } from '../row-actions.ts'
+ /**
+  * The workspace/session browsing region filling the sidebar shell's
+  * `sidebar.workspaces` hole: section header (title + view options + add
+@@ -235,6 +236,7 @@ type SessionTreeProps = Pick<
+   'useSessions' | 'useSessionPendingInteraction' | 'startSession' | 'open' | 'forkSession'
+   | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
+ > & {
++  rowActions?: readonly SessionRowActionFactory[]
+   /** Host account home for POSIX hover-path abbreviation. */
+   home?: string | undefined
+   workspaces: readonly WorkspaceView[]
+@@ -267,7 +269,7 @@ type SessionTreeProps = Pick<
+ /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
+ function SessionTree({
+   useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds,
+-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
++  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, rowActions,
+   insertWorkspaceBefore, insertSessionBefore, orderBy,
+   groupExpansion, setGroupExpanded,
+   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
+@@ -564,6 +566,7 @@ function SessionTree({
+                     onRename={onSessionRename}
+                     onFork={forkSession}
+                     onArchive={onSessionArchive}
++                    rowActions={rowActions}
+                     drag={dragProps}
+                     t={t}
+                   />
+@@ -593,7 +596,7 @@ function SessionTree({
+ /** The flat "In one list" body: every session is one draggable top-level row. */
+ function FlatList({
+   useSessions, useSessionPendingInteraction, open, forkSession, onSessionRename, onSessionArchive,
+-  archivedSessionIds,
++  archivedSessionIds, rowActions,
+   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
+ }: Pick<
+   SessionTreeProps,
+@@ -603,6 +606,7 @@ function FlatList({
+   | 'forkSession'
+   | 'onSessionRename'
+   | 'onSessionArchive'
++  | 'rowActions'
+   | 'archivedSessionIds'
+   | 'orderBy'
+   | 'sessionOrderByAccount'
+@@ -683,6 +687,7 @@ function FlatList({
+               onRename={onSessionRename}
+               onFork={forkSession}
+               onArchive={onSessionArchive}
++                    rowActions={rowActions}
+               flat
+               drag={{
+                 start: () => {
+@@ -821,9 +826,11 @@ export function WorkspaceBrowser({
+   searchResultLimit,
+   useDirectoryFlow,
+   useHostInfo,
++  useRowActions,
+   renderSlot,
+   t,
+ }: WorkspaceBrowserProps) {
++  const rowActions = useRowActions(source => source)
+   const home = useHostInfo(info => info.home)
+   const workspaces = useWorkspaces(state => state.items)
+   const workspacePhase = useWorkspaces(state => state.phase)
+@@ -1221,6 +1228,7 @@ export function WorkspaceBrowser({
+                 useSessions={useSessions} useSessionPendingInteraction={useSessionPendingInteraction}
+                 open={open} forkSession={forkSession}
+                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
++                rowActions={rowActions}
+                 archivedSessionIds={archivedSessionIds}
+                 orderBy={orderBy}
+                 sessionOrderByAccount={sessionOrderByAccount}
+@@ -1236,6 +1244,7 @@ export function WorkspaceBrowser({
+                 useSessionPendingInteraction={useSessionPendingInteraction}
+                 onSessionRename={onSessionRename}
+                 onSessionArchive={onSessionArchive}
++                rowActions={rowActions}
+                 forkSession={forkSession}
+                 workspaces={workspaces}
+                 groupExpansion={groupExpansion}
 diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-index 7865c31c22..ffe0999539 100644
+index 7865c31..091d575 100644
 --- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-@@ -624,3 +624,29 @@ describe('workspace browser rows', () => {
-     expect(screen.getByRole('treeitem').className).toMatch(/dropAfter/)
+@@ -484,6 +484,30 @@ describe('workspace browser rows', () => {
    })
- })
-+
-+describe('session row export menu item (patches/0001)', () => {
-+  it('offers the session log export and navigates via a same-origin anchor', () => {
-+    const node: SessionNode = {
-+      id: sid('s1'), title: 'One', blank: false, running: false,
-+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
-+    }
-+    const origCreate = document.createElement.bind(document)
-+    const anchors: HTMLAnchorElement[] = []
-+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string, options?: ElementCreationOptions) => {
-+      const el = origCreate(tag, options)
-+      if (tag === 'a') anchors.push(el as HTMLAnchorElement)
-+      return el
-+    }) as typeof document.createElement)
-+    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
-+    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-+    const item = screen.getByRole('menuitem', { name: '导出会话日志' })
-+    fireEvent.click(item)
-+    expect(anchors).toHaveLength(1)
-+    expect(new URL(anchors[0]!.href).pathname + '?' + new URL(anchors[0]!.href).searchParams.toString()).toBe(
-+      '/api/session.export?sessionId=s1&includeDescendants=true',
-+    )
-+    expect(anchors[0]!.download).toBe('dsh-session-s1.zip')
+ 
+ 
++  it('routes contributed menu and inline actions without selecting the session', () => {
++    const onOpen = vi.fn()
++    const run = vi.fn()
++    const inline = vi.fn()
++    const node: SessionNode = { id: sid('contribution'), title: 'Contributed', blank: false,
++      running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0 }
++    const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
++      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} rowActions={[() => [
++        { id: 'test.menu', label: 'Contributed menu', icon: null, placement: 'menu', run },
++        { id: 'test.inline', label: 'Contributed inline', icon: null, placement: 'inline', run: inline },
++      ]]} />)
++    fireEvent.click(screen.getByRole('button', { name: 'Contributed inline' }))
++    expect(inline).toHaveBeenCalledOnce()
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 77, clientY: 88 })
++    fireEvent.click(screen.getByRole('menuitem', { name: 'Contributed menu' }))
++    expect(run).toHaveBeenCalledOnce()
++    expect(screen.queryByRole('menu')).toBeNull()
++    expect(onOpen).not.toHaveBeenCalled()
++    view.rerender(<SessionNodeItem node={{ ...node, blank: true }} currentId={undefined} now={0}
++      onOpen={onOpen} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
++    fireEvent.contextMenu(screen.getByRole('treeitem'))
++    expect(screen.queryByRole('menu')).toBeNull()
 +  })
-+})
++
+   it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
+     vi.useFakeTimers()
+     try {
+diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+index 8ee31d3..cf23fda 100644
+--- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+@@ -85,6 +85,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
+     createWorkspace: vi.fn(async () => workspace('created', [])),
+     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
++    useRowActions: selector => selector([]),
+     renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
+     t,
+     ...overrides,

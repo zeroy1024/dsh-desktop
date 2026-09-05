@@ -3,7 +3,7 @@
  * 这里只声明本插件实际消费的值；不把上游 src 引入我们的 workspace。
  */
 declare module '@deepseek-ai/dsh-client-ui-primitives' {
-  import type { ReactElement } from 'react'
+  import type { ReactElement, ReactNode } from 'react'
 
   export interface IconProps {
     size?: number
@@ -21,7 +21,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     children: ReactElement
   }): ReactElement
 
-  export function MessageText(props: { text: string }): ReactElement
+  export function projectUserText(text: string, sessionLabels: readonly string[]): ReactNode
 
   export function JsonBlock(props: {
     label: string

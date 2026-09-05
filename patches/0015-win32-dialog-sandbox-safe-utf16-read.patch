@@ -1,5 +1,5 @@
 diff --git a/packages/host/directory-picker-native/src/win32-dialog-bindings.ts b/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
-index ef7795cf95..cc1b610fca 100644
+index ef7795c..cc1b610 100644
 --- a/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
 +++ b/packages/host/directory-picker-native/src/win32-dialog-bindings.ts
 @@ -16,31 +16,34 @@ import type { Win32DialogBindings, Win32FolderDialog } from './win32-dialog-logi
@@ -50,7 +50,7 @@ index ef7795cf95..cc1b610fca 100644
  
  const COINIT_APARTMENTTHREADED = 0x2
 diff --git a/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts b/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
-index 85d4aed48b..df3ed88bdf 100644
+index 85d4aed..df3ed88 100644
 --- a/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
 +++ b/packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
 @@ -127,25 +127,25 @@ function installFakeKoffi(world: ComWorld): void {

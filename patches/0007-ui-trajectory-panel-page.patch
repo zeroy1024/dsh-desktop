@@ -1,92 +1,39 @@
 diff --git a/packages/client/ui-trajectory/src/client/index.ts b/packages/client/ui-trajectory/src/client/index.ts
-index 118f3b2c28..c42d301901 100644
+index 118f3b2..ce1dce7 100644
 --- a/packages/client/ui-trajectory/src/client/index.ts
 +++ b/packages/client/ui-trajectory/src/client/index.ts
-@@ -1,7 +1,20 @@
+@@ -1,6 +1,6 @@
  /**
-- * Browser trajectory plugin contributing one entry to the conversation view
+  * Browser trajectory plugin contributing one entry to the conversation view
 - * slot without defining a service.
-+ * Browser trajectory plugin without defining a service. Presentation is
-+ * panel-first with a web fallback: with the desktop shell's panelShell
-+ * service the view registers as the panel page 'trajectory' (via the
-+ * trajectoryPanelPage registration service consumed by panel-shell);
-+ * without it (the upstream web host) the view keeps the upstream
-+ * conversation.view tab, which is retracted when the panel arrives.
-+ *
-+ * 桌面壳改写（patches/0007）：呈现位 panel 优先 + web 回退。注册控制反转：
-+ * trajectory provide 'trajectoryPanelPage' 注册服务，panel-shell 声明
-+ * 对 trajectory 包的服务依赖（cordis inject 元素=entry id）并代为注册
-+ * 双半——slots.inject('panel-shell.page') 的声明驱动在多插件组合下有
-+ * apply 竞态（P0 实测），故不再使用。上游 workspace 无 panel-shell 包，
-+ * 其类型面在下方本地声明合并，撤补丁时一并移除。
++ * slot and exposing the same contribution to other presentation hosts.
   */
-+import { createElement } from 'react'
-+import type { ReactNode } from 'react'
  import type { Context } from '@deepseek-ai/cordis'
  import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
- import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
-@@ -14,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
- import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
- import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
- import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-+import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
- import { createTrajectoryDurationStore } from './duration-store.ts'
- import { en, NS, zh } from './locales.ts'
- import { registerTrajectoryAssistantDefinition } from './trajectory-assistant-definition.ts'
-@@ -36,7 +50,40 @@ export type {
+@@ -36,6 +36,22 @@ export type {
    UseTrajectory,
  } from './trajectory-contract.ts'
  
--/** Required services: the conversation slot, registries, ordinary Session paging, and the locale service. */
-+// Type-only: the 'panel-shell.page' SlotMap row is owned by the desktop
-+// shell's panel-shell plugin (outside this workspace); mirrored here so the
-+// register call types.
-+declare module '@deepseek-ai/dsh-client-ui-slots' {
-+  interface SlotMap {
-+    'panel-shell.page': { kind: 'list'; scope: 'session'; owner: TrajectoryPanelPageOwnerProps }
++export interface TrajectoryViewFactory {
++  create(): {
++    component: typeof TrajectoryView
++    options: {
++      id: string; order: number; locale: typeof NS; label: () => string
++      children: { 'conversation.trajectory.images': { kind: 'single'; scope: 'session' } }
++      inject: (sessionId: SessionId) => TrajectoryViewInjected
++    }
 +  }
++  setDefaultEnabled(enabled: boolean): void
 +}
 +
-+/** panel-shell.page owner share (the container decides it per seat). */
-+export interface TrajectoryPanelPageOwnerProps {
-+  /** Whether this page is the active panel tab; inactive seats stay mounted. */
-+  active: boolean
-+  /** Cross-view inspect handoff (patches/0008): one-shot selection target. */
-+  inspect?: { callId: string } | null
-+  /** Acknowledge the consumed (or unresolvable) request; the container clears the handoff. */
-+  onInspectDone?: () => void
++declare module '@deepseek-ai/cordis' {
++  interface Context { trajectoryView: TrajectoryViewFactory }
 +}
 +
-+/** 结构镜像 @dsh-desktop/panel-shell 的 panelShell 服务面（仅本插件用到的部分）。 */
-+interface PanelPageRegistry {
-+  registerPage(meta: { id: string; title: () => string; order?: number; icon?: ReactNode }): () => void
-+}
-+
-+/** Provide 给 panel-shell 的注册服务面（0007 反转控制）。 */
-+export interface TrajectoryPanelPageService {
-+  /** 注册面板页双半（元数据 + 槽占用），返回反向拆除的组合 disposer。 */
-+  register(host: PanelPageRegistry): () => void
-+}
-+
-+/**
-+ * Required services: the conversation slot, registries, ordinary Session
-+ * paging, and the locale service.
-+ */
+ /** Required services: the conversation slot, registries, ordinary Session paging, and the locale service. */
  export const inject = ['slots', 'sessions', 'uiSession', 'uiConversation', 'locale']
  
- /**
-@@ -45,6 +92,10 @@ export const inject = ['slots', 'sessions', 'uiSession', 'uiConversation', 'loca
-  * @param ctx - client root context.
-  */
- export function apply(ctx: Context): void {
-+  // panel-first takeover bookkeeping: the fallback tab is retracted once the
-+  // panel page has been seated (see the provide below).
-+  let panelTookOver = false
-+  let disposeFallbackTab: (() => void) | undefined
-   const trajectorySources = new WeakMap<SessionBinding, ObservableSnapshot<TrajectorySnapshot>>()
-   const trajectorySource = (binding: SessionBinding): ObservableSnapshot<TrajectorySnapshot> => {
-     let source = trajectorySources.get(binding)
-@@ -74,34 +125,90 @@ export function apply(ctx: Context): void {
+@@ -74,34 +90,57 @@ export function apply(ctx: Context): void {
      hooks: ['trajectory'],
      resolve: binding => ({ hooks: { trajectory: trajectorySource(binding) } }),
    })
@@ -98,20 +45,6 @@ index 118f3b2c28..c42d301901 100644
 -    label: () => t('view.trajectory'),
 -    children: {
 -      'conversation.trajectory.images': { kind: 'single', scope: 'session' },
--    },
--    inject: (sessionId: SessionId): TrajectoryViewInjected => {
--      const session = ctx.sessions.binding(sessionId)?.session
--      if (session === undefined) {
--        throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
--      }
--      const trajectory = ctx.uiConversation.binding(sessionId).target('trajectory')
--      return {
--        hooks: { duration },
--        loadOlder: async () => {
--          const before = trajectory.getSnapshot()
--          await session.loadOlder()
--          return trajectory.getSnapshot() !== before
-+  // 共享注入面：web 回退 tab 与桌面面板页两条呈现位使用同一数据管线。
 +  const viewInject = (sessionId: SessionId): TrajectoryViewInjected => {
 +    const session = ctx.sessions.binding(sessionId)?.session
 +    if (session === undefined) {
@@ -133,75 +66,104 @@ index 118f3b2c28..c42d301901 100644
 +    }
 +  }
 +
-+  // 桌面壳改写（patches/0007）：提供面板页注册服务，panel-shell 声明依赖后
-+  // 消费（cordis inject 元素=entry id，拓扑保证 trajectory 的 apply——即本
-+  // provide——先于 panel-shell 的消费）。web 宿主无人消费，服务闲置。
-+  ctx.reflect.provide('trajectoryPanelPage', {
-+    register(host: PanelPageRegistry): () => void {
-+      panelTookOver = true
-+      // Late panel arrival retracts the already-landed fallback tab so the
-+      // view never occupies both presentation seats.
-+      disposeFallbackTab?.()
-+      disposeFallbackTab = undefined
-+      // panel-shell.page 的槽类型面在 panel-shell 插件本地，register 经最小
-+      // 结构断言对齐框架运行时：list+session 槽的 inject 由框架按 seat 注入
-+      // sessionId。
-+      const registerPanelPage = ctx.slots.register as unknown as (
-+        options: {
-+          name: 'panel-shell.page'
-+          id: string
-+          order: number
-+          locale: string
-+          children: { 'conversation.trajectory.images': { kind: 'single', scope: 'session' } }
-+          inject: (sessionId: SessionId) => TrajectoryViewInjected
-         },
++  let defaultEnabled = true
++  let defaultDeclared = false
++  let alive = true
++  let disposeDefault: (() => void) | undefined
++  ctx.effect(() => () => { alive = false }, 'trajectory view lifetime')
++  const create: TrajectoryViewFactory['create'] = () => ({
++    component: TrajectoryView,
++    options: {
++      id: 'trajectory', order: 10, locale: NS, label: () => t('view.trajectory'),
++      children: { 'conversation.trajectory.images': { kind: 'single' as const, scope: 'session' as const } },
++      inject: viewInject,
+     },
+-    inject: (sessionId: SessionId): TrajectoryViewInjected => {
+-      const session = ctx.sessions.binding(sessionId)?.session
+-      if (session === undefined) {
+-        throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
+-      }
+-      const trajectory = ctx.uiConversation.binding(sessionId).target('trajectory')
+-      return {
+-        hooks: { duration },
+-        loadOlder: async () => {
+-          const before = trajectory.getSnapshot()
+-          await session.loadOlder()
+-          return trajectory.getSnapshot() !== before
+-        },
 -        loadImage: Object.assign(
 -          (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
 -          { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
 -        ),
 -        setActualDuration: (value) => { duration.set(value) },
 -      }
-+        component: typeof TrajectoryView,
-+      ) => () => void
-+      const disposeMeta = host.registerPage({
-+        id: 'trajectory',
-+        title: () => t('view.trajectory'),
-+        order: 10,
-+        icon: createElement(IconDataOutline16, { size: 16 }),
-+      })
-+      const disposeSlot = registerPanelPage({
-+        name: 'panel-shell.page',
-+        id: 'trajectory',
-+        order: 10,
-+        locale: NS,
-+        children: {
-+          'conversation.trajectory.images': { kind: 'single', scope: 'session' },
-+        },
-+        inject: viewInject,
-+      }, TrajectoryView)
-+      // Reverse-order teardown: the slot half first, then the metadata half.
-+      return () => { disposeSlot(); disposeMeta() }
++  })
++  const mountDefault = (): void => {
++    if (!alive || !defaultEnabled || !defaultDeclared || disposeDefault !== undefined) return
++    const contribution = create()
++    disposeDefault = ctx.slots.register({ name: 'conversation.view', ...contribution.options }, contribution.component)
++  }
++  ctx.reflect.provide('trajectoryView', {
++    create,
++    /** Presentation hosts may suppress the default tab while using a contribution elsewhere. */
++    setDefaultEnabled(enabled: boolean): void {
++      defaultEnabled = enabled
++      if (!enabled) { disposeDefault?.(); disposeDefault = undefined }
++      else mountDefault()
      },
 -  }, TrajectoryView))
 +  })
-+
-+  // Web fallback tab: registered on the host's conversation.view declaration;
-+  // retracted when the panel page takes over so the view never occupies both
-+  // presentation seats.
 +  ctx.slots.inject('conversation.view', () => {
-+    if (panelTookOver) return () => {}
-+    const dispose = ctx.slots.register({
-+      name: 'conversation.view',
-+      id: 'trajectory',
-+      order: 10,
-+      locale: NS,
-+      label: () => t('view.trajectory'),
-+      children: {
-+        'conversation.trajectory.images': { kind: 'single', scope: 'session' },
-+      },
-+      inject: viewInject,
-+    }, TrajectoryView)
-+    disposeFallbackTab = dispose
-+    return dispose
++    defaultDeclared = true
++    mountDefault()
++    return () => { defaultDeclared = false; disposeDefault?.(); disposeDefault = undefined }
 +  })
  }
+diff --git a/packages/client/ui-trajectory/tests/view-factory.client.spec.ts b/packages/client/ui-trajectory/tests/view-factory.client.spec.ts
+new file mode 100644
+index 0000000..6dfd568
+--- /dev/null
++++ b/packages/client/ui-trajectory/tests/view-factory.client.spec.ts
+@@ -0,0 +1,42 @@
++import type { Context } from '@deepseek-ai/cordis'
++import { expect, it, vi } from 'vitest'
++import { apply, type TrajectoryViewFactory } from '../src/client/index.ts'
++
++it('reuses native view data and restores exactly one native tab across takeover and unload', () => {
++  const effects: (() => void)[] = []
++  let factory: TrajectoryViewFactory | undefined
++  let declare: (() => (() => void)) | undefined
++  const entries = new Set<object>()
++  const register = vi.fn((options: object) => {
++    entries.add(options)
++    return () => { entries.delete(options) }
++  })
++  const context = {
++    effect: (fn: () => (() => void) | void) => { const off = fn(); if (off) effects.push(off) },
++    reflect: { provide: (_name: string, value: TrajectoryViewFactory) => { factory = value } },
++    locale: { register: () => {}, bind: () => (key: string) => key },
++    uiConversation: { events: { register: vi.fn() }, views: { register: vi.fn() } },
++    uiSession: { provide: vi.fn() },
++    slots: { register, inject: (_name: string, fn: () => (() => void)) => { declare = fn } },
++  } as unknown as Context
++  apply(context)
++  expect(entries.size).toBe(0)
++  factory!.setDefaultEnabled(false)
++  const offSlot = declare!()
++  expect(entries.size).toBe(0)
++  const contribution = factory!.create()
++  expect(contribution.options).toMatchObject({ id: 'trajectory', children: { 'conversation.trajectory.images': { scope: 'session' } } })
++  expect(typeof contribution.options.inject).toBe('function')
++  factory!.setDefaultEnabled(true)
++  factory!.setDefaultEnabled(true)
++  expect(entries.size).toBe(1)
++  expect(register).toHaveBeenCalledTimes(1)
++  factory!.setDefaultEnabled(false)
++  expect(entries.size).toBe(0)
++  factory!.setDefaultEnabled(true)
++  expect(entries.size).toBe(1)
++  offSlot()
++  for (const off of effects.toReversed()) off()
++  factory!.setDefaultEnabled(true)
++  expect(entries.size).toBe(0)
++})

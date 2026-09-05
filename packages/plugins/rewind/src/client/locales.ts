@@ -19,6 +19,9 @@ export const zh = {
   errorNotLive: '会话未激活，请先发送任意消息后再撤回',
   errorBoundary: '撤回点跨越了历史压缩段，无法撤回到该位置',
   errorInvalid: '撤回点无效',
+  errorInputBusy: '输入框正在提交，请完成后重试',
+  errorImagesUnavailable: '暂时无法恢复图片，请重新打开会话后重试',
+  errorImagesRejected: '输入框无法接收恢复的图片',
   errorHttp: '撤回失败（HTTP {status}）',
   errorGeneric: '撤回失败：{message}',
 } as const satisfies Record<string, string>
@@ -33,7 +36,7 @@ export const en = {
   referenceSummary: 'Referenced session · {labels}',
   referenceSeparator: ', ',
   confirmTitle: 'Rewind this message and every reply after it?',
-  confirmHint: 'The message text returns to the composer for editing and resending.',
+  confirmHint: 'The message and its images return to the composer for editing and resending.',
   confirm: 'Rewind',
   cancel: 'Cancel',
   retry: 'Retry',
@@ -41,6 +44,9 @@ export const en = {
   errorNotLive: 'Session is not active — send any message first, then rewind',
   errorBoundary: 'The rewind point crosses a compaction boundary',
   errorInvalid: 'Invalid rewind point',
+  errorInputBusy: 'The composer is submitting. Please retry when it finishes.',
+  errorImagesUnavailable: 'Images cannot be restored right now. Reopen the session and retry.',
+  errorImagesRejected: 'The composer could not accept the restored images.',
   errorHttp: 'Rewind failed (HTTP {status})',
   errorGeneric: 'Rewind failed: {message}',
 } as const satisfies Record<string, string>

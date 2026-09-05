@@ -2,11 +2,12 @@
 
 import { WebSearchCard } from './WebSearchCard.tsx'
 import { WebSearchCardController, WEB_SEARCH_NS } from './controller.ts'
-import type { ClientContext, ConnectionHandle } from './types.ts'
+import type { ClientContext } from './types.ts'
+import { credentialAdapter } from './credentials.ts'
 import { en, zh } from './locales.ts'
 
 /** Cordis services supplied by the composed web settings surface. */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
+export { inject } from './dependencies.ts'
 
 /** Client-side locale namespace; the Host namespace remains `web-search`. */
 export const CLIENT_LOCALE_NS = 'settings.webSearch'
@@ -26,10 +27,9 @@ export type {
 } from './card-form.ts'
 
 export function apply(ctx: ClientContext): void {
-  const connection = ctx.get('connection') as ConnectionHandle | undefined
   const controller = new WebSearchCardController(
     ctx.settingsScope.bind({ namespace: WEB_SEARCH_NS }),
-    connection?.api ?? {},
+    { credentials: credentialAdapter(ctx.remote) },
   )
 
   ctx.effect(

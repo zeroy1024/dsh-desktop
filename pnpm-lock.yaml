@@ -72,6 +72,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.8
         version: 4.1.11(vitest@4.1.11)
+      koffi:
+        specifier: link:../../vendor/dsh-cli/node_modules/koffi
+        version: link:../../vendor/dsh-cli/node_modules/koffi
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -81,6 +84,15 @@ importers:
 
   packages/bridge:
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+        version: link:../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+      '@deepseek-ai/dsh-client-connection':
+        specifier: link:../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-connection
+        version: link:../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-connection
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: link:../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver
+        version: link:../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -149,6 +161,9 @@ importers:
       '@deepseek-ai/dsh-workspace':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-workspace
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-workspace
+      '@dsh-desktop/bridge':
+        specifier: workspace:*
+        version: link:../../bridge
       '@dsh-desktop/plugin-kit':
         specifier: workspace:*
         version: link:../../plugin-kit
@@ -239,6 +254,12 @@ importers:
 
   packages/plugins/file-browser:
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller
       '@dsh-desktop/bridge':
         specifier: workspace:*
         version: link:../../bridge
@@ -386,6 +407,9 @@ importers:
 
   packages/plugins/panel-shell:
     devDependencies:
+      '@deepseek-ai/dsh-client-ui-trajectory':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-trajectory
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-trajectory
       '@dsh-desktop/plugin-kit':
         specifier: workspace:*
         version: link:../../plugin-kit
@@ -398,6 +422,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
       tsx:
         specifier: ^4.22.4
         version: 4.23.12
@@ -410,6 +437,12 @@ importers:
 
   packages/plugins/review:
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller
       '@dsh-desktop/bridge':
         specifier: workspace:*
         version: link:../../bridge
@@ -464,12 +497,39 @@ importers:
       '@deepseek-ai/cordis':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis-plugin-include
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis-plugin-include
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-conversation
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-conversation
       '@deepseek-ai/dsh-host-webserver':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver
       '@deepseek-ai/dsh-session':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence-jsonl
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence-jsonl
+      '@deepseek-ai/dsh-session-projection':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-projection
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-projection
+      '@deepseek-ai/dsh-session-query':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-query
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-query
+      '@deepseek-ai/dsh-session-query-sqlite':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-query-sqlite
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-query-sqlite
+      '@deepseek-ai/dsh-session-turn-outline':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-turn-outline
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-turn-outline
+      '@dsh-desktop/bridge':
+        specifier: workspace:*
+        version: link:../../bridge
       '@dsh-desktop/plugin-kit':
         specifier: workspace:*
         version: link:../../plugin-kit
@@ -479,6 +539,9 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@types/jsdom':
         specifier: ^28.0.3
         version: 28.0.3
@@ -494,6 +557,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      js-yaml:
+        specifier: ^4.2.0
+        version: 4.3.2
       jsdom:
         specifier: 29.1.1
         version: 29.1.1(@noble/hashes@2.4.0)
@@ -503,6 +569,39 @@ importers:
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
+      tsx:
+        specifier: ^4.22.4
+        version: 4.23.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.11(@types/node@24.13.3)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
+      zod:
+        specifier: link:../../../vendor/dsh-cli/node_modules/zod
+        version: link:../../../vendor/dsh-cli/node_modules/zod
+
+  packages/plugins/session-actions:
+    devDependencies:
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-workspace
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-workspace
+      '@dsh-desktop/plugin-kit':
+        specifier: workspace:*
+        version: link:../../plugin-kit
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
       tsx:
         specifier: ^4.22.4
         version: 4.23.12

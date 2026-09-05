@@ -1,8 +1,8 @@
 diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
-index 0e8015f79c..97050841b9 100644
+index 0e8015f..2fa1169 100644
 --- a/packages/api/session-controller/src/commands.ts
 +++ b/packages/api/session-controller/src/commands.ts
-@@ -53,6 +53,66 @@ interface SessionReadState {
+@@ -53,6 +53,68 @@ interface SessionReadState {
  }
  
  /** Implements Session business commands delegated by the Session Controller Remote service. */
@@ -64,12 +64,14 @@ index 0e8015f79c..97050841b9 100644
 +    throw error
 +  }
 +  if (capability === 'native') return true
-+  return ask(capability, 'resolved')
++  if (await ask(capability, 'resolved')) return true
++  // Missing metadata keeps the adapter-owned pass-through used by upstream.
++  return capability === 'unknown'
 +}
  export class SessionCommandController {
    /**
     * @param ctx - Host context carrying Agent, model, attachment, title, and Workspace services.
-@@ -315,8 +375,17 @@ export class SessionCommandController {
+@@ -315,8 +377,17 @@ export class SessionCommandController {
        try {
          if (hasImage) {
            const current = this.agents.selectionFor(agent).current
@@ -91,10 +93,10 @@ index 0e8015f79c..97050841b9 100644
                `Model "${current.model}" does not support image input.`,
 diff --git a/packages/api/session-controller/tests/image-admission.spec.ts b/packages/api/session-controller/tests/image-admission.spec.ts
 new file mode 100644
-index 0000000000..f5483edb1f
+index 0000000..e074173
 --- /dev/null
 +++ b/packages/api/session-controller/tests/image-admission.spec.ts
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,47 @@
 +import { describe, expect, it, vi } from 'vitest'
 +import { imagePromptAdmission } from '../src/commands.ts'
 +
@@ -135,4 +137,10 @@ index 0000000000..f5483edb1f
 +    const abstaining = { admit: vi.fn(async () => 'abstain' as const) }
 +    await expect(imagePromptAdmission(abstaining, failing, provider, model)).rejects.toThrow('endpoint down')
 +  })
++})
++
++
++it('keeps unknown metadata pass-through when the bridge is absent or abstains', async () => {
++  await expect(imagePromptAdmission(undefined, resolver(), provider, model)).resolves.toBe(true)
++  await expect(imagePromptAdmission({ admit: () => 'abstain' }, resolver(), provider, model)).resolves.toBe(true)
 +})

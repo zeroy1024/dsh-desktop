@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  IconCheckOutline16, IconCopyOutline16, JsonBlock, MessageText, Tooltip, writeClipboard,
+  IconCheckOutline16, IconCopyOutline16, JsonBlock, projectUserText, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { REWIND_EXECUTE_PATH } from '../shared.ts'
 import styles from './RewindUserMessage.module.css'
 import type { ContentBlock, RewindUserMessageProps } from './types.ts'
+import { prepareRewindImages, RewindPreparationError } from './restore-images.ts'
 
 /**
  * 撤回（undo）图标：左上折线箭头 + 右侧下弯弧线，Kimi Code 同款结构。
@@ -58,68 +59,6 @@ function contentParts(content: readonly ContentBlock[]): {
     }
   }
   return { text, images, rest }
-}
-
-/**
- * 官方 projectUserText 的复刻：`/name`、`@name`、`@"quoted"` 词边界 token 装饰
- * 为引用 chip（会话引用优先），其余保持纯文本。logged 文本仍是唯一事实，这里
- * 仅呈现。与官方的差异：chip 不带 ReferenceIcon（该图标是 ui-conversation 内部
- * 组件，primitives 未导出），见 ADR-0007 差异清单。
- */
-function projectUserText(text: string, sessionLabels: readonly string[]): ReactNode {
-  const ranges: { start: number; end: number; label: string; kind: 'session' | 'plain' }[] = []
-  for (const rawLabel of [...new Set(sessionLabels)].toSorted((a, b) => b.length - a.length)) {
-    const label = `@${rawLabel}`
-    let start = text.indexOf(label)
-    while (start >= 0) {
-      ranges.push({ start, end: start + label.length, label, kind: 'session' })
-      start = text.indexOf(label, start + label.length)
-    }
-  }
-  const re = /(^|\s)(\/[\w-]+|@"[^"\n]+"|@[^\s]+)/gu
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    const tokenStart = m.index + (m[1]?.length ?? 0)
-    const rawLabel = m[2] ?? ''
-    const label = rawLabel.startsWith('@"')
-      ? rawLabel
-      : rawLabel.replace(/[.,;:!?，。；：！？]+$/gu, '')
-    if (label.length <= 1) continue
-    ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
-  }
-  ranges.sort((a, b) => a.start - b.start
-    || (a.kind === b.kind ? b.end - a.end : a.kind === 'session' ? -1 : 1))
-  const parts: ReactNode[] = []
-  let cursor = 0
-  for (const range of ranges) {
-    if (range.start < cursor) continue
-    const { start: tokenStart, end, label, kind } = range
-    if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
-    const referenceKind = kind === 'session'
-      ? 'session'
-      : label.startsWith('@')
-        ? label.endsWith('/') ? 'folder' : 'file'
-        : undefined
-    const displayLabel = referenceKind === undefined
-      ? label
-      : referenceKind === 'session'
-        ? label.slice(1)
-        : label.slice(1).replace(/^"|"$/gu, '').split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1)
-    parts.push(
-      <span
-        key={tokenStart}
-        className={styles.refChip}
-        data-ref-chip={referenceKind ?? 'skill'}
-        title={label}
-      >
-        {displayLabel}
-      </span>,
-    )
-    cursor = end
-  }
-  if (parts.length === 0) return <MessageText text={text} />
-  if (cursor < text.length) parts.push(<MessageText key={cursor} text={text.slice(cursor)} />)
-  return <>{parts}</>
 }
 
 const pad2 = (n: number): string => String(n).padStart(2, '0')
@@ -183,20 +122,43 @@ function CopyAction({ text, t }: { text: string; t: RewindUserMessageProps['t'] 
  * 由事件回推自动完成。
  */
 export function RewindUserMessage(props: RewindUserMessageProps) {
-  const { node, renderMessageImages, sessionId, t, inputActions, useSession } = props
+  const { node, renderMessageImages, sessionId, t, inputActions, useSession, imageRuntime } = props
   const running = useSession(snapshot => snapshot.running)
   const [confirming, setConfirming] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const attemptRef = useRef<{ preparing: AbortController } | null>(null)
+  const epoch = useRef(0)
+
+  useLayoutEffect(() => {
+    epoch.current += 1
+    attemptRef.current = null
+    setConfirming(false)
+    setPending(false)
+    setError('')
+    return () => {
+      epoch.current += 1
+      attemptRef.current?.preparing.abort()
+    }
+  }, [sessionId, node.data.seq])
 
   const data = node.data
   const { text, images, rest } = contentParts(data.content)
   const referenceLabels = data.referenceLabels ?? []
 
   async function execute(): Promise<void> {
+    if (attemptRef.current !== null) return
+    const attempt = { preparing: new AbortController() }
+    attemptRef.current = attempt
+    const started = epoch.current
+    const current = (): boolean => epoch.current === started && attemptRef.current === attempt
     setPending(true)
     setError('')
+    let prepared: Awaited<ReturnType<typeof prepareRewindImages>> | undefined
     try {
+      prepared = await prepareRewindImages(data.content, imageRuntime, attempt.preparing.signal)
+      attempt.preparing.signal.throwIfAborted()
+      if (!inputActions.addImages([])) throw new RewindPreparationError('errorInputBusy')
       const response = await fetch(REWIND_EXECUTE_PATH, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -204,19 +166,26 @@ export function RewindUserMessage(props: RewindUserMessageProps) {
       })
       const body = await response.json() as { ok?: boolean; code?: string; message?: string }
       if (response.ok && body.ok === true) {
-        // 成功：收起确认并回填输入框（视图随 session/event 回推自动收缩）。
-        setConfirming(false)
-        inputActions.setDraft(text)
+        await prepared.fill(inputActions, text)
+        if (current()) setConfirming(false)
         return
       }
       // 出错即收起确认，让错误行（带重试）顶替同一槽位。
-      setConfirming(false)
-      setError(errorMessage(t, response.status, body.code, body.message))
+      if (current()) {
+        setConfirming(false)
+        setError(errorMessage(t, response.status, body.code, body.message))
+      }
     } catch (cause) {
-      setConfirming(false)
-      setError(t('errorGeneric', { message: cause instanceof Error ? cause.message : String(cause) }))
+      if (current()) {
+        setConfirming(false)
+        setError(cause instanceof RewindPreparationError
+          ? t(cause.code)
+          : t('errorGeneric', { message: cause instanceof Error ? cause.message : String(cause) }))
+      }
     } finally {
-      setPending(false)
+      await prepared?.dispose()
+      if (current()) setPending(false)
+      if (attemptRef.current === attempt) attemptRef.current = null
     }
   }
 

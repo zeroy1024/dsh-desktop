@@ -1,4 +1,5 @@
 /** vitest 里顶替平台模块表的 primitives stub（正式运行时由 web 壳提供）。 */
+import { vi } from 'vitest'
 import type { ReactElement } from 'react'
 
 export interface IconProps {
@@ -17,9 +18,8 @@ export function Tooltip({ label, children }: { label: string; children: ReactEle
   )
 }
 
-export function MessageText({ text }: { text: string }): ReactElement {
-  return <span data-message-text={text.length}>{text}</span>
-}
+export const projectUserText = vi.fn((text: string, _sessionLabels: readonly string[]): ReactElement =>
+  <span data-native-user-text>{text}</span>)
 
 export function JsonBlock({ label }: { label: string; payload?: unknown }): ReactElement {
   return <div data-json-block={label} />

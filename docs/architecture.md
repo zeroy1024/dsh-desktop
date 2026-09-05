@@ -57,6 +57,13 @@ Electron 主进程 ──spawn──▶ dsh --profile desktop --no-open --port 0
 ```
 
 - agent 与 Electron 主进程是**两个进程**，崩溃隔离、可独立升级；主进程通过 `@dsh-desktop/agent-host` 监管子进程（ready 解析、指数退避重启、稳定运行后才重置预算）。每次重启的随机端口都会更新导航锁并重载页面；日志写入 `userData/logs/dsh-agent.log`，launch token 脱敏、权限收紧并按 5 MiB 轮转。
+- 首载使用 ready URL 的一次性 token 换取上游签名 Cookie，再跳转到干净 URL。应用保留原有 Electron session 的 UI 存储，每代导航前只清理该 session 中旧端口的 `dsh-auth-*` Cookie；清理与导航串行执行，避免端口代际交叉。自有 Host 路由通过 `bridge/host-routes` 调用公开 `connection.requestRejection`，并由调用插件的 Cordis effect 管理注册/卸载。
+- 监管器在 `exit` 时立即使连接失效，`close` 负责管道与日志收尾；清理都有截止时间。升级时依据 PID 记录中的旧入口核验进程，入口必须属于应用管理的 runtime 根，无需等待新版本解压。
+- Windows 监管器在 dsh 执行前通过 bootstrap 加入父进程持有的 Job Object，开启
+  `KILL_ON_JOB_CLOSE` 且不放行 breakaway；关闭或强制终止 Electron 会由内核回收该树。
+  bootstrap 位于 `extraResources`，FFI 从当前 CLI 的 vendor 闭包解析。旧版本遗留
+  进程仍先核验 PID/入口再用 taskkill 回收；Job 是生命周期管理，不覆盖外部 broker
+  代为创建的进程，也不替代 dsh 的执行沙箱。
 - 数据位置：`DSH_HOME` 默认与命令行共用 `~/.dsh`（API key/profiles/sessions 互通），设 `DSH_HOME` 环境变量可覆盖以隔离测试。
 - 渲染层安全基线：`contextIsolation` + `sandbox` + 禁 `nodeIntegration`；导航按解析后的 scheme/host/port 精确放行当前 `http://127.0.0.1:<port>`，IPC 只接受该 origin 的主 frame，其余 HTTP(S) 外链走系统浏览器。文档 URL 不含 token。主文档响应钉 CSP（`security.ts` 的 `AGENT_CSP`）：禁 object/base/form/frame-ancestors、连接限同源；`script-src` 含 `'unsafe-eval'`（上游 `__jsExpr` 的 `new Function` + `eval`）与 `'unsafe-inline'`（上游 webserver 向主文档注入 `__ModuleLoader__` facade 与 `__DSH_BOOT__` 全局，无 nonce 通道）。
 
@@ -89,11 +96,13 @@ spawn: --profile desktop --no-open --port 0
 | `packages/agent-host/` | dsh 子进程监管（纯 Node 库） | 我们的代码 |
 | `packages/plugin-kit/` | 客户端插件打包（ModuleLoader 工厂契约） | 我们的代码 |
 | `packages/plugins/` | dsh 插件（功能大头，app 内置分发，ADR-0004） | 我们的代码，P2 起 |
-| `packages/bridge/` | 当前一代 agent 的 loopback HTTP origin 判定 | 我们的代码 |
+| `packages/bridge/` | loopback/路径判定及复用上游鉴权的 Host 路由注册 | 我们的代码；不代理 HTTP |
 | `vendor/` | 上游包 tarball + `dsh-cli` 独立安装产物（`pnpm pack` + `pnpm install --prod`） | 生成物，可重建 |
 | `scripts/` | `sync-upstream.ts` / `dev.ts` | 我们的代码 |
 
 跨 workspace 消费上游的关键：我们的包**不 import 上游 src**，只用 `vendor/` tarball。`sync-upstream.ts` 会从登记补丁自动推导受影响的 workspace package，逐一 pack，并在 `vendor/dsh-cli` 中同时设为本地依赖和 pnpm override；否则 pack 后的 CLI 会重新从 registry 安装官方包，导致补丁只在源码测试中生效、运行时失效。
+
+改写已套用的补丁队列前保存旧 `patches/` 目录，再运行 `pnpm sync:upstream -- --replace-patches-from <旧目录>`。脚本在临时 Git index 上核对工作树等于旧登记队列，并预先验证新队列，最后一次性套用两者差量；存在未登记或已暂存修改时拒绝覆盖。无需直接编辑或 reset `upstream/`。
 
 ## 分阶段路线图
 

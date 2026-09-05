@@ -43,13 +43,13 @@ function settledHeadline(summary: ActivitySummary, t: ActivityGroupRowProps['t']
  * @param props - Owner currency (member nodes + member seat renderer) and locale seat.
  * @returns the group row.
  */
-export function ActivityGroupRow({ nodes, renderMember, useSession, t }: ActivityGroupRowProps) {
+export function ActivityGroupRow({ nodes, renderMember, useSession, useChat, t }: ActivityGroupRowProps) {
   const [expanded, setExpanded] = useState(false)
   const memberKeys = useMemo(() => nodes.map(node => node.key), [nodes])
   // ChatView 只在结构变化时重建 flow，成员内容更新（工具落定、思考流入）
   // 不流经 props；摘要的实时性由这条订阅承担。投影保证节点引用稳定，因
   // 此只有成员内容真正变化时才触发本组件重渲染。
-  const members = useSession(snapshot => memberKeys.map(key => snapshot.chat.nodes.get(key)))
+  const members = useChat(snapshot => memberKeys.map(key => snapshot.nodes.get(key)))
   const summary = useMemo(() => {
     const present: ChatNode[] = []
     for (const member of members) {
@@ -81,7 +81,7 @@ export function ActivityGroupRow({ nodes, renderMember, useSession, t }: Activit
   // 会话在跑，就保持运行观感；段闭合（后随正文/用户消息，或回合结束）才
   // 定格为完成态。两个切片都是 primitive，不放大重渲染面。
   const sessionRunning = useSession(snapshot => snapshot.running)
-  const flowTailKey = useSession(snapshot => snapshot.chat.order.at(-1))
+  const flowTailKey = useChat(snapshot => snapshot.order.at(-1))
   const isFlowTail = flowTailKey !== undefined && memberKeys.includes(flowTailKey)
   const running = (summary?.running ?? false) || (sessionRunning && isFlowTail)
   // 秒表只在组运行时走 interval；settled 后耗时刻在末成员时间上。

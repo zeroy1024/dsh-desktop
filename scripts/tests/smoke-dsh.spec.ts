@@ -1,10 +1,21 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveStagedPlugins, runDshSmoke, scanStagedPlugins, validateWebResponse } from '../smoke-dsh'
 
 const scratch: string[] = []
+
+function installFixtureNativeRuntime(root: string): void {
+  if (process.platform !== 'win32') return
+  const modules = join(root, 'node_modules')
+  mkdirSync(modules, { recursive: true })
+  // The fake entrypoint lives outside vendor but must exercise the real Windows
+  // Job path too; a junction gives it the same koffi package as production.
+  const native = realpathSync(fileURLToPath(new URL('../../vendor/dsh-cli/node_modules/koffi', import.meta.url)))
+  symlinkSync(native, join(modules, 'koffi'), 'junction')
+}
 
 afterEach(() => {
   for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true })
@@ -34,6 +45,7 @@ describe('runDshSmoke', () => {
   it('boots a CLI, fetches the ready page, and stops it through AgentSupervisor', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-smoke-fixture-'))
     scratch.push(root)
+    installFixtureNativeRuntime(root)
     const pidFile = join(root, 'pid')
     const cliEntry = join(root, 'fake-cli.mjs')
     mkdirSync(root, { recursive: true })
@@ -75,6 +87,7 @@ describe('runDshSmoke', () => {
   it('exchanges the 0.1.2 launch token (303 + cookie) before asserting the page', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-smoke-token-'))
     scratch.push(root)
+    installFixtureNativeRuntime(root)
     const pidFile = join(root, 'pid')
     const cliEntry = join(root, 'fake-cli-token.mjs')
     mkdirSync(root, { recursive: true })
@@ -121,13 +134,13 @@ describe('runDshSmoke', () => {
   }, 15_000)
 })
 
-describe('staged plugins resolution', () => {
-  function writePlugin(root: string, directory: string, manifest: Record<string, unknown>): void {
-    const dir = join(root, directory)
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest)}\n`)
-  }
+function writePlugin(root: string, directory: string, manifest: Record<string, unknown>): void {
+  const dir = join(root, directory)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest)}\n`)
+}
 
+describe('staged plugins resolution', () => {
   function fixturePlugins(): string {
     const root = mkdtempSync(join(tmpdir(), 'dsh-staged-fixture-'))
     scratch.push(root)

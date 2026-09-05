@@ -13,16 +13,10 @@
  *   packages:'external'，否则 workspace 裸包名会残留成打包态运行时依赖。
  */
 import { createFsHandler, FS_ROUTE_PREFIX } from './fs-handler'
+import { registerHostRoute, type HostRouteContext } from '@dsh-desktop/bridge/host-routes'
 
 /** 使用到的 cordis 上下文面（最小结构镜像，只声明本插件触碰的切片）。 */
-interface BrowserContext {
-  webServer: {
-    register(route: {
-      kind: 'exact' | 'prefix'
-      path: string
-      handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void | Promise<void>
-    }): () => void
-  }
+interface BrowserContext extends HostRouteContext {
   sessions: {
     get(id: string): { header?: { cwd?: string } } | undefined
   }
@@ -40,7 +34,7 @@ export const name = 'file-browser'
  * workspaceRegistry 同源（WorkspaceRegistry static inject 即含它），
  * 服务必然在 desktop composition 里。
  */
-export const inject = ['webServer', 'sessions', 'sessionPersistence']
+export const inject = ['webServer', 'connection', 'sessions', 'sessionPersistence']
 
 /**
  * 激活：注册 prefix 路由，effect disposer 负责摘除。
@@ -64,5 +58,5 @@ export function apply(raw: unknown): void {
     }
   }
   const handler = createFsHandler({ resolveRoot })
-  context.webServer.register({ kind: 'prefix', path: FS_ROUTE_PREFIX, handler })
+  registerHostRoute(context, { kind: 'prefix', path: FS_ROUTE_PREFIX, handler })
 }

@@ -108,7 +108,7 @@ jobs:
             vendor/dsh-cli/package.json
             vendor/dsh-cli/pnpm-workspace.yaml
             vendor/dsh-cli/pnpm-lock.yaml
-          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', 'scripts/test-upstream-patches.ts', 'scripts/command.ts', '.nvmrc') }}
+          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', 'scripts/patch-queue.ts', 'scripts/sync-fingerprint.ts', 'scripts/test-upstream-patches.ts', 'scripts/command.ts', 'vendor/dsh-cli/pnpm-lock.yaml', '.nvmrc') }}
 
       # sync:upstream is the only job that builds the patched upstream tree.
       # Only its platform-neutral tarballs and install contract cross the job

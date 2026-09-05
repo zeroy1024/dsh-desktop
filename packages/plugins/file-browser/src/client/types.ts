@@ -6,6 +6,7 @@
 import type {
   PanelShellController, PanelPageMeta, PanelShellFocus,
 } from '@dsh-desktop/panel-shell/client'
+import type { FileSession, FileRemote } from './session-data.ts'
 import type { EnvelopeSource } from './api.ts'
 import type { FileOpenMailbox } from './file-open.ts'
 
@@ -23,7 +24,7 @@ export interface ClientContext {
   slots: {
     inject: (name: string, factory: () => unknown) => unknown
     register: (
-      opts: { name: string; locale?: string; id?: string; order?: number; inject?: () => unknown },
+      opts: { name: string; locale?: string; id?: string; order?: number; inject?: (sessionId: string) => unknown },
       component: unknown,
     ) => () => void
   }
@@ -36,7 +37,8 @@ export interface ClientContext {
   /** ui-layout panel column action used by the external file-open service. */
   layout: { openPanel: () => void }
   /** Shared, already-decoded connection envelopes; file-browser never owns a second mux transport. */
-  connection: { api: EnvelopeSource }
+  sessions: { binding(id: string): { session: FileSession } | undefined }
+  remote: FileRemote
 }
 
 /** 页面组件完整 props：框架标准注入（sessionId/t）+ 容器 owner props。 */
@@ -49,6 +51,7 @@ export interface FilePageProps {
   fileOpenMailbox: FileOpenMailbox
   /** Shared connection envelope source used for session-scoped file activity refreshes. */
   envelopeSource: EnvelopeSource
+  openPath: (path: string) => Promise<void>
   /** 命名空间翻译座位（经 locale 声明注入）。 */
   t: Translate
 }

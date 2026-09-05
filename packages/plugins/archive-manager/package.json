@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "归档管理：设置面板查看归档会话并一键恢复（unarchive），走 webServer 同源路由 + registry 运行时 setState。",
+  "description": "归档管理：设置面板查看归档会话并一键恢复（unarchive），通过 webServer 同源路由调用 WorkspaceRegistry 公共 API。",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -16,7 +16,7 @@
     },
     "client": {
       "inject": [
-        "slots",
+        "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web",
@@ -61,6 +61,7 @@
     "react-dom": "^18.2.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@dsh-desktop/bridge": "workspace:*"
   }
 }

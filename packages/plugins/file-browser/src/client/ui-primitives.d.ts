@@ -37,7 +37,12 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     copiedLabel?: string
   }) => ReactElement
 
-  export const MarkdownText: (props: { text: string }) => ReactElement
+  export interface MarkdownLabels {
+    code: { copyLabel: string; copiedLabel: string }
+    footnotes: string
+  }
+
+  export const MarkdownText: (props: { text: string; labels: MarkdownLabels }) => ReactElement
 
   export function writeClipboard(text: string): Promise<boolean>
 

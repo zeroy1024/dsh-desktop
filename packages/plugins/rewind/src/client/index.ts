@@ -7,13 +7,17 @@
 import { RewindUserMessage } from './RewindUserMessage.tsx'
 import { en, NS, zh } from './locales.ts'
 import type { ClientContext } from './types.ts'
+import { createRewindVisibilitySource } from './event-visibility.ts'
 
 /** locale 与 slots 是本插件装配时的根依赖。 */
-export const inject = ['locale', 'slots']
+export const inject = ['locale', 'slots', 'sessionEventViews', 'sessions', 'conversation']
 
 /** 注册词典，并 shadow 官方用户消息渲染器。 */
 export function apply(ctx: ClientContext): void {
+  const lifetime = new AbortController()
+  ctx.effect(() => () => { lifetime.abort() }, 'rewind: image restoration')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'rewind: dictionaries')
+  ctx.effect(() => ctx.sessionEventViews.register(createRewindVisibilitySource), 'rewind: event visibility')
 
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
@@ -21,5 +25,17 @@ export function apply(ctx: ClientContext): void {
     // 官方 ui-conversation 用默认 priority 0；更低者胜出，官方仍是 fallback。
     priority: -1,
     locale: NS,
+    inject: (sessionId: Parameters<ClientContext['sessions']['binding']>[0]) => {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) throw new Error(`rewind: session ${sessionId} is unavailable`)
+      const input = ctx.conversation.input.for(binding.ctx)
+      return { imageRuntime: {
+        drafts: ctx.conversation,
+        readAttachment: (id: Parameters<typeof binding.session.readAttachment>[0]) => binding.session.readAttachment(id),
+        inputState: input.state,
+        signal: lifetime.signal,
+        onSessionDispose: (dispose: () => void) => binding.ctx.effect(() => dispose, 'rewind: prepared images'),
+      } }
+    },
   }, RewindUserMessage))
 }

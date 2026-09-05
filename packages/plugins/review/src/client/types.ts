@@ -5,7 +5,7 @@
  * import 上游 src，vendor tarball 不可作 devDep）。
  */
 import type { PanelShellController, PanelPageMeta } from '@dsh-desktop/panel-shell/client'
-import type { EnvelopeSource } from './api.ts'
+import type { ResidentSession, SessionData } from './session-data.ts'
 
 export type { PanelShellController, PanelPageMeta }
 
@@ -18,7 +18,7 @@ export interface ClientContext {
   slots: {
     inject: (name: string, factory: () => unknown) => unknown
     register: (
-      opts: { name: string; locale?: string; id?: string; order?: number; inject?: () => unknown },
+      opts: { name: string; locale?: string; id?: string; order?: number; inject?: (sessionId: string) => unknown },
       component: unknown,
     ) => () => void
   }
@@ -29,7 +29,7 @@ export interface ClientContext {
   /** panel-shell 提供的元数据注册服务（运行半）。 */
   panelShell: PanelShellController
   /** 共享连接的解码信封观察缝（绝不自开第二条 mux 流）。 */
-  connection: { api: EnvelopeSource }
+  sessions: { binding(id: string): { session: ResidentSession } | undefined }
 }
 
 /** 审查页完整 props：框架标准注入（sessionId/t）+ 容器 owner props（active）+ 注入面。 */
@@ -39,7 +39,7 @@ export interface ReviewPageProps {
   /** 容器按座位决定的激活态（切 tab 翻转，不卸载；非激活时应停昂贵订阅）。 */
   active: boolean
   /** 共享连接信封源（live 增量用）。 */
-  envelopeSource: EnvelopeSource
+  data: SessionData
   /** 命名空间翻译座位（经 locale 声明注入）。 */
   t: Translate
 }

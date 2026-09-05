@@ -111,7 +111,7 @@ export interface Aggregator {
 }
 
 export function createAggregator(): Aggregator {
-  const calls = new Map<string, 'write' | 'edit'>()
+  const calls = new Map<string, { name: 'write' | 'edit'; args: Record<string, unknown> }>()
   const files = new Map<string, FileReview>()
   const edits: EditEvent[] = []
   let appliedThroughSeq = -1
@@ -128,18 +128,32 @@ export function createAggregator(): Aggregator {
         if (!isRecord(data)) return
         const { callId, name } = data
         if (typeof callId !== 'string') return
-        if (name === 'write' || name === 'edit') calls.set(callId, name)
+        if (name === 'write' || name === 'edit') {
+          let args: Record<string, unknown> = {}
+          try {
+            const parsed: unknown = JSON.parse(typeof data.arguments === 'string' ? data.arguments : '{}')
+            if (isRecord(parsed)) args = parsed
+          } catch { /* malformed tool input cannot produce a successful write */ }
+          calls.set(callId, { name, args })
+        }
         return
       }
       if (event.type !== 'tool/result') return
 
       const data = event.data
       if (isRecord(data) && data.error !== undefined) return
-      const diffs = diffsFromEntry(entry)
-      if (diffs === undefined) return
-
       const callId = callIdOf(event)
-      const tool = (callId !== undefined ? calls.get(callId) : undefined) ?? 'other'
+      const call = callId !== undefined ? calls.get(callId) : undefined
+      let diffs = diffsFromEntry(entry)
+      // 0.1.2 journals carry durable events without computed result views.
+      // A new file has empty meta.diffs; recover its full text from the paired call.
+      if (diffs === undefined && isRecord(data) && isRecord(data.meta)
+        && Array.isArray(data.meta.diffs) && data.meta.diffs.length === 0 && call?.name === 'write'
+        && typeof call.args.file_path === 'string' && typeof call.args.content === 'string') {
+        diffs = [{ path: call.args.file_path, oldText: null, newText: call.args.content }]
+      }
+      if (diffs === undefined) return
+      const tool = call?.name ?? 'other'
       const edit: EditEvent = {
         seq: event.seq,
         time: event.time,

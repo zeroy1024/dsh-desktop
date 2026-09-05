@@ -9,16 +9,10 @@
  * 以源码打进 lib/index.js（同 file-browser，不用 packages:'external'）。
  */
 import { createGitRoutes } from './git-handler'
+import { registerHostRoute, type HostRouteContext } from '@dsh-desktop/bridge/host-routes'
 
 /** 使用到的 cordis 上下文面（最小结构镜像，只声明本插件触碰的切片）。 */
-interface ReviewContext {
-  webServer: {
-    register(route: {
-      kind: 'exact' | 'prefix'
-      path: string
-      handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void | Promise<void>
-    }): () => void
-  }
+interface ReviewContext extends HostRouteContext {
   sessions: {
     get(id: string): { header?: { cwd?: string } } | undefined
   }
@@ -32,7 +26,7 @@ interface ReviewContext {
 export const name = 'review'
 
 /** fiber 依赖：路由载体与 session→cwd 解析（desktop composition 必然在场）。 */
-export const inject = ['webServer', 'sessions', 'sessionPersistence']
+export const inject = ['webServer', 'connection', 'sessions', 'sessionPersistence']
 
 /**
  * 激活：注册 git 只读 + restore 两条 exact 路由，effect disposer 负责摘除。
@@ -52,8 +46,7 @@ export function apply(raw: unknown): void {
       return undefined
     }
   }
-  // 路由生命周期随 fiber（同 file-browser：注册返回的 disposer 不单独管理）。
   for (const route of createGitRoutes({ resolveRoot })) {
-    context.webServer.register({ kind: 'exact', path: route.path, handler: route.handler })
+    registerHostRoute(context, { kind: 'exact', path: route.path, handler: route.handler })
   }
 }

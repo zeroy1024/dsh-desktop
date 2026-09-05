@@ -56,6 +56,11 @@ const APPLY = [
 ].join('\n')
 
 describe('rehearseQueue', () => {
+  it('checks whitespace in the applied source instead of unified-diff context markers', () => {
+    const options = fixtureOptions(APPLY.replace('+hello patched\n', '+hello patched   \n'))
+    expect(() => rehearseQueue(options)).toThrow(/trailing whitespace/u)
+  })
+
   it('applies the registered queue and returns the tree to HEAD (happy path)', () => {
     const { upstreamDir, patchesDir } = fixtureOptions(APPLY)
     expect(() => rehearseQueue({ upstreamDir, patchesDir })).not.toThrow()
@@ -77,7 +82,7 @@ describe('rehearseQueue', () => {
       '',
     ].join('\n')
     writeFileSync(join(patchesDir, '0001-test.patch'), tampered)
-    expect(() => rehearseQueue({ upstreamDir, patchesDir })).toThrow(/git apply/u)
+    expect(() => rehearseQueue({ upstreamDir, patchesDir })).toThrow(/git .*apply/u)
     // 真实仓库工作树同样不能被演练污染
     const status = spawnCommandSync('git', ['status', '--porcelain'], { cwd: upstreamDir, encoding: 'utf8', stdio: 'pipe' })
     expect(status.stdout).toBe('')

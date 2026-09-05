@@ -3,7 +3,7 @@
  * 主体（markdown 渲染 / 源码高亮切换 / 大文件与二进制降级 / 错误态）。
  * 所有数据态由页面层拉取后经 props 下发（本组件零异步）。
  */
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, IconCloseFill14, MarkdownText, Menu,
   writeClipboard,
@@ -99,6 +99,10 @@ export const FilePreview = memo(function FilePreview({
   treeHidden, onToggleTree, t,
 }: FilePreviewProps) {
   // 渲染/源码切换的会话内偏好（仅对 md 生效；不持久化——视频未演示跨重启）。
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('preview.copy'), copiedLabel: t('preview.copied') },
+    footnotes: t('preview.footnotes'),
+  }), [t])
   const [showSource, setShowSource] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const active = tabs.activePath
@@ -274,7 +278,7 @@ export const FilePreview = memo(function FilePreview({
           if (isMarkdown(name) && !showSource && richPreview) {
             return (
               <div className={css.markdownWrap}>
-                <MarkdownText text={content.text} />
+                <MarkdownText text={content.text} labels={markdownLabels} />
               </div>
             )
           }

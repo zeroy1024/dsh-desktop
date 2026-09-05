@@ -16,10 +16,11 @@ import {
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  fsList, fsRead, fsReadAbsolute, hostDescribe, hostOpenPath, openMux, fileActivityPaths,
+  fsList, fsRead, fsReadAbsolute, openMux, fileActivityPaths,
   FsApiError, type FsFileContent, type FsErrorCode,
 } from './api.ts'
-import { isExternalFilePath } from './file-open.ts'
+import { absoluteFilePath, isExternalFilePath } from './file-open.ts'
+import { createReadQueue } from './read-queue.ts'
 import {
   applySelection, emptyTree, flattenTree, loadedPaths, withAncestorsExpanded, withDirState, withExpanded,
   type SelectMode, type TreeRow, type TreeState,
@@ -65,7 +66,7 @@ export function dirsAlongPath(relPath: string): string[] {
  * 渲染文件浏览器页。
  * @param props - 容器注入（sessionId/active）+ 框架翻译座位。
  */
-export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSource, t }: FilePageProps) {
+export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSource, openPath, t }: FilePageProps) {
   const [tree, setTree] = useState<TreeState>(emptyTree)
   const [filter, setFilter] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
@@ -113,15 +114,9 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
   useLayoutEffect(() => { treeRef.current = tree }, [tree])
   const viewsRef = useRef(views)
   useLayoutEffect(() => { viewsRef.current = views }, [views])
-  // Reads are keyed by relPath so a rapid open/activate sequence shares one
-  // request. A refresh bumps the path token and may intentionally supersede
-  // an older read; stale completions then become no-ops.
-  const fileInFlight = useRef<Set<string>>(new Set())
-  const fileReadTokens = useRef<Map<string, number>>(new Map())
-  // 行序列镜像（applySelection 的范围端点计算）。
+  // The queue serializes each path and coalesces repeated tool invalidations.
+  const reads = useRef(createReadQueue())
   const rowsRef = useRef<TreeRow[]>([])
-  // 同目录并发拉取只发一次的在途集。
-  const inFlight = useRef<Set<string>>(new Set())
   // 会话切换标记：sessionId 变化时整页重置。
   const lastSession = useRef<string | null>(null)
   // Async directory/file work can outlive a session switch. The current
@@ -143,8 +138,7 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     treeRef.current = emptyTree
     viewsRef.current = new Map()
     rowsRef.current = []
-    fileInFlight.current.clear()
-    fileReadTokens.current.clear()
+    reads.current.clear()
     externalTreeHiddenRef.current = false
     setExternalTreeHidden(false)
   }, [sessionId])
@@ -272,31 +266,28 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     const epoch = sessionEpochRef.current
     if (currentSessionRef.current !== sessionId) return
     if (!force && !dirNeedsLoad(treeRef.current, relPath)) return
-    if (inFlight.current.has(relPath)) return
-    inFlight.current.add(relPath)
-    setTree(prev => withDirState(prev, relPath, { status: 'loading' }))
-    try {
-      const listing = await fsList(sessionId, relPath)
+    return reads.current.run(`dir:${relPath}`, async (isCurrent) => {
       if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId) return
-      setRoot(current => current ?? listing.root)
-      setTree(prev => withDirState(prev, relPath, {
-        status: 'ready', entries: listing.entries, truncated: listing.truncated,
-      }))
-    } catch (err) {
-      if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId) return
-      setTree(prev => withDirState(prev, relPath, {
-        status: 'error', error: err instanceof FsApiError ? err.code : 'unreadable',
-      }))
-    } finally {
-      // An old request must not delete a same-path request started by the new
-      // session after the reset cleared the in-flight set.
-      if (sessionEpochRef.current === epoch && currentSessionRef.current === sessionId) {
-        inFlight.current.delete(relPath)
+      if (treeRef.current.dirs.get(relPath)?.status !== 'ready') {
+        setTree(prev => withDirState(prev, relPath, { status: 'loading' }))
       }
-    }
+      try {
+        const listing = await fsList(sessionId, relPath)
+        if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId || !isCurrent()) return
+        setRoot(current => current ?? listing.root)
+        setTree(prev => withDirState(prev, relPath, {
+          status: 'ready', entries: listing.entries, truncated: listing.truncated,
+        }))
+      } catch (err) {
+        if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId || !isCurrent()) return
+        setTree(prev => withDirState(prev, relPath, {
+          status: 'error', error: err instanceof FsApiError ? err.code : 'unreadable',
+        }))
+      }
+    }, force)
   }, [sessionId])
 
-  // 会话就绪/切换：重置 + 拉根目录 + host.describe + 恢复 tab 账本。
+  // 会话就绪/切换：重置 + 拉根目录 + 恢复 tab 账本。
   useEffect(() => {
     if (lastSession.current === sessionId) return
     lastSession.current = sessionId
@@ -315,11 +306,8 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     externalTreeHiddenRef.current = false
     setExternalTreeHidden(false)
     setTabState({ sessionId, tabs: loadFileTabs(localStorage, sessionId) })
-    inFlight.current.clear()
-    fileInFlight.current.clear()
-    fileReadTokens.current.clear()
-    void hostDescribe().then(describe => { setCanOpenPath(describe.canOpenPath) })
-      .catch(() => { /* 探测失败保持不可打开 */ })
+    reads.current.clear()
+    setCanOpenPath(true)
     // The previous tree may have had a loaded root. A new session must always
     // fetch its own root, even before React commits the emptyTree update.
     void loadDir('', true)
@@ -345,45 +333,37 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     setViews(next)
   }, [])
 
-  /** 读文件内容（视图缓存命中即跳过；force 可 supersede 旧读）。 */
+  /** 读文件内容（视图缓存命中即跳过；force 将在途读标为过期并合并重读）。 */
   const ensureFile = useCallback(async (key: string, force = false): Promise<void> => {
     const epoch = sessionEpochRef.current
     if (currentSessionRef.current !== sessionId) return
-    if (!force && (viewsRef.current.has(key) || fileInFlight.current.has(key))) return
-    const token = (fileReadTokens.current.get(key) ?? 0) + 1
-    fileReadTokens.current.set(key, token)
-    fileInFlight.current.add(key)
-    const loading = new Map(viewsRef.current)
-    loading.set(key, { loading: true })
-    commitViews(loading)
-    try {
-      // key 的两个域：工作区相对路径走 root 相对 read；外部绝对路径走
-      // 单文件预览通道（fsReadAbsolute，Host 侧无工作区边界校验）。
-      const content: FsFileContent = await (isExternalFilePath(key)
-        ? fsReadAbsolute(sessionId, key)
-        : fsRead(sessionId, key))
-      if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId
-        || fileReadTokens.current.get(key) !== token) return
-      const next = new Map(viewsRef.current)
-      next.set(key, { loading: false, content })
-      commitViews(next)
-    } catch (err) {
-      if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId
-        || fileReadTokens.current.get(key) !== token) return
-      const next = new Map(viewsRef.current)
-      next.set(key, {
-        loading: false,
-        error: err instanceof FsApiError ? errorText(err.code, t) : t('error.unreadable'),
-      })
-      commitViews(next)
-    } finally {
-      // An old read must not clear a newer force-refresh read for this path.
-      if (sessionEpochRef.current === epoch && currentSessionRef.current === sessionId
-        && fileReadTokens.current.get(key) === token) {
-        fileInFlight.current.delete(key)
-        fileReadTokens.current.delete(key)
+    if (!force && viewsRef.current.has(key)) return
+    return reads.current.run(`file:${key}`, async (isCurrent) => {
+      if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId) return
+      // Keep a previously rendered preview visible while refreshing it.
+      if (!viewsRef.current.get(key)?.content) {
+        const loading = new Map(viewsRef.current)
+        loading.set(key, { loading: true })
+        commitViews(loading)
       }
-    }
+      try {
+        const content: FsFileContent = await (isExternalFilePath(key)
+          ? fsReadAbsolute(sessionId, key)
+          : fsRead(sessionId, key))
+        if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId || !isCurrent()) return
+        const next = new Map(viewsRef.current)
+        next.set(key, { loading: false, content })
+        commitViews(next)
+      } catch (err) {
+        if (sessionEpochRef.current !== epoch || currentSessionRef.current !== sessionId || !isCurrent()) return
+        const next = new Map(viewsRef.current)
+        next.set(key, {
+          loading: false,
+          error: err instanceof FsApiError ? errorText(err.code, t) : t('error.unreadable'),
+        })
+        commitViews(next)
+      }
+    }, force)
   }, [commitViews, sessionId, t])
 
   /**
@@ -448,9 +428,9 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     focusFile(relPath)
   }, [focusFile, setSessionTabs])
 
-  /** Refresh an already-open file without duplicating an in-flight read. */
+  /** A write invalidates an in-flight read and queues one fresh read after it settles. */
   const refreshFile = useCallback((relPath: string): void => {
-    if (!viewsRef.current.has(relPath) || fileInFlight.current.has(relPath)) return
+    if (!viewsRef.current.has(relPath)) return
     void ensureFile(relPath, true)
   }, [ensureFile])
 
@@ -479,29 +459,25 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
   /** 「打开 ▾」的系统项：工作区外 key 本身即绝对路径；工作区内拼 canonical root。 */
   const handleOpenSystem = useCallback((key: string) => {
     if (isExternalFilePath(key)) {
-      void hostOpenPath(key).catch(() => { /* 桌面能力缺位静默 */ })
+      void openPath(key).catch(() => { /* 桌面能力缺位静默 */ })
       return
     }
     if (root === null) return
     const absolute = root === '/' ? `/${key}` : `${root}/${key}`
-    void hostOpenPath(absolute).catch(() => { /* 桌面能力缺位静默 */ })
-  }, [root])
+    void openPath(absolute).catch(() => { /* 桌面能力缺位静默 */ })
+  }, [root, openPath])
 
   /** 手动刷新：已加载目录全量重拉 + 激活文件重读（展开集保留）。 */
   const refresh = useCallback(() => {
     for (const relPath of loadedPaths(treeRef.current)) {
-      // An existing directory request already represents this refresh target;
-      // do not start an overlapping read whose older result could win later.
+      // The queue merges repeated invalidations while the current read settles.
       void loadDir(relPath, true)
     }
     const activePath = sessionTabs.activePath
     if (activePath !== null) {
-      const next = new Map(viewsRef.current)
-      next.delete(activePath)
-      commitViews(next)
       void ensureFile(activePath, true)
     }
-  }, [commitViews, loadDir, ensureFile, sessionTabs.activePath])
+  }, [loadDir, ensureFile, sessionTabs.activePath])
 
   /** mux 联动刷新：仅 active 时订阅；命中已加载目录局部重拉。 */
   useEffect(() => {
@@ -510,14 +486,26 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
     const muxSession = sessionId
     return openMux(envelopeSource, (frame) => {
       if (sessionEpochRef.current !== epoch || currentSessionRef.current !== muxSession) return
+      const paths = fileActivityPaths(frame, muxSession)
+      if (paths.includes('')) {
+        // Re-entry, reconnect, or a tool with no path metadata: reconcile all
+        // loaded directories and cached previews, including inactive tabs.
+        for (const path of loadedPaths(treeRef.current)) void loadDir(path, true)
+        for (const path of viewsRef.current.keys()) refreshFile(path)
+        return
+      }
+      for (const path of paths) {
+        const absolute = absoluteFilePath(path)
+        if (absolute !== undefined) refreshFile(absolute)
+      }
       if (root === null) return
-      for (const rel of relPathsUnderRoot(root, fileActivityPaths(frame, muxSession))) {
+      for (const rel of relPathsUnderRoot(root, paths)) {
+        // Preview refresh does not depend on whether its parent tree is loaded.
+        refreshFile(rel)
         const at = rel.lastIndexOf('/')
         const parent = at < 0 ? '' : rel.slice(0, at)
-        if (dirNeedsLoad(treeRef.current, parent)) continue // 父级未加载则无需刷新
+        if (!treeRef.current.dirs.has(parent)) continue // 父级从未加载则无需刷新
         void loadDir(parent, true)
-        // 仅在文件曾被打开过时刷新其内容缓存（不凭空拉未开文件）。
-        refreshFile(rel)
       }
     })
   }, [active, envelopeSource, root, loadDir, refreshFile, sessionId])

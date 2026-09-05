@@ -109,7 +109,7 @@ jobs:
             vendor/dsh-cli/package.json
             vendor/dsh-cli/pnpm-workspace.yaml
             vendor/dsh-cli/pnpm-lock.yaml
-          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', 'scripts/test-upstream-patches.ts', 'scripts/command.ts', '.nvmrc') }}
+          key: vendor-contract-${{ steps.vendor-fingerprint.outputs.upstream }}-${{ hashFiles('patches/**', 'scripts/sync-upstream.ts', 'scripts/patch-queue.ts', 'scripts/sync-fingerprint.ts', 'scripts/test-upstream-patches.ts', 'scripts/command.ts', 'vendor/dsh-cli/pnpm-lock.yaml', '.nvmrc') }}
 
       - name: Install root tooling for synchronization
         run: pnpm install --filter . --frozen-lockfile --ignore-scripts
@@ -320,15 +320,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # Packaging smoke on Linux only. electron-builder is the slowest part of the
-  # release pipeline, so this deliberately mirrors release.yml's Linux package
-  # job (dir target + tar.gz) without tripling CI cost: mac/windows packaging
-  # stays the release-only all-3-OS gate.
+  # Validate native packaged layouts on pull requests, before release-only
+  # installer generation. Each runner installs its own native dependencies.
   packaged-smoke:
-    name: Packaged smoke (Linux)
+    name: Packaged smoke / ${{ matrix.platform }}
     needs: upstream-contract
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - name: Check out repository and submodules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -380,13 +390,20 @@ jobs:
       - name: Build plugins and desktop shell
         run: pnpm build
 
-      - name: Build desktop installer and archives
+      - name: Build Linux directory and archive
+        if: ${{ matrix.platform == 'linux' }}
         working-directory: apps/desktop
         # 只出 dir + tar.gz（跳过 AppImage/installer 等重型产物），打包配置见
         # electron-builder.yml；stage-runtime-archive 由 package:ci:linux 前置
         run: pnpm run package:ci:linux
 
+      - name: Build native application directory (macOS and Windows)
+        if: ${{ matrix.platform != 'linux' }}
+        working-directory: apps/desktop
+        run: pnpm exec tsx ./stage-runtime-archive.ts && pnpm exec electron-builder --config electron-builder.yml --dir --publish never
+
       - name: Configure Chromium sandbox (Linux)
+        if: ${{ matrix.platform == 'linux' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -396,7 +413,12 @@ jobs:
           sudo chmod 4755 "${sandbox}"
 
       - name: Run packaged smoke (Linux)
+        if: ${{ matrix.platform == 'linux' }}
         run: xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' pnpm ci:smoke:packaged -- --release-dir apps/desktop/release
+
+      - name: Run packaged smoke (macOS and Windows)
+        if: ${{ matrix.platform != 'linux' }}
+        run: pnpm ci:smoke:packaged -- --release-dir apps/desktop/release
 
       - name: Collect failure diagnostics
         if: ${{ failure() }}
@@ -412,7 +434,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ci-logs-packaged-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ci-logs-packaged-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-artifacts/**
           include-hidden-files: true
           if-no-files-found: ignore

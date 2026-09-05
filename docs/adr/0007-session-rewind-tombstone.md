@@ -65,10 +65,9 @@ Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓�
 
 - 撤回后会话 ID 不变、无切换、磁盘只增一条小记录；模型上下文与人类视图真实
   回退，重启/恢复一致（core 三路径共用 fold）。
-- **已知限制（v1）**：token-meter 是独立的游标式 fold（`isSurfaceEvent` 对墓碑
-  为 false），撤回后其上下文用量显示与 compaction 规划面按旧表面估算——读侧
-  显示偏差，不影响模型真实上下文；完整对齐需 token-meter 消费墓碑，列为后续。
-  搜索索引同样仍含被撤回消息。
+- **用量和搜索一致性**：2026-09-05 后续整改已对齐 TokenMeter、上下文用量投影、
+  compaction 规划和搜索；旧 token 投影缓存和搜索索引会重建。计费统计仍保留已经
+  发生的模型调用，原始日志也保留供审计。
 - **撤回后 fork 的语义**：`session.fork` 按事件前缀切片复制，不感知墓碑——
   fork 边界落在墓碑之前（即被撤回区间之后段被完整复制）时，子会话不含墓碑、
   被撤回的消息在子会话"复活"。这是可辩护的语义（fork = 从该时点的原始转录
@@ -79,8 +78,8 @@ Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓�
 - 官方 CLI 拒读含墓碑会话（见决定 5）；上游落地原生 rewind 原语后两 patch 退役、
   插件仅换事件类型，UI 层不动。
 - shadow 用户消息渲染器镜像官方气泡与动作行，与官方的已知差异（升级 checklist
-  对齐项）：引用 chip 不带 ReferenceIcon（ui-conversation 内部件未导出）、
-  formatClock 为 formatMessageClock 的近似、steering 消息不 shadow（撤回语义
+  对齐项）：0.1.2 已改用 primitives 公开的 projectUserText，引用图标和
+  wire 会话引用与原生一致；formatClock 为 formatMessageClock 的近似、steering 消息不 shadow（撤回语义
   限定在 turn 边界的 user 消息）。
 
 ## 修订记录（0.1.2-rc.1 升级，2026-09-05）
@@ -112,3 +111,53 @@ Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓�
 - 上游以架构笔记明示**否决**「可注册事件类型注册表」方向（事件类型保持
   生成式硬编码集合，外部事件走 envelope `ignorable`）；墓碑因「跳过=重建出
   未截断的错误会话」不可标 ignorable，维持 patch 内登记 + 官方 CLI 显式拒读。
+
+### Review 整改：客户端解释下沉为插件
+
+以上原始决定第 3 项的实现，在 0.1.2 改为 **通用数据源接口 + 插件折叠**：0013
+只为 SessionManager 提供 `sessionEventViews.register(factory)`。Session 内部继续
+维护原始事件源，对外暴露身份稳定的组合视图；已有和新会话都受注册与卸载影响。
+墓碑区间、过滤和失效规则位于 rewind 插件 `src/client/event-visibility.ts`，上游
+客户端不再认识桌面事件名称。Chat、Review 和 FileBrowser 消费同一个折叠事件源。
+
+无墓碑的普通追加原样转发 snapshot 与 delta，不物化全部历史。有墓碑后按增量
+更新区间，只在新增墓碑/重连等重建边界发布 replace；完整窗口仍惰性计算。原始
+分页边界通过只读 `historyStartSeq` 提供，即使成功获取的一整页都被隐藏，Review
+也可继续翻页，同时不会把实时追加或请求失败误当成历史游标推进。
+
+0.1.2 新增的 `turnOutline` 通过公开 SessionProjectionRegistry 在插件层替换：
+配置叠层禁用原生 owner，桌面投影保留原生预览规则并记录 prompt/response 的实际
+位置，以同一墓碑语义移除失效导航项。不同 stateVersion 使缓存按新规则重建。
+这部分不需要扩大 core patch。后续 token-meter 与搜索对齐见下；官方 CLI 的拒读边界仍保留。
+
+
+### 后续整改：用量、搜索与附件恢复
+
+TokenMeter 的私有游标状态与构造器绑定的原生投影不能通过插件局部替换。0012
+同步截断其测量节点，丢弃指向撤回区间的 usage 校准；有效校准保留，累计 tokenUsage
+不回滚。contextPressure/contextBreakdown 分别升级到 stateVersion 5/3，旧缓存重算。
+ProjectionDefinition.apply 新增可选、惰性的只读历史参数，只暴露当前事件的已提交
+前缀；普通事件不复制历史，墓碑才重算当前价格，持久化投影状态继续保持有界。
+
+搜索采用 0017 的通用 `buildSearchDocuments` / `searchDocumentVersion` 接口，
+由 rewind 的 SQLite provider 子类过滤墓碑区间。全文搜索与 literal filter 共享
+投影，分页、取消和索引更新沿用上游；投影版本参与持久化修订比对，日志未发生
+变化的旧索引同样重建。精确事件读取与 trace 继续读原始日志。
+Include 的 `name` 保持目标名称校验，显式 `replaceName` 才更换 provider；保留原 id、
+配置、启用状态和后续用户层。合成器克隆插入及覆写值，重复合成不修改输入层。
+
+0018 只公开 ConversationController 已实现的两项草稿图片方法，并让批量注册
+失败回滚已分配的临时 URL。历史图片读取、请求前准备、成功回填和资源释放均在
+客户端插件中完成。普通切换会话后，晚响应只操作捕获的原会话；插件或会话 scope
+真正销毁时取消恢复并释放尚未交给输入框的附件。
+
+### 冷会话限制复核
+
+0.1.2 确有公开 `sessionPersistence.prepare`、`sessions.enter/announce/flush`，
+不能把限制归因于没有冷读写 API。但临时发布后 `detach` 会广播 `api-session/removed`，
+客户端设置持久的 removed 标志并锁住 InputBar；在临时 live 却没有 Agent 的窗口中，
+并发 prompt-resume 也会因 prepare 拒绝 live 而失败。flush 持续失败还涉及仍需重试的
+persistence owner，简单 finally detach 不能保证恢复。
+
+本轮维持 live/idle 限制。后续需复用完整原生 Agent 激活与预设选择生命周期，或由
+上游提供持久化修改及视图失效接口；不以临时进入/退出 SessionStore 代替它们。

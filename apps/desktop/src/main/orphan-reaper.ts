@@ -8,12 +8,29 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { relative, resolve, sep } from 'node:path'
 import { killProcessTree } from '@dsh-desktop/agent-host'
 
 /** pid 文件内容：agent 子进程 pid + 启动它的 CLI 入口绝对路径（收割核身用）。 */
 export interface AgentPidRecord {
   pid: number
   cliEntry: string
+}
+
+/** Packaged agents may belong to any retained app version; development uses one exact CLI. */
+export type AgentReapScope = { runtimeRoot: string } | { cliEntry: string }
+
+function isManagedEntry(entry: string, scope: AgentReapScope): boolean {
+  if ('cliEntry' in scope) return resolve(entry) === resolve(scope.cliEntry)
+  const parts = relative(resolve(scope.runtimeRoot), resolve(entry)).split(sep)
+  return parts.length === 6 && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(parts[0]!)
+    && parts.slice(1).join('/') === 'node_modules/@deepseek-ai/dsh/lib/bin.js'
+}
+
+/** Match the complete CLI argument and desktop profile, including quoted Windows paths. */
+function isAgentCommandLine(command: string, cliEntry: string): boolean {
+  const escaped = cliEntry.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  return new RegExp(`(?:^|[\\s"'])${escaped}["']?\\s+--profile\\s+["']?desktop["']?(?:\\s|$)`, 'u').test(command)
 }
 
 /** 读取 pid 文件；文件缺失、坏 JSON 或字段非法一律视为无记录。 */
@@ -63,8 +80,8 @@ export interface ReapDeps {
   /**
    * 结束进程；group=true 时 POSIX 下对整组（负 pid）发信号。
    * win32 下 group=true 杀整棵进程树（taskkill /T /F，异步 fire-and-forget）；
-   * 常规 taskkill 走进程树主杀，`/T /F` 作兜底。Job Object 是更彻底的长期
-   * 方案（subtree 全杀 + 防逃逸），留作 backlog。
+   * 兼容旧版未纳入 Job Object 的遗留进程；当前版本新启动的 agent 由
+   * supervisor 的 Job handle 负责整树回收。
    */
   kill: (pid: number, group: boolean, sig: 'SIGTERM' | 'SIGKILL') => void
   sleep: (ms: number) => Promise<void>
@@ -83,18 +100,23 @@ const TERM_TIMEOUT_MS = 2_000
  */
 export async function reapOrphanedAgent(
   pidPath: string,
-  cliEntry: string,
+  scope: AgentReapScope,
   deps: ReapDeps,
 ): Promise<'none' | 'reaped' | 'skipped'> {
   const record = readAgentPidRecord(pidPath)
   if (record === null) return 'none'
+  if (!isManagedEntry(record.cliEntry, scope)) {
+    deps.log?.(`[agent] pid ${record.pid} 的入口不属于本 app 管理的运行时，不收割`)
+    removeAgentPidRecord(pidPath, record.pid)
+    return 'skipped'
+  }
   try {
     const cmdline = await deps.probeCmdline(record.pid)
     if (cmdline === null) {
       removeAgentPidRecord(pidPath, record.pid)
       return 'none'
     }
-    if (!cmdline.includes(cliEntry)) {
+    if (!isAgentCommandLine(cmdline, record.cliEntry)) {
       deps.log?.(`[agent] pid ${record.pid} 命令行不含 dsh CLI 入口，pid 已被复用，不收割`)
       removeAgentPidRecord(pidPath, record.pid)
       return 'skipped'
@@ -104,9 +126,14 @@ export async function reapOrphanedAgent(
     while (waited < TERM_TIMEOUT_MS) {
       await deps.sleep(TERM_POLL_MS)
       waited += TERM_POLL_MS
-      if ((await deps.probeCmdline(record.pid)) === null) {
+      const currentCommand = await deps.probeCmdline(record.pid)
+      if (currentCommand === null) {
         removeAgentPidRecord(pidPath, record.pid)
         return 'reaped'
+      }
+      if (!isAgentCommandLine(currentCommand, record.cliEntry)) {
+        removeAgentPidRecord(pidPath, record.pid)
+        return 'skipped'
       }
     }
     deps.kill(record.pid, true, 'SIGKILL')
@@ -128,16 +155,16 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-/** 取进程命令行；命令失败、超时（5s）或输出为空一律返回 null（按已死处理）。 */
+/** Probe failures preserve the pid record; only an absent process is considered dead. */
 function probeCmdlineVia(command: string, args: string[]): Promise<string | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolvePromise, rejectPromise) => {
     execFile(command, args, { timeout: 5_000 }, (error, stdout) => {
       if (error !== null) {
-        resolve(null)
+        rejectPromise(error)
         return
       }
       const cmdline = stdout.trim()
-      resolve(cmdline.length > 0 ? cmdline : null)
+      resolvePromise(cmdline.length > 0 ? cmdline : null)
     })
   })
 }
@@ -153,7 +180,7 @@ export function defaultReapDeps(): ReapDeps {
             '-Command',
             `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object -ExpandProperty CommandLine`,
           ])
-        : probeCmdlineVia('ps', ['-o', 'args=', '-p', String(pid)])
+        : probeCmdlineVia('ps', ['-ww', '-o', 'args=', '-p', String(pid)])
     },
     kill: (pid, group, sig) => {
       try {
@@ -176,7 +203,7 @@ export function defaultReapDeps(): ReapDeps {
         if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
       }
     },
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)),
     log: (msg) => {
       console.warn(msg)
     },

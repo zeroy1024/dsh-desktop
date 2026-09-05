@@ -1,5 +1,5 @@
 /* 镜像官方 MessageItem.module.css 的用户气泡与 MessageIconActions.module.css
-   的动作行：直接复用主题 CSS 变量，明暗主题自动跟随。 */
+   的动作行：复用主题与内容字号 CSS 变量，跟随明暗主题和设置中的字号。 */
 
 .userRow {
   display: flex;
@@ -14,6 +14,7 @@
   align-items: flex-end;
   gap: 8px;
   min-width: 0;
+  max-width: min(calc(var(--dsh-chat-content-width, 748px) * 0.702), 82%);
 }
 
 .bubble {
@@ -21,29 +22,17 @@
   background: var(--dsw-specific-bubble);
   border-radius: 22px;
   padding: 10px 16px;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-/* 用户文本里的 /命令 与 @引用 token 装饰（官方 refChip 同款）。 */
-.refChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0 2px;
-  color: var(--dsw-alias-state-business-primary);
-  font-weight: 500;
-  white-space: nowrap;
-  vertical-align: baseline;
-}
-
 .referenceSummary {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 /* —— 动作行（官方 MessageIconActions 布局：时间 · 撤回 · 复制） —— */
@@ -51,26 +40,35 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 28px;
+  gap: 8px;
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
 }
 
 .timeStart {
   padding-right: 12px;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
 }
 
 @media (hover: hover) {
-  [data-time-hover-root] .timeStart {
+  [data-actions-reveal='hover'] .actions,
+  :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering']):has(
+    ~ :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering'])
+  ) .actions {
     opacity: 0;
     transition: opacity 80ms ease;
   }
 
-  [data-time-hover-root]:hover .timeStart,
-  [data-time-hover-root]:focus-within .timeStart {
+  [data-actions-reveal='hover']:hover .actions,
+  [data-actions-reveal='hover']:focus-within .actions,
+  :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering']):has(
+    ~ :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering'])
+  ):hover .actions,
+  :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering']):has(
+    ~ :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering'])
+  ):focus-within .actions {
     opacity: 1;
   }
 }
@@ -79,14 +77,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: calc(28px + var(--dsh-content-font-delta, 0px));
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
   padding: 6px;
   border: none;
   border-radius: 28px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
+}
+
+.action svg {
+  width: calc(15px + var(--dsh-content-font-delta, 0px));
+  height: calc(15px + var(--dsh-content-font-delta, 0px));
 }
 
 .action:hover {
@@ -110,7 +113,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
   max-width: 100%;
   min-width: 0;
 }
@@ -128,7 +131,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
   max-width: 100%;
   min-width: 0;
 }
@@ -137,7 +140,7 @@
   min-width: 0;
   padding: 1px 8px;
   border-radius: 8px;
-  background: rgba(239, 68, 68, 0.14);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
   font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
@@ -149,7 +152,7 @@
   height: 24px;
   padding: 0 10px;
   border-radius: 7px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border: 1px solid var(--dsw-alias-border-l3);
   background: transparent;
   color: inherit;
   font-size: 12px;

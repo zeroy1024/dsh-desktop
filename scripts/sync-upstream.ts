@@ -20,23 +20,25 @@
  *   pnpm sync:upstream                   全量
  *   pnpm sync:upstream -- --skip-build   跳过构建与打包（仅补丁+安装）
  *   pnpm sync:upstream -- --skip-pack    跳过打包与 CLI 安装
+ *   pnpm sync:upstream -- --replace-patches-from <旧patches目录>
+ *                                      核对并原子替换已套用的旧登记队列
  */
 import {
   existsSync,
   globSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 import { spawnCommandSync, spawnPnpmSync } from './command'
+import { patchQueueTree, upstreamWorktreeTree, replacePatchQueue } from './patch-queue'
 import {
+  defaultPatchesDir,
   readPatchRegistry,
   registeredPatchPath,
   syncFingerprint,
@@ -61,6 +63,7 @@ const BASE_PACK_TARGETS = ['apps/cli', 'apps/web']
 const PLUGIN_API_PACK_TARGETS = [
   'vendor/cordis',
   'vendor/schemastery',
+  'packages/client/store',
   'packages/credentials/credentials',
   'packages/llm/llm',
   'packages/settings/settings',
@@ -76,12 +79,22 @@ interface PackedPackage {
   specifier: string
 }
 
+let skipBuild = false
+let skipPack = false
+let replacePatchesFrom: string | undefined
 const args = process.argv.slice(2)
-const skipBuild = args.includes('--skip-build')
-const skipPack = args.includes('--skip-pack')
+for (let index = 0; index < args.length; index += 1) {
+  const arg = args[index]
+  if (arg === '--') continue
+  if (arg === '--skip-build') skipBuild = true
+  else if (arg === '--skip-pack') skipPack = true
+  else if (arg === '--replace-patches-from') {
+    const path = args[++index]
+    if (path === undefined || path.startsWith('--')) throw new Error('--replace-patches-from 需要旧 patches 目录')
+    replacePatchesFrom = resolve(path)
+  } else throw new Error(`未知参数：${arg}`)
+}
 const effectiveSkipPack = skipPack || skipBuild
-const unknownArgs = args.filter((arg) => !['--', '--skip-build', '--skip-pack'].includes(arg))
-if (unknownArgs.length > 0) throw new Error(`未知参数：${unknownArgs.join(', ')}`)
 
 function run(cmd: string, cmdArgs: string[], cwd: string, env?: Record<string, string>): void {
   console.log(`\n$ (cd ${cwd} && ${cmd} ${cmdArgs.join(' ')})`)
@@ -92,11 +105,6 @@ function run(cmd: string, cmdArgs: string[], cwd: string, env?: Record<string, s
   if (r.status !== 0) {
     throw new Error(`命令失败（exit ${r.status}）：${cmd} ${cmdArgs.join(' ')}`)
   }
-}
-
-function tryRun(cmd: string, cmdArgs: string[], cwd: string): boolean {
-  const r = spawnCommandSync(cmd, cmdArgs, { cwd, stdio: 'pipe', env: process.env })
-  return r.status === 0
 }
 
 function capture(
@@ -216,73 +224,11 @@ function upstreamUntrackedFiles(): string[] {
   ).split('\n').filter(line => line.startsWith('?? '))
 }
 
-/** 在临时 Git index 上构造 diff，避免污染 upstream 的真实 index。 */
-function withScratchIndex<T>(prefix: string, fn: (indexEnv: Record<string, string>) => T): T {
-  const scratch = mkdtempSync(join(tmpdir(), prefix))
-  const indexEnv = { GIT_INDEX_FILE: join(scratch, 'index') }
-  try {
-    capture('git', ['read-tree', 'HEAD'], upstreamDir, indexEnv)
-    return fn(indexEnv)
-  } finally {
-    rmSync(scratch, { recursive: true, force: true })
-  }
-}
-
-/** Build the exact tracked diff represented by the registered queue. */
-function registeredPatchDiff(patches: readonly PatchEntry[]): string {
-  return withScratchIndex('dsh-patch-index-', (indexEnv) => {
-    for (const entry of patches) {
-      capture('git', ['apply', '--cached', registeredPatchPath(entry.file)], upstreamDir, indexEnv)
-    }
-    return capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
-  })
-}
-
-/**
- * 补丁可以新建文件（如 0012/0013 的 rewind.ts），git apply 落到工作树后是
- * 未跟踪文件，`git diff HEAD` 看不见它们。经临时 index `git add --all` 把
- * 未跟踪内容一并纳入对比，「登记 diff === 实际 diff」的判定对新建文件才成立。
- * 被 .gitignore 忽略的产物（lib/、node_modules）不进 index，行为与此前一致。
- */
-
-/**
- * Normalize a full-tree diff for equality comparison: git emits diff sections
- * in index insertion order, which differs between `add --all` (worktree
- * walk) and a sequence of `apply --cached` (queue order). Sorting whole
- * `diff --git` sections makes the comparison order-insensitive without
- * weakening it — every section must still match byte-for-byte.
- */
-function sortDiffSections(diff: string): string {
-  const head: string[] = []
-  const sections: string[] = []
-  let current: string[] | null = null
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      if (current !== null) sections.push(current.join('\n'))
-      current = [line]
-    } else if (current !== null) {
-      current.push(line)
-    } else {
-      head.push(line)
-    }
-  }
-  if (current !== null) sections.push(current.join('\n'))
-  sections.sort()
-  return [...head, ...sections].join('\n')
-}
-
-function actualUpstreamDiff(): string {
-  return withScratchIndex('dsh-worktree-index-', (indexEnv) => {
-    capture('git', ['add', '--all'], upstreamDir, indexEnv)
-    return capture('git', ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], upstreamDir, indexEnv)
-  })
-}
-
 /** Return the exact registered prefix represented by the current worktree. */
 function appliedRegisteredPrefix(patches: readonly PatchEntry[]): number | null {
-  const actual = actualUpstreamDiff()
+  const actual = upstreamWorktreeTree(upstreamDir)
   for (let length = patches.length; length >= 0; length -= 1) {
-    if (sortDiffSections(actual) === sortDiffSections(registeredPatchDiff(patches.slice(0, length)))) return length
+    if (actual === patchQueueTree(upstreamDir, patches.slice(0, length), defaultPatchesDir)) return length
   }
   return null
 }
@@ -309,32 +255,21 @@ function applyPatches(patches: readonly PatchEntry[]): void {
     }
     for (const entry of patches.slice(appliedPrefix)) {
       const patchPath = registeredPatchPath(entry.file)
-      run('git', ['apply', '--check', patchPath], upstreamDir)
-      run('git', ['apply', patchPath], upstreamDir)
+      run('git', ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn', '--check', patchPath], upstreamDir)
+      run('git', ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn', patchPath], upstreamDir)
       console.log(`[patches] 已套用：${entry.file}（${entry.reason}）`)
     }
     return
   }
-  for (const entry of patches) {
-    const patchPath = registeredPatchPath(entry.file)
-    const alreadyApplied = tryRun('git', ['apply', '--reverse', '--check', patchPath], upstreamDir)
-    if (alreadyApplied) {
-      console.log(`[patches] 已套用，跳过：${entry.file}`)
-      continue
-    }
-    run('git', ['apply', '--check', patchPath], upstreamDir)
-    run('git', ['apply', patchPath], upstreamDir)
-    console.log(`[patches] 已套用：${entry.file}（${entry.reason}）`)
-  }
+  throw new Error(
+    '[patches] upstream 不匹配登记队列的任何前缀，尚未改动工作树。'
+    + '若刚重写补丁，请用 --replace-patches-from <旧patches目录> 核对并迁移；否则先处理未登记修改。',
+  )
 }
 
-/**
- * 用临时 Git index 构造“只套登记补丁”的标准 diff，拒绝 upstream 里的私改。
- * 未跟踪文件已由 actualUpstreamDiff 纳入 diff 对比：与登记补丁新建的完全一致
- * 则通过，否则 diff 不等即拒绝（报错时列出未跟踪文件便于定位）。
- */
+/** Refuse any worktree bytes/modes not represented by the registered queue. */
 function verifyOnlyRegisteredPatches(patches: readonly PatchEntry[]): void {
-  if (sortDiffSections(actualUpstreamDiff()) !== sortDiffSections(registeredPatchDiff(patches))) {
+  if (upstreamWorktreeTree(upstreamDir) !== patchQueueTree(upstreamDir, patches, defaultPatchesDir)) {
     const untracked = upstreamUntrackedFiles()
     const hint = untracked.length > 0 ? `\n当前未跟踪文件：\n${untracked.join('\n')}` : ''
     throw new Error(
@@ -348,7 +283,8 @@ function installAndBuild(): void {
   // 在 submodule 里会因 git worktree 配置冲突而失败；其余安装脚本不受影响）
   run('pnpm', ['install', '--frozen-lockfile'], upstreamDir, { CI: 'true' })
   if (!skipBuild) {
-    run('pnpm', ['build'], upstreamDir)
+    // pnpm may re-run dependency installation before build/pack as well.
+    run('pnpm', ['build'], upstreamDir, { CI: 'true' })
   }
 }
 
@@ -360,7 +296,7 @@ function packTargets(patches: readonly PatchEntry[]): PackedPackage[] {
   }
   const packages = packTargetsFor(patches).map(packedPackage)
   for (const pkg of packages) {
-    run('pnpm', ['pack', '--pack-destination', vendorDir], join(upstreamDir, pkg.target))
+    run('pnpm', ['pack', '--pack-destination', vendorDir], join(upstreamDir, pkg.target), { CI: 'true' })
     if (!existsSync(join(vendorDir, pkg.tarball))) {
       throw new Error(`[vendor] pnpm pack 未生成预期文件：${pkg.tarball}`)
     }
@@ -419,15 +355,13 @@ function installCli(packages: readonly PackedPackage[]): void {
       nodeLinker: 'hoisted',
     }, { lineWidth: -1, noRefs: true }),
   )
-  // 本地 tarball 每次同步都会以相同版本号重建，而 pnpm 对同版本 file: 依赖
-  // 即使 --force 也可能沿用已安装实体（补丁迭代期间 pack 产物已变、版本未变）。
-  // 先移除本地包实体再安装，保证闭包始终反映最新 pack 产物。
-  for (const pkg of packages) {
-    rmSync(join(cliInstallDir, 'node_modules', ...pkg.name.split('/')), { recursive: true, force: true })
-  }
-  // --force 让 pnpm 重新导入，--no-frozen-lockfile 只更新 tarball integrity，
-  // 同时复用其余锁定解析。
-  run('pnpm', ['install', '--prod', '--force', '--no-frozen-lockfile'], cliInstallDir, { CI: 'true' })
+  // This directory is a generated runtime closure. Recreate it so same-version
+  // tarballs and removed dependencies cannot leave stale installed files behind.
+  // Do not use --force: pnpm then installs optional native packages for other
+  // OS/CPU combinations too, which bloats the distributable runtime archive.
+  rmSync(join(cliInstallDir, 'node_modules'), { recursive: true, force: true })
+  // Refresh local tarball integrity while preserving the other locked versions.
+  run('pnpm', ['install', '--prod', '--no-frozen-lockfile'], cliInstallDir, { CI: 'true' })
   const lockfile = readFileSync(join(cliInstallDir, 'pnpm-lock.yaml'), 'utf8')
   for (const pkg of packages) {
     if (!lockfile.includes(`specifier: ${pkg.specifier}`)) {
@@ -438,6 +372,10 @@ function installCli(packages: readonly PackedPackage[]): void {
 
 checkEnvironment()
 const patches = readPatchRegistry()
+if (replacePatchesFrom !== undefined) {
+  replacePatchQueue(upstreamDir, replacePatchesFrom, defaultPatchesDir)
+  console.log('[patches] 已核对并迁移登记队列')
+}
 applyPatches(patches)
 verifyOnlyRegisteredPatches(patches)
 const fingerprint = syncFingerprint(patches)

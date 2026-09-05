@@ -1,10 +1,4 @@
-/**
- * 数据面客户端：/api RPC 信封（裸 fetch，协议镜像上游 AbstractApiClient 的
- * wire 形状：POST /api/<method> + {type,rpcId,method,payload}，响应
- * {result:{ok:true,value}|{ok:false,error}}）、/dsh-file-browser 两 op、
- * 以及 mux 事件流的订阅。不 import 上游包（铁律 4），信封手写最小实现；
- * 类型面是本插件用到的切片镜像。
- */
+/** Same-origin desktop file routes and the local file-activity observation face. */
 
 /** RPC/数据面错误的业务码（含 /fs 信封与 /api error.code 的并集子集）。 */
 export type FsErrorCode =
@@ -38,46 +32,6 @@ export type FsFileContent =
   | { kind: 'text'; text: string; size: number }
   | { kind: 'too-large'; size: number }
   | { kind: 'binary'; size: number }
-
-/**
- * 一元 RPC。失败（HTTP 层或信封 ok:false）统一抛 FsApiError；网关的
- * 未知方法/坏载荷等也落在此路。
- */
-export async function rpc<T>(method: string, payload: unknown = {}): Promise<T> {
-  let res: Response
-  try {
-    res = await fetch(`/api/${method}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),
-    })
-  } catch {
-    throw new FsApiError('network')
-  }
-  if (!res.ok) throw new FsApiError(res.status === 403 ? 'forbidden' : 'internal')
-  interface Envelope { result?: { ok?: boolean; value?: T; error?: { code?: string } } }
-  let full: Envelope
-  try {
-    full = await res.json() as Envelope
-  } catch {
-    throw new FsApiError('internal')
-  }
-  if (full.result?.ok !== true) {
-    const code = full.result?.error?.code
-    throw new FsApiError(normalizeCode(code))
-  }
-  return full.result.value as T
-}
-
-/** 上游 RpcError.code 收敛到本地码表：未列出的一律归 internal。 */
-function normalizeCode(code: string | undefined): FsErrorCode {
-  switch (code) {
-    case 'session-not-found': return 'session-not-found'
-    case 'bad-request': return 'bad-path'
-    case 'directory-unreadable': return 'unreadable'
-    default: return 'internal'
-  }
-}
 
 /** GET /dsh-file-browser/<op>，信封 {ok:true,...}|{ok:false,error}。 */
 async function fsGet<T>(
@@ -135,16 +89,6 @@ function fileContentOf(body: { text?: string; size?: number; tooLarge?: boolean;
   if (body.tooLarge === true) return { kind: 'too-large', size }
   if (body.binary === true) return { kind: 'binary', size }
   return { kind: 'text', text: body.text ?? '', size }
-}
-
-/** host.describe 的用到切片。 */
-export function hostDescribe(): Promise<{ cwd: string; home: string; canOpenPath: boolean }> {
-  return rpc('host.describe', {})
-}
-
-/** 系统默认应用打开绝对路径（特权动作，栅栏与平台由上游负责）。 */
-export function hostOpenPath(path: string): Promise<{ opened: true }> {
-  return rpc('host.openPath', { path })
 }
 
 /**

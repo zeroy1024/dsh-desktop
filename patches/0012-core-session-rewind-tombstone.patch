@@ -1,5 +1,5 @@
 diff --git a/docs/persistence-catalog.md b/docs/persistence-catalog.md
-index 2fb2b02084..c317412f5c 100644
+index 2fb2b02..c317412 100644
 --- a/docs/persistence-catalog.md
 +++ b/docs/persistence-catalog.md
 @@ -393,6 +393,23 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
@@ -26,8 +26,45 @@ index 2fb2b02084..c317412f5c 100644
  ### `feedback/*`
  
  <a id="feedbackrecord--log-only"></a>
+diff --git a/packages/compaction/compaction-basic/tests/compaction-basic.spec.ts b/packages/compaction/compaction-basic/tests/compaction-basic.spec.ts
+index e6ed882..d80aeca 100644
+--- a/packages/compaction/compaction-basic/tests/compaction-basic.spec.ts
++++ b/packages/compaction/compaction-basic/tests/compaction-basic.spec.ts
+@@ -488,6 +488,32 @@ describe('pressure measurement and retention', () => {
+     retainTokens: 180,
+   }
+ 
++  it('bases post-rewind pressure and compaction selection on the retained surface', async () => {
++    const ctx = createContext()
++    const compact = service(compactConfig, ctx)
++    const session = conversation(4)
++    session.append('turn/end', { turn: 5, reason: { kind: 'completed' } })
++    const before = ctx.tokenMeter.measure(session)
++    expect(before.totalTokens).toBeGreaterThan(500)
++    const cut = before.nodes[4]!.seq
++    session.append('dsh-desktop/session-rewind', { atSeq: cut })
++    session.append('turn/start', { turn: 6 })
++    const measured = ctx.tokenMeter.measure(session)
++    expect(measured.nodes.map(node => node.seq)).toEqual(session.surface.nodes)
++    expect(measured.totalTokens).toBeLessThan(500)
++    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
++    expect(compact.calls).toHaveLength(0)
++
++    // Provider-confirmed overflow still compacts a valid retained range; the
++    // meter/core mismatch formerly threw before reaching the summarizer.
++    const result = await compactIfNeeded(compact, session, 'context-overflow')
++    expect(result).not.toBeNull()
++    expect(result!.shadowedSeqs.every(seq => seq < cut)).toBe(true)
++    expect(compact.calls).toHaveLength(1)
++    expect(summarizedText(compact.calls[0]!.input)).not.toContain('user 3')
++    expect(ctx.tokenMeter.measure(session).nodes.map(node => node.seq)).toEqual(session.surface.nodes)
++  })
++
+   it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
+     const compact = service(compactConfig)
+     const session = Session.create(SessionId('headerless'))
 diff --git a/packages/core/session/src/known-event-types.ts b/packages/core/session/src/known-event-types.ts
-index 774e1a55cb..9bd3e853b3 100644
+index 774e1a5..9bd3e85 100644
 --- a/packages/core/session/src/known-event-types.ts
 +++ b/packages/core/session/src/known-event-types.ts
 @@ -33,6 +33,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -40,7 +77,7 @@ index 774e1a55cb..9bd3e853b3 100644
    'hook/invoked',
 diff --git a/packages/core/session/src/rewind.ts b/packages/core/session/src/rewind.ts
 new file mode 100644
-index 0000000000..2d46c4cb8d
+index 0000000..2d46c4c
 --- /dev/null
 +++ b/packages/core/session/src/rewind.ts
 @@ -0,0 +1,31 @@
@@ -76,7 +113,7 @@ index 0000000000..2d46c4cb8d
 +  }
 +}
 diff --git a/packages/core/session/src/surface.ts b/packages/core/session/src/surface.ts
-index bfb331eb22..25ea012ab8 100644
+index bfb331e..25ea012 100644
 --- a/packages/core/session/src/surface.ts
 +++ b/packages/core/session/src/surface.ts
 @@ -10,6 +10,7 @@
@@ -151,7 +188,7 @@ index bfb331eb22..25ea012ab8 100644
    return {
 diff --git a/packages/core/session/tests/rewind.spec.ts b/packages/core/session/tests/rewind.spec.ts
 new file mode 100644
-index 0000000000..3a6cd6c075
+index 0000000..3a6cd6c
 --- /dev/null
 +++ b/packages/core/session/tests/rewind.spec.ts
 @@ -0,0 +1,213 @@
@@ -366,5 +403,677 @@ index 0000000000..3a6cd6c075
 +    ]
 +    expect(foldSurface(events).nodes).toEqual([])
 +    expect(new SurfaceManager(events).nodes).toEqual([])
++  })
++})
+diff --git a/packages/llm/token-meter/src/breakdown-projection.ts b/packages/llm/token-meter/src/breakdown-projection.ts
+index bfd6f20..b271edd 100644
+--- a/packages/llm/token-meter/src/breakdown-projection.ts
++++ b/packages/llm/token-meter/src/breakdown-projection.ts
+@@ -7,7 +7,7 @@
+ 
+ import { z } from 'zod'
+ import { canonicalHeader, SessionSeq } from '@deepseek-ai/dsh-session'
+-import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
++import type { ProjectionDefinition, ProjectionEventHistory } from '@deepseek-ai/dsh-session-projection'
+ import { estimateSystemTokens, estimateToolsTokens } from './estimate.ts'
+ import { foldSurfaceProjection } from './surface-projection.ts'
+ // Import for the `contextBreakdown` SessionProjectionStateMap key merge.
+@@ -57,11 +57,12 @@ const breakdownSchema = z.object({
+  */
+ export const contextBreakdownProjectionDefinition = {
+   key: 'contextBreakdown',
+-  stateVersion: 2,
++  stateVersion: 3,
+   stateSchema: contextBreakdownStateSchema,
+   init: () => ({ systemTokens: 0, toolsTokens: 0, messageTokens: 0 }),
+-  apply: (state, event) => {
+-    const fold = foldSurfaceProjection(state.claim, event)
++  apply: (state, event, history?: ProjectionEventHistory) => {
++    const fold = foldSurfaceProjection(state.claim, event, history)
++    const messageTokens = fold.resetTokens ?? state.messageTokens + fold.deltaTokens
+     let systemTokens = state.systemTokens
+     let toolsTokens = state.toolsTokens
+     if (event.type === 'request/header') {
+@@ -71,13 +72,13 @@ export const contextBreakdownProjectionDefinition = {
+     }
+     if (systemTokens === state.systemTokens
+       && toolsTokens === state.toolsTokens
+-      && fold.deltaTokens === 0
++      && messageTokens === state.messageTokens
+       && fold.claim === undefined
+       && state.claim === undefined) return state
+     return {
+       systemTokens,
+       toolsTokens,
+-      messageTokens: state.messageTokens + fold.deltaTokens,
++      messageTokens,
+       ...fold.claim === undefined ? {} : { claim: fold.claim },
+     }
+   },
+diff --git a/packages/llm/token-meter/src/index.ts b/packages/llm/token-meter/src/index.ts
+index 5e04522..eac40a6 100644
+--- a/packages/llm/token-meter/src/index.ts
++++ b/packages/llm/token-meter/src/index.ts
+@@ -16,6 +16,7 @@ import type {
+   SessionLogOffset as SessionLogOffsetType,
+   SessionSeq as SessionSeqType,
+ } from '@deepseek-ai/dsh-session'
++import { REWIND_EVENT_TYPE } from '@deepseek-ai/dsh-session/surface'
+ import { canonicalHeader, headerEquals, isSurfaceEvent, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+ // Type-only: activates the `ctx.sessionProjections` Context declaration.
+ import type {} from '@deepseek-ai/dsh-session-projection'
+@@ -44,6 +45,8 @@ export type * from './breakdown-projection.ts'
+  * route pricing as the current surface it is compared with.
+  */
+ interface MeasurementAnchor {
++  /** Sample event position, so truncation can invalidate its calibration. */
++  readonly seq: SessionSeqType
+   readonly header: EpochHeader | undefined
+   /** Surface snapshot the anchored request was derived from. */
+   readonly nodes: readonly MeterSurfaceNode[]
+@@ -233,6 +236,10 @@ export class TokenMeter extends Service {
+     let nextAnchor = state.anchor
+ 
+     switch (event.type) {
++      case REWIND_EVENT_TYPE:
++        nextStepStart = undefined
++        if (nextAnchor !== undefined && nextAnchor.seq >= event.data.atSeq) nextAnchor = undefined
++        break
+       case 'request/header':
+         nextHeader = canonicalHeader(event.data.header)
+         break
+@@ -273,6 +280,7 @@ export class TokenMeter extends Service {
+       const eventTokens = plan!.tokens
+       if (event.data.usage !== undefined && nextHeader !== undefined) {
+         nextAnchor = {
++          seq: event.seq,
+           header: nextHeader,
+           nodes: stepStart.nodes,
+           assistantTokens: this._estimateProviderAssistant(session, event, eventTokens),
+@@ -280,6 +288,7 @@ export class TokenMeter extends Service {
+         }
+       } else {
+         nextAnchor = {
++          seq: event.seq,
+           header: nextHeader,
+           nodes: stepStart.nodes,
+           assistantTokens: eventTokens,
+@@ -288,6 +297,11 @@ export class TokenMeter extends Service {
+       }
+     }
+ 
++    if (event.type === REWIND_EVENT_TYPE) {
++      // Keep the same retained positional surface that core uses. A removed
++      // request's provider calibration cannot price a different context.
++      state.surface = state.surface.filter(node => node.seq < event.data.atSeq)
++    }
+     state.header = nextHeader
+     state.stepStart = nextStepStart
+     if (plan !== undefined) {
+diff --git a/packages/llm/token-meter/src/projection.ts b/packages/llm/token-meter/src/projection.ts
+index 5c45161..05ccedd 100644
+--- a/packages/llm/token-meter/src/projection.ts
++++ b/packages/llm/token-meter/src/projection.ts
+@@ -31,7 +31,8 @@ export interface ContextPressureProjection {
+   /**
+    * Provider-reported prompt size of the most recent request: uncached input
+    * plus cache reads and writes. Response output is excluded, so this does not
+-   * grow as the current turn streams. Absent until a provider reports usage.
++   * grow as the current turn streams. Absent until a provider reports usage,
++   * or after a rewind removes the request that supplied the sample.
+    */
+   pressureTokens?: number
+   /**
+@@ -40,7 +41,9 @@ export interface ContextPressureProjection {
+    * sample. Only the delta is estimated, so the figure stays anchored to the
+    * provider while still reacting the moment a compaction shadows a span —
+    * which `pressureTokens` alone cannot do, since compaction reports no usage
+-   * of its own. Absent until a provider reports usage.
++   * of its own. A rewind that discards the sample falls back to the retained
++   * surface plus the newest request header until a fresh sample is available.
++   * Otherwise absent until a provider reports usage.
+    */
+   projectedTokens?: number
+   /** Newest recorded route capacity; absent when no adapter advertised one. */
+diff --git a/packages/llm/token-meter/src/surface-projection.ts b/packages/llm/token-meter/src/surface-projection.ts
+index 84d5759..eaf5ef2 100644
+--- a/packages/llm/token-meter/src/surface-projection.ts
++++ b/packages/llm/token-meter/src/surface-projection.ts
+@@ -9,6 +9,8 @@
+  * surface `replace` (`compaction/summary` or `compaction/prune`) states the
+  * heuristic price of the exact replaced range, so the fold keeps a running
+  * total plus at most one pending claim and never retains per-node prices.
++ * Non-local truncations reprice the core-folded committed prefix lazily;
++ * ordinary events never materialize history or grow persisted state.
+  * The counts are exact by construction: producers derive them from the same
+  * fixed estimator this module prices appends with. A replacement without an
+  * armed claim folds with zero delta because bounded state cannot reconstruct
+@@ -17,8 +19,10 @@
+  * @module @deepseek-ai/dsh-token-meter/surface-projection
+  */
+ 
+-import { deriveEventMessage, isSurfaceEvent, SessionSeq } from '@deepseek-ai/dsh-session'
++import { deriveEventMessage, foldSurface, isSurfaceEvent, SessionSeq } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import { REWIND_EVENT_TYPE } from '@deepseek-ai/dsh-session/surface'
++import type { ProjectionEventHistory } from '@deepseek-ai/dsh-session-projection'
+ // Type-only: the `compaction/*` SessionEventMap merges (shadow-price events).
+ import type {} from '@deepseek-ai/dsh-compaction'
+ import { estimateMessage } from './estimate.ts'
+@@ -39,6 +43,8 @@ export interface ShadowPriceClaim {
+ 
+ /** One event's effect on a running surface-token total. */
+ export interface SurfaceTokensFold {
++  /** Absolute surface price after a non-local truncation, when supplied. */
++  readonly resetTokens?: number
+   /** Signed change in the surface total; 0 for events off the surface. */
+   readonly deltaTokens: number
+   /** Claim to carry into the next event; undefined when none survives. */
+@@ -66,7 +72,20 @@ export interface SurfaceTokensFold {
+ export function foldSurfaceProjection(
+   claim: ShadowPriceClaim | undefined,
+   event: SessionEvent,
++  history?: ProjectionEventHistory,
+ ): SurfaceTokensFold {
++  if (event.type === REWIND_EVENT_TYPE) {
++    if (history === undefined) throw new Error('token surface: rewind requires the committed event prefix')
++    const events = history()
++    const surface = foldSurface(events)
++    let resetTokens = 0
++    for (const seq of surface.nodes) {
++      // oxlint-disable-next-line typescript/no-non-null-assertion -- core-folded nodes index the validated contiguous prefix
++      const message = deriveEventMessage(events[seq]!)
++      if (message !== null) resetTokens += estimateMessage(message)
++    }
++    return { deltaTokens: 0, resetTokens, claim: undefined }
++  }
+   if (event.type === 'compaction/summary' || event.type === 'compaction/prune') {
+     const { shadowedRange, shadowedTokenCount } = event.data
+     return {
+diff --git a/packages/llm/token-meter/src/usage-projection.ts b/packages/llm/token-meter/src/usage-projection.ts
+index b98b48c..db4efb4 100644
+--- a/packages/llm/token-meter/src/usage-projection.ts
++++ b/packages/llm/token-meter/src/usage-projection.ts
+@@ -5,9 +5,11 @@
+ import { z } from 'zod'
+ import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+ import type {} from '@deepseek-ai/dsh-llm-retry/types'
+-import { SessionSeq } from '@deepseek-ai/dsh-session'
++import { canonicalHeader, SessionSeq } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent } from '@deepseek-ai/dsh-session'
+-import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
++import { REWIND_EVENT_TYPE } from '@deepseek-ai/dsh-session/surface'
++import { estimateHeader } from './estimate.ts'
++import type { ProjectionDefinition, ProjectionEventHistory } from '@deepseek-ai/dsh-session-projection'
+ import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
+ import { foldSurfaceProjection } from './surface-projection.ts'
+ 
+@@ -95,6 +97,9 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
+ 
+ /** The context-pressure state schema and source of its inferred type. */
+ const contextPressureStateSchema = z.object({
++  headerTokens: z.number().int().nonnegative(),
++  estimatedAfterRewind: z.boolean(),
++  sampledEventSeq: z.number().int().nonnegative().optional(),
+   contextWindow: z.number().int().positive().optional(),
+   pressureTokens: z.number().int().nonnegative().optional(),
+   surfaceTokens: z.number().int().nonnegative(),
+@@ -180,12 +185,21 @@ export const tokenUsageProjectionDefinition = {
+  */
+ export const contextPressureProjectionDefinition = {
+   key: 'contextPressure',
+-  stateVersion: 4,
++  stateVersion: 5,
+   stateSchema: contextPressureStateSchema,
+-  init: () => ({ surfaceTokens: 0 }),
+-  apply: (state, event) => {
+-    const fold = foldSurfaceProjection(state.claim, event)
++  init: () => ({ surfaceTokens: 0, headerTokens: 0, estimatedAfterRewind: false }),
++  apply: (state, event, history?: ProjectionEventHistory) => {
++    const fold = foldSurfaceProjection(state.claim, event, history)
+     let next = state
++    if (event.type === 'request/header') {
++      const headerTokens = estimateHeader(canonicalHeader(event.data.header))
++      if (headerTokens !== next.headerTokens) next = { ...next, headerTokens }
++    }
++    if (event.type === REWIND_EVENT_TYPE
++      && (next.sampledEventSeq === undefined || next.sampledEventSeq >= event.data.atSeq)) {
++      const { pressureTokens: _pressure, sampledSurfaceTokens: _surface, sampledEventSeq: _seq, ...retained } = next
++      next = { ...retained, estimatedAfterRewind: true }
++    }
+     if (event.type === 'request/context') {
+       const contextWindow = event.data.contextWindow
+       if (contextWindow !== state.contextWindow) {
+@@ -200,13 +214,14 @@ export const contextPressureProjectionDefinition = {
+     const usage = usageOf(event)
+     if (usage !== undefined) {
+       const pressureTokens = pressureFrom(usage)
+-      if (pressureTokens !== next.pressureTokens || next.sampledSurfaceTokens !== next.surfaceTokens) {
+-        next = { ...next, pressureTokens, sampledSurfaceTokens: next.surfaceTokens }
++      if (pressureTokens !== next.pressureTokens
++        || next.sampledSurfaceTokens !== next.surfaceTokens || next.sampledEventSeq !== event.seq) {
++        next = { ...next, pressureTokens, sampledSurfaceTokens: next.surfaceTokens,
++          sampledEventSeq: event.seq, estimatedAfterRewind: false }
+       }
+     }
+-    if (fold.deltaTokens !== 0) {
+-      next = { ...next, surfaceTokens: next.surfaceTokens + fold.deltaTokens }
+-    }
++    const surfaceTokens = fold.resetTokens ?? next.surfaceTokens + fold.deltaTokens
++    if (surfaceTokens !== next.surfaceTokens) next = { ...next, surfaceTokens }
+     // A defined fold.claim is always freshly built, so presence decides claim
+     // bookkeeping: no claim before or after this event leaves `next` as is.
+     if (state.claim === undefined && fold.claim === undefined) return next
+@@ -215,11 +230,11 @@ export const contextPressureProjectionDefinition = {
+   },
+   wire: {
+     viewSchema: pressureSchema,
+-    view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
++    view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens, headerTokens, estimatedAfterRewind }) => ({
+       ...contextWindow === undefined ? {} : { contextWindow },
+       ...pressureTokens === undefined ? {} : { pressureTokens },
+       ...pressureTokens === undefined || sampledSurfaceTokens === undefined
+-        ? {}
++        ? estimatedAfterRewind ? { projectedTokens: headerTokens + surfaceTokens } : {}
+         : { projectedTokens: Math.max(0, pressureTokens + surfaceTokens - sampledSurfaceTokens) },
+     }),
+   },
+diff --git a/packages/llm/token-meter/tests/rewind.spec.ts b/packages/llm/token-meter/tests/rewind.spec.ts
+new file mode 100644
+index 0000000..76fdf50
+--- /dev/null
++++ b/packages/llm/token-meter/tests/rewind.spec.ts
+@@ -0,0 +1,161 @@
++import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { CompactionId } from '@deepseek-ai/dsh-compaction'
++import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
++import SessionStore, { deriveEventMessage, SessionLogOffset } from '@deepseek-ai/dsh-session'
++import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
++import { REWIND_EVENT_TYPE } from '@deepseek-ai/dsh-session/surface'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++import type { ProjectionCheckpoint } from '@deepseek-ai/dsh-session-projection'
++import TokenMeter from '@deepseek-ai/dsh-token-meter'
++import { estimateHeader } from '../src/estimate.ts'
++
++const HEADER: EpochHeader = { config: { provider: 'mock', model: 'mock' }, system: 'system' }
++
++async function harness() {
++  const ctx = new Context()
++  await ctx.plugin(SessionStore)
++  await ctx.plugin(SessionProjectionRegistry)
++  await ctx.plugin(TokenMeter)
++  return { ctx, session: ctx.sessions.create() }
++}
++
++function turn(session: Session, number: number, text: string, inputTokens?: number): SessionSeq {
++  session.append('turn/start', { turn: number })
++  const prompt = session.append('user/message', createUserMessage({
++    content: [{ type: 'text', text }], source: { kind: 'user' },
++  }), { surfaceOp: 'append' })
++  session.append('step/start', { turn: number, step: 1 })
++  session.append('request/header', { header: HEADER, reason: 'initial' })
++  session.append('request/context', { provider: 'mock', model: 'mock', contextWindow: 1000 })
++  session.append('assistant/message', {
++    turn: number, step: 1,
++    message: createMessage({ role: 'assistant', content: [{ type: 'text', text: 'answer' }],
++      source: { kind: 'model', provider: 'mock', model: 'mock' } }),
++    ...inputTokens === undefined ? {} : { usage: { inputTokens, outputTokens: 10 } },
++  }, { surfaceOp: 'append' })
++  session.append('step/end', { turn: number, step: 1 })
++  session.append('turn/end', { turn: number, reason: { kind: 'completed' } })
++  return prompt.seq
++}
++
++function restore(ctx: Context, session: Session, checkpoint: ProjectionCheckpoint = {}) {
++  return ctx.sessionProjections.restore(checkpoint, session.snapshotEvents(), SessionLogOffset(0),
++    session.header, session.inheritedEventCount)
++}
++
++function expectRetainedSurface(ctx: Context, session: Session) {
++  const measured = ctx.tokenMeter.measure(session)
++  expect(measured.nodes.map(node => node.seq)).toEqual(session.surface.nodes)
++  const heuristicTokens = session.surface.nodes.reduce((total, seq) => {
++    const message = deriveEventMessage(session.eventAt(seq)!)
++    return total + (message === null ? 0 : ctx.tokenMeter.estimateMessage(message))
++  }, 0)
++  const snapshot = ctx.sessionProjections.snapshot(session)
++  expect(snapshot.values.contextBreakdown?.messageTokens).toBe(heuristicTokens)
++  expect(restore(ctx, session).snapshot).toEqual(snapshot)
++  return { measured, snapshot }
++}
++
++describe('rewind token accounting', () => {
++  it('reprices the retained context, clears discarded calibration, and keeps cumulative billing', async () => {
++    const { ctx, session } = await harness()
++    const first = turn(session, 1, 'keep', 100)
++    const second = turn(session, 2, 'remove '.repeat(700), 4000)
++    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThan(1000)
++    const billed = ctx.sessionProjections.snapshot(session).values.tokenUsage
++    const checkpoint = ctx.sessionProjections.checkpoint(session)
++
++    // Existing persisted tombstones contain only atSeq, with no token receipt.
++    session.append(REWIND_EVENT_TYPE, { atSeq: second })
++    const { measured, snapshot } = expectRetainedSurface(ctx, session)
++    expect(measured.baseline.kind).toBe('estimated')
++    expect(measured.totalTokens).toBe(measured.surfaceTokens + estimateHeader(HEADER))
++    expect(measured.totalTokens).toBeLessThan(1000)
++    expect(snapshot.values.contextPressure).toEqual({ contextWindow: 1000, projectedTokens: measured.totalTokens })
++    expect(snapshot.values.tokenUsage).toEqual(billed)
++    expect(restore(ctx, session, checkpoint).snapshot).toEqual(snapshot)
++
++    // A new call restores provider calibration, and a second rewind removes
++    // both the old branch and its replacement without resurrecting either.
++    turn(session, 3, 'retry', 300)
++    expect(ctx.tokenMeter.measure(session).baseline.kind).toBe('usage')
++    expectRetainedSurface(ctx, session)
++    session.append(REWIND_EVENT_TYPE, { atSeq: first })
++    expectRetainedSurface(ctx, session)
++    expect(ctx.tokenMeter.measure(session).nodes).toEqual([])
++    expect(ctx.sessionProjections.snapshot(session).values.tokenUsage?.uncachedInputTokens).toBe(4400)
++
++    // A newly created service must agree with the eagerly updated one.
++    const cold = new Context()
++    new SessionProjectionRegistry(cold)
++    const coldMeter = new TokenMeter(cold)
++    expect(coldMeter.measure(session)).toEqual(ctx.tokenMeter.measure(session))
++  })
++
++  it('keeps calibration from a retained request when only later input is discarded', async () => {
++    const { ctx, session } = await harness()
++    turn(session, 1, 'keep', 100)
++    const before = ctx.tokenMeter.measure(session)
++    const pressure = ctx.sessionProjections.snapshot(session).values.contextPressure
++    const later = session.append('user/message', createUserMessage({
++      content: [{ type: 'text', text: 'pending '.repeat(100) }], source: { kind: 'user' },
++    }), { surfaceOp: 'append' })
++    ctx.tokenMeter.measure(session)
++    session.append(REWIND_EVENT_TYPE, { atSeq: later.seq })
++    const { measured, snapshot } = expectRetainedSurface(ctx, session)
++    expect(measured.baseline).toEqual(before.baseline)
++    expect(measured.totalTokens).toBe(before.totalTokens)
++    expect(snapshot.values.contextPressure).toEqual(pressure)
++  })
++
++  it('rejects old price caches and does not include future retries in a replayed rewind prefix', async () => {
++    const { ctx, session } = await harness()
++    turn(session, 1, 'keep', 100)
++    const cut = turn(session, 2, 'remove '.repeat(300), 2000)
++    const checkpoint = ctx.sessionProjections.checkpoint(session)
++    session.append(REWIND_EVENT_TYPE, { atSeq: cut })
++    turn(session, 3, 'new '.repeat(100), 1000)
++    const { snapshot } = expectRetainedSurface(ctx, session)
++    expect(restore(ctx, session, checkpoint).snapshot).toEqual(snapshot)
++    // A legacy reader could have checkpointed at the tombstone while still
++    // counting its withdrawn surface. Versions must force a complete replay.
++    const stale = ctx.sessionProjections.checkpoint(session)
++    stale.contextPressure = { ver: 4, seq: stale.contextPressure!.seq, val: { surfaceTokens: 999999 } }
++    stale.contextBreakdown = { ver: 2, seq: stale.contextBreakdown!.seq,
++      val: { messageTokens: 999999, systemTokens: 999999, toolsTokens: 0 } }
++    const recovered = restore(ctx, session, stale)
++    expect(recovered.snapshot).toEqual(snapshot)
++    expect(recovered.checkpoint.contextPressure?.ver).toBe(5)
++    expect(recovered.checkpoint.contextBreakdown?.ver).toBe(3)
++  })
++
++  it('folds metered compaction before and after a rewind against the same core surface', async () => {
++    const { ctx, session } = await harness()
++    turn(session, 1, 'large first '.repeat(100))
++    const replace = () => {
++      const nodes = ctx.tokenMeter.measure(session).nodes
++      const start = nodes[0]!.seq
++      const end = nodes[1]!.seq
++      session.append('compaction/summary', {
++        compactionId: CompactionId('rewind-price'), summary: [{ type: 'text', text: 'summary' }],
++        shadowedRange: { start, end }, shadowedSeqs: [start, end],
++        shadowedTokenCount: nodes.slice(0, 2).reduce((sum, node) => sum + node.heuristicTokens, 0),
++        provider: 'mock', model: 'mock',
++      })
++      session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'summary' }],
++        source: { kind: 'plugin', plugin: 'compaction-basic' } }), {
++        surfaceOp: { op: 'replace', start, end }, sourceEventSeqs: [start, end],
++      })
++    }
++    replace()
++    const cut = turn(session, 2, 'discard '.repeat(100), 3000)
++    ctx.tokenMeter.measure(session)
++    session.append(REWIND_EVENT_TYPE, { atSeq: cut })
++    expectRetainedSurface(ctx, session)
++    expect(ctx.tokenMeter.measure(session).nodes).toHaveLength(1)
++    turn(session, 3, 'retry '.repeat(100))
++    replace()
++    expectRetainedSurface(ctx, session)
++  })
++})
+diff --git a/packages/llm/token-meter/tests/route-pricing.spec.ts b/packages/llm/token-meter/tests/route-pricing.spec.ts
+index 37ef87c..989a443 100644
+--- a/packages/llm/token-meter/tests/route-pricing.spec.ts
++++ b/packages/llm/token-meter/tests/route-pricing.spec.ts
+@@ -97,6 +97,26 @@ function appendSuccessfulCall(session: Session, value: EpochHeader, usage?: Toke
+ }
+ 
+ describe('route-aware image pricing', () => {
++  it('recalculates only retained image occurrences after a rewind and still supports route changes', async () => {
++    const { meter, session } = await harness(() => fixedPricing)
++    const retained = imageMessage('retained')
++    const first = session.append('user/message', retained, { surfaceOp: 'append' })
++    session.append('request/header', { header: header('vision'), reason: 'initial' })
++    const before = meter.measure(session)
++    const discarded = session.append('user/message', imageMessage('removed'), { surfaceOp: 'append' })
++    appendSuccessfulCall(session, header('vision'), { inputTokens: 5000, outputTokens: 100 })
++    expect(meter.measure(session).baseline.kind).toBe('usage')
++
++    session.append('dsh-desktop/session-rewind', { atSeq: discarded.seq })
++    const rewound = meter.measure(session)
++    expect(rewound.nodes.map(node => node.seq)).toEqual([first.seq])
++    expect(rewound.surfaceTokens).toBe(routedMessageTokens(retained))
++    expect(rewound.totalTokens).toBe(before.totalTokens)
++    expect(rewound.baseline.kind).toBe('estimated')
++    expect(meter.measure(session, { config: { provider: 'unknown', model: 'text' } }).surfaceTokens)
++      .toBe(estimateMessage(retained))
++  })
++
+   it('prices a first multimodal request estimate with the routed visual tokens', async () => {
+     const { meter, session } = await harness(() => fixedPricing)
+     const message = imageMessage('photo')
+diff --git a/packages/llm/token-meter/tests/token-usage-projection.spec.ts b/packages/llm/token-meter/tests/token-usage-projection.spec.ts
+index 3ffee99..6b11c46 100644
+--- a/packages/llm/token-meter/tests/token-usage-projection.spec.ts
++++ b/packages/llm/token-meter/tests/token-usage-projection.spec.ts
+@@ -434,7 +434,7 @@ describe('contextPressure session projection', () => {
+     const checkpoint = JSON.parse(JSON.stringify(
+       ctx.sessionProjections.checkpoint(session),
+     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
+-    expect(checkpoint.contextPressure?.ver).toBe(4)
++    expect(checkpoint.contextPressure?.ver).toBe(5)
+ 
+     await meterFiber.dispose()
+     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')
+diff --git a/packages/session/session-projection/src/index.ts b/packages/session/session-projection/src/index.ts
+index edfa482..79e599e 100644
+--- a/packages/session/session-projection/src/index.ts
++++ b/packages/session/session-projection/src/index.ts
+@@ -37,6 +37,9 @@ import type { SessionProjectionMap, SessionProjectionStateMap } from './types.ts
+ 
+ export type { SessionProjectionMap, SessionProjectionStateMap } from './types.ts'
+ 
++/** Lazily read the immutable committed prefix through the event being folded. */
++export type ProjectionEventHistory = () => readonly SessionEvent[]
++
+ /**
+  * One domain's state-driven computation unit: a pure synchronous fold plus
+  * declarations and an optional client view — never an opaque getter. The framework drives
+@@ -66,9 +69,12 @@ export interface ProjectionDefinition<
+    * unchanged reference (`Object.is`) produces zero downstream work.
+    * @param state - the state covering all prior events.
+    * @param event - the next committed session event.
++   * @param history - lazy read-only prefix through this event; ordinary deltas
++   *   need not read it. A suffix-only restore rejects this read and must be
++   *   retried from seq 0. Never contains events later than this transition.
+    * @returns the next state (same reference when the event is not the unit's).
+    */
+-  apply(state: NoInfer<S>, event: SessionEvent): NoInfer<S>
++  apply(state: NoInfer<S>, event: SessionEvent, history?: ProjectionEventHistory): NoInfer<S>
+   /** Client view. Omit for host-only units. */
+   wire?: K extends keyof SessionProjectionMap ? {
+     /** Validates the wire payload before it leaves the host. */
+@@ -141,7 +147,7 @@ interface ErasedDefinition {
+   key: string
+   stateSchema: { parse(value: unknown): unknown }
+   init(header: SessionHeader, inheritedEventCount: SessionLogOffset): unknown
+-  apply(state: unknown, event: SessionEvent): unknown
++  apply(state: unknown, event: SessionEvent, history: ProjectionEventHistory): unknown
+   wire: { viewSchema: { parse(value: unknown): unknown }; view(state: unknown): unknown } | undefined
+   stateVersion: number
+ }
+@@ -261,7 +267,7 @@ export class SessionProjectionRegistry extends Service {
+       key: definition.key,
+       stateSchema: definition.stateSchema,
+       init: (header, inheritedEventCount) => definition.init(header, inheritedEventCount),
+-      apply: (state, event) => definition.apply(state as S, event),
++      apply: (state, event, history) => definition.apply(state as S, event, history),
+       wire: wire === undefined
+         ? undefined
+         : { viewSchema: wire.viewSchema, view: state => wire.view(state as S) },
+@@ -528,7 +534,12 @@ export class SessionProjectionRegistry extends Service {
+         if (event === undefined || event.seq !== expectedSeq) {
+           throw new Error(`session projection ${JSON.stringify(def.key)} cannot restore across missing seq ${String(expectedSeq)}`)
+         }
+-        state = def.apply(state, event)
++        state = def.apply(state, event, () => {
++          if (baseSeq !== 0) {
++            throw new Error(`session projection ${JSON.stringify(def.key)} requires history before seq ${baseSeq}; re-read from seq 0`)
++          }
++          return Object.freeze(events.slice(0, index + 1))
++        })
+       }
+       if (def.wire !== undefined) values[def.key] = def.wire.viewSchema.parse(def.wire.view(state))
+       refreshed[def.key] = { ver: def.stateVersion, seq: endSeq, val: state }
+@@ -607,7 +618,11 @@ export class SessionProjectionRegistry extends Service {
+     events: readonly SessionEvent[],
+   ): UnitCell {
+     let state = def.init(header, inheritedEventCount)
+-    for (const event of events) state = def.apply(state, event)
++    for (let index = 0; index < events.length; index++) {
++      // oxlint-disable-next-line typescript/no-non-null-assertion -- Session snapshots contain a contiguous event array
++      const event = events[index]!
++      state = def.apply(state, event, () => Object.freeze(events.slice(0, index + 1)))
++    }
+     return { state, observedSeq: (events.at(-1)?.seq ?? -1), views: [undefined, undefined] }
+   }
+ 
+@@ -641,7 +656,8 @@ export class SessionProjectionRegistry extends Service {
+       if (event === undefined || event.seq !== seq) {
+         throw new Error(`session projection ${JSON.stringify(def.key)} cannot advance across missing seq ${String(seq)}`)
+       }
+-      const next = def.apply(cell.state, event)
++      const next = def.apply(cell.state, event, () =>
++        session.snapshotEvents(SessionLogOffset(0), SessionLogOffset(event.seq + 1)))
+       if (!Object.is(next, cell.state)) {
+         cell.views[0] = cell.views[1]
+         cell.views[1] = undefined
+@@ -675,7 +691,8 @@ export class SessionProjectionRegistry extends Service {
+         )
+       }
+       const previousState = cell.state
+-      const next = registration.def.apply(previousState, event)
++      const next = registration.def.apply(previousState, event, () =>
++        session.snapshotEvents(SessionLogOffset(0), SessionLogOffset(event.seq + 1)))
+       const changed = !Object.is(next, previousState)
+       cell.state = next
+       cell.observedSeq = event.seq
+diff --git a/packages/session/session-projection/tests/history.spec.ts b/packages/session/session-projection/tests/history.spec.ts
+new file mode 100644
+index 0000000..cc17788
+--- /dev/null
++++ b/packages/session/session-projection/tests/history.spec.ts
+@@ -0,0 +1,89 @@
++import { describe, expect, it, vi } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { z } from 'zod'
++import SessionStore, { SessionLogOffset } from '@deepseek-ai/dsh-session'
++import type { Session } from '@deepseek-ai/dsh-session'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++import type { ProjectionDefinition, ProjectionEventHistory } from '@deepseek-ai/dsh-session-projection'
++
++declare module '@deepseek-ai/dsh-session-projection/types' {
++  interface SessionProjectionStateMap { 'test/history': number[][] }
++}
++declare module '@deepseek-ai/dsh-session/types' {
++  interface SessionEventMap { 'test/history': { read: boolean } }
++}
++
++async function harness() {
++  const ctx = new Context()
++  await ctx.plugin(SessionStore)
++  await ctx.plugin(SessionProjectionRegistry)
++  return { ctx, session: ctx.sessions.create() }
++}
++
++function definition(read = (history: ProjectionEventHistory) => history().map(event => event.seq)) {
++  return {
++    key: 'test/history',
++    stateVersion: 1,
++    stateSchema: z.array(z.array(z.number())),
++    init: () => [],
++    apply: (state, event, history) => event.type === 'test/history' && event.data.read
++      ? [...state, read(history!)] : state,
++  } satisfies ProjectionDefinition<'test/history', number[][]>
++}
++
++const append = (session: Session, read: boolean) => session.append('test/history', { read })
++
++describe('lazy projection history', () => {
++  it('limits live, late-built and cached replay reads to the transition prefix', async () => {
++    const { ctx, session } = await harness()
++    const readers: ProjectionEventHistory[] = []
++    const release = ctx.sessionProjections.register(definition((history) => {
++      readers.push(history)
++      return history().map(event => event.seq)
++    }))
++    append(session, false)
++    append(session, true)
++    const before = ctx.sessionProjections.checkpoint(session)
++    append(session, false)
++    append(session, true)
++    const expected = [[0, 1], [0, 1, 2, 3]]
++    expect(ctx.sessionProjections.checkpoint(session)['test/history']?.val).toEqual(expected)
++    // A stored reader still describes the event it was passed with, even as
++    // the Session receives later events.
++    expect(readers.map(read => read().map(event => event.seq))).toEqual(expected)
++    const restored = ctx.sessionProjections.restore(before, session.snapshotEvents(),
++      SessionLogOffset(0), session.header, session.inheritedEventCount)
++    expect(restored.checkpoint['test/history']?.val).toEqual(expected)
++    release()
++    ctx.sessionProjections.register(definition())
++    expect(ctx.sessionProjections.checkpoint(session)['test/history']?.val).toEqual(expected)
++    const replay = ctx.sessionProjections.restore({}, session.snapshotEvents(),
++      SessionLogOffset(0), session.header, session.inheritedEventCount)
++    expect(replay.checkpoint['test/history']?.val).toEqual(expected)
++  })
++
++  it('does not materialize the log for ordinary live deltas', async () => {
++    const { ctx, session } = await harness()
++    ctx.sessionProjections.register(definition())
++    ctx.sessionProjections.snapshot(session)
++    const snapshots = vi.spyOn(session, 'snapshotEvents')
++    for (let index = 0; index < 1000; index++) append(session, false)
++    expect(snapshots).not.toHaveBeenCalled()
++    append(session, true)
++    expect(snapshots).toHaveBeenCalledExactlyOnceWith(SessionLogOffset(0), SessionLogOffset(1001))
++  })
++
++  it('requires a complete prefix only when a suffix replay actually reads history', async () => {
++    const { ctx, session } = await harness()
++    ctx.sessionProjections.register(definition())
++    append(session, false)
++    append(session, false)
++    const before = ctx.sessionProjections.checkpoint(session)
++    append(session, false)
++    const restore = () => ctx.sessionProjections.restore(before,
++      session.snapshotEvents(SessionLogOffset(1)), SessionLogOffset(1), session.header, session.inheritedEventCount)
++    expect(restore().checkpoint['test/history']?.val).toEqual([])
++    append(session, true)
++    expect(restore).toThrow(/requires history before seq 1; re-read from seq 0/)
 +  })
 +})

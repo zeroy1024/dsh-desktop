@@ -1,23 +1,21 @@
 /**
  * ReviewPage：审查面板页（人审 agent 改动，双改动源）。
  *
- * 会话模式：session.history 全量回拉（尾页起步、beforeSeq 向前翻、页上限
- * 保护）聚合 write/edit 编辑时间线；active 时观察共享连接信封做 live 增量
- * ——seq 连续才增量应用，跳跃（订阅空窗漏帧）即静默全量重拉收敛，重复投递
- * 按 seq 去重。
+ * 会话模式：读取 Session 事件源并通过 loadOlder 补齐历史，聚合 write/edit
+ * 编辑时间线。只观察改动相关事件；撤回和重连后按当前可见窗口重建。
  * git 模式（P1）：/dsh-desktop/review/git 只读路由取工作区 uncommitted
  * 改动，unified diff 在客户端解析为带行号的 hunk 卡片，评论以 path:line
  * 精确锚定；撤销文件（restore）带两步确认。
  * 交互面：已审标记与评论草稿都是按会话隔离的页面内存态（页面永不卸载，tab
  * 切换只翻转 active）；草稿一键组装为一条普通用户消息回灌会话（session.prompt）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { SummaryActions } from './SummaryActions.tsx'
 import {
-  fetchGitSnapshot, fetchHistoryPage, openSessionSignals, restoreGitFile,
-  sendReviewMessage, HISTORY_PAGE_LIMIT, type GitStatusEntryLite, type HistoryEntryLite,
+  fetchGitSnapshot, restoreGitFile,
+  HISTORY_PAGE_LIMIT, type GitStatusEntryLite,
 } from './api.ts'
-import { createAggregator, type Aggregator, type FileReview, type ReviewAggregation } from './aggregate.ts'
+import { createAggregator, type FileReview, type ReviewAggregation } from './aggregate.ts'
 import { sameAnchor, serializeDrafts, type CommentDraft } from './comments.ts'
 import { parseUnifiedDiff } from './gitdiff.ts'
 import { FileSection } from './FileSection.tsx'
@@ -58,7 +56,7 @@ const EMPTY_DRAFTS: readonly CommentDraft[] = []
  * @param props - 框架/容器注入的完整 props（见 ReviewPageProps）。
  * @returns 页面元素树。
  */
-export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageProps) {
+export function ReviewPage({ sessionId, active, data, t }: ReviewPageProps) {
   const [aggregation, setAggregation] = useState<AggregationState>({ status: 'loading' })
   const [sortMode, setSortMode] = useState<'changes' | 'path'>('changes')
   /** 改动源：会话内（默认）/ 工作区 git（懒加载，仅 uncommitted）。 */
@@ -77,21 +75,45 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
   const [sentCount, setSentCount] = useState(0)
 
-  const aggregatorRef = useRef<Aggregator | null>(null)
+  const loadGeneration = useRef(0)
+  const gitGeneration = useRef(0)
   /** 会话纪元：sessionId 变更/重挂时递增，拒旧异步回写。 */
   const epochRef = useRef(0)
-  /** live 处理器触发重拉的稳定句柄（避免 effect 依赖抖动）。 */
-  const reloadRef = useRef<() => void>(() => {})
+  const historyRequest = useRef<AbortController | null>(null)
+  const historyLoaded = useRef(false)
+  const visibility = useRef({ active, mode })
+
+  useLayoutEffect(() => { visibility.current = { active, mode } }, [active, mode])
+  // Fence the old workspace before paint, including late restore callbacks.
+  useLayoutEffect(() => {
+    epochRef.current += 1
+    historyLoaded.current = false
+    setAggregation({ status: 'loading' })
+    setGitState({ status: 'idle' })
+    setExpandedPaths(new Set())
+    setArmedRevert(null)
+    setRevertFailed(false)
+    setSendState('idle')
+    return () => {
+      epochRef.current += 1
+      loadGeneration.current += 1
+      gitGeneration.current += 1
+      historyRequest.current?.abort()
+    }
+  }, [sessionId, data])
 
   const reviewedEdits = reviewedBySession.get(sessionId) ?? EMPTY_REVIEWED_EDITS
   const reviewedGitPaths = gitReviewedBySession.get(sessionId) ?? EMPTY_REVIEWED_PATHS
   const drafts = draftsBySession.get(sessionId) ?? EMPTY_DRAFTS
 
   const loadAll = useCallback(async (epoch: number, silent: boolean): Promise<void> => {
+    historyRequest.current?.abort()
+    const request = new AbortController()
+    historyRequest.current = request
+    const generation = ++loadGeneration.current
     if (!silent) setAggregation({ status: 'loading' })
     try {
-      // 尾页起步向前翻，页数组 unshift 后摊平即 seq 升序全量。
-      const pages: HistoryEntryLite[][] = []
+      // Extend the resident window backwards, stopping at the bounded page budget.
       let beforeSeq: number | undefined
       let truncated = false
       for (let fetched = 0; ; fetched++) {
@@ -99,31 +121,40 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
           truncated = true
           break
         }
-        const page = await fetchHistoryPage(sessionId, beforeSeq)
-        if (epoch !== epochRef.current) return
-        pages.unshift(page.events)
-        if (!page.hasMore || page.events.length === 0) break
-        beforeSeq = page.events[0].event.seq
+        const page = await data.history(beforeSeq, request.signal)
+        request.signal.throwIfAborted()
+        if (epoch !== epochRef.current || generation !== loadGeneration.current) return
+        if (!page.hasMore) break
+        const nextBeforeSeq = page.nextBeforeSeq
+        if (nextBeforeSeq === undefined || (beforeSeq !== undefined && nextBeforeSeq >= beforeSeq)) {
+          throw new Error('review: incomplete history')
+        }
+        beforeSeq = nextBeforeSeq
       }
-      const entries = pages.flat().toSorted((a, b) => a.event.seq - b.event.seq)
+      // Paging extends the resident window. Read it once more rather than
+      // combining snapshots across a concurrent rewind/reconnect.
+      const entries = (await data.history(undefined, request.signal)).events
+      request.signal.throwIfAborted()
+      if (epoch !== epochRef.current || generation !== loadGeneration.current) return
       const aggregator = createAggregator()
       for (const entry of entries) aggregator.apply(entry)
-      if (epoch !== epochRef.current) return
-      aggregatorRef.current = aggregator
+      if (epoch !== epochRef.current || generation !== loadGeneration.current) return
+      historyLoaded.current = true
       setAggregation({ status: 'ready', data: aggregator.result(), truncated })
     } catch {
-      if (epoch !== epochRef.current) return
-      aggregatorRef.current = null
+      if (request.signal.aborted) return
+      if (epoch !== epochRef.current || generation !== loadGeneration.current) return
       setAggregation({ status: 'error' })
     }
-  }, [sessionId])
+  }, [sessionId, data])
 
   // git 改动源：懒加载（首次切到 git 模式才请求）；只读，uncommitted scope。
   const loadGit = useCallback(async (epoch: number): Promise<void> => {
+    const generation = ++gitGeneration.current
     setGitState({ status: 'loading' })
     try {
       const snap = await fetchGitSnapshot(sessionId)
-      if (epoch !== epochRef.current) return
+      if (epoch !== epochRef.current || generation !== gitGeneration.current) return
       if (!snap.git) {
         setGitState({ status: 'unavailable' })
         return
@@ -136,52 +167,44 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
         truncated: snap.truncated,
       })
     } catch {
-      if (epoch !== epochRef.current) return
+      if (epoch !== epochRef.current || generation !== gitGeneration.current) return
       setGitState({ status: 'error' })
     }
   }, [sessionId])
 
-  // 会话切换：纪元推进拒旧回写，展开态/发送态复位，全量重拉。
+  // Hidden tabs keep their state, but do not fetch another workspace or page.
   useEffect(() => {
-    const epoch = ++epochRef.current
-    setExpandedPaths(new Set())
-    setSendState('idle')
-    void loadAll(epoch, false)
-  }, [loadAll])
+    setArmedRevert(null)
+    setRevertFailed(false)
+    if (active && mode === 'git') void loadGit(epochRef.current)
+    return () => { gitGeneration.current += 1 }
+  }, [active, mode, loadGit])
 
-  // live 增量：仅 active + ready 时订阅；切走即退订（页面保持挂载）。
-  // 依赖收敛到布尔 ready：事件批到达用函数式 setAggregation 原地更新，
-  // 避免每批事件都重订阅。
-  const ready = aggregation.status === 'ready'
+  // Observe only the visible session review. Re-entry reads the current window;
+  // hidden tabs and the Git mode do not expand the shared transcript history.
   useEffect(() => {
-    if (!active || !ready) return
-    const dispose = openSessionSignals(envelopeSource, sessionId, (signal) => {
-      const aggregator = aggregatorRef.current
-      if (aggregator === null) return
-      const base = aggregator.result()
-      if (signal.kind === 'subscribed') {
-        // 重连后的订阅基线：落后于已聚合水位即静默重拉。
-        if (signal.lastSeq > base.appliedThroughSeq) reloadRef.current()
-        return
-      }
-      if (signal.event.seq <= base.appliedThroughSeq) return
-      if (signal.event.seq > base.appliedThroughSeq + 1) {
-        // seq 跳跃 = 订阅空窗漏帧，全量重拉收敛（确定性优先）。
-        reloadRef.current()
-        return
-      }
-      aggregator.apply({ event: signal.event, view: signal.view })
-      setAggregation((prev) => prev.status === 'ready'
-        ? { ...prev, data: aggregator.result() }
-        : prev)
-    })
-    return dispose
-  }, [active, ready, sessionId, envelopeSource])
-
-  // 重拉句柄稳定化（live effect 内引用最新 loadAll 而不进依赖）。
-  useEffect(() => {
-    reloadRef.current = (): void => { void loadAll(epochRef.current, true) }
-  }, [loadAll])
+    if (!active || mode !== 'session') return
+    // A replacement (including rewind/reconnect) must rebuild the aggregation.
+    // Microtask coalescing handles bursts without opening a second wire stream.
+    let queued = false
+    let disposed = false
+    const refresh = (): void => {
+      if (queued) return
+      queued = true
+      queueMicrotask(() => {
+        queued = false
+        if (!disposed) void loadAll(epochRef.current, historyLoaded.current)
+      })
+    }
+    const dispose = data.subscribe(refresh)
+    refresh()
+    return () => {
+      disposed = true
+      dispose()
+      historyRequest.current?.abort()
+      loadGeneration.current += 1
+    }
+  }, [active, mode, data, loadAll])
 
   // 发送态回落：sent/failed 展示 3s 后回 idle。
   useEffect(() => {
@@ -341,9 +364,13 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
       return
     }
     setArmedRevert(null)
+    const epoch = epochRef.current
     void restoreGitFile(sessionId, path)
-      .then(() => { void loadGit(epochRef.current) })
-      .catch(() => { setRevertFailed(true) })
+      .then(() => {
+        if (epoch !== epochRef.current) return
+        if (visibility.current.active && visibility.current.mode === 'git') void loadGit(epoch)
+      })
+      .catch(() => { if (epoch === epochRef.current) setRevertFailed(true) })
   }
 
   /** 改动源切换：git 懒加载；切换时收起武装态与发送态。 */
@@ -351,7 +378,6 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
     setMode(next)
     setArmedRevert(null)
     setSendState('idle')
-    if (next === 'git' && gitState.status === 'idle') void loadGit(epochRef.current)
   }
 
   /** git 模式的行级草稿（path + 行号精确锚定，无编辑事件概念）。 */
@@ -414,14 +440,23 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
     })
     const text = serializeDrafts(lines, t('comments.header'))
     if (text === undefined) return
+    const epoch = epochRef.current
+    const submitted = new Set(drafts)
     setSendState('sending')
-    void sendReviewMessage(sessionId, text).then(() => {
+    void data.send(text).then(() => {
+      // Remove only the submitted snapshot; comments added/edited while the
+      // request was pending remain drafts in their owning session.
+      setDraftsBySession(previous => {
+        const next = new Map(previous)
+        next.set(sessionId, (next.get(sessionId) ?? []).filter(draft => !submitted.has(draft)))
+        return next
+      })
+      if (epoch !== epochRef.current) return
       setSentCount(lines.length)
       setSendState('sent')
-      clearDrafts()
     }).catch(() => {
       // 错误码不细分：内联提示统一「发送失败」。
-      setSendState('failed')
+      if (epoch === epochRef.current) setSendState('failed')
     })
   }
 
@@ -459,7 +494,7 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
           {aggregation.status === 'error' && (
             <div className={css.stateBox}>
               <span>{t('error.load')}</span>
-              <button type="button" className={css.ghostBtn} onClick={() => { void loadAll(++epochRef.current, false) }}>
+              <button type="button" className={css.ghostBtn} onClick={() => { void loadAll(epochRef.current, false) }}>
                 {t('error.retry')}
               </button>
             </div>
@@ -477,40 +512,24 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
           {aggregation.status === 'ready' && aggregation.data.files.length > 0 && (
             <>
               <div className={css.summaryBar}>
-                <span className={css.summaryStat}>{t('summary.fileCount', { n: files.length })}</span>
-                <span className={css.summaryStat}>{t('summary.editCount', { n: aggregation.data.edits.length })}</span>
-                <span className={css.summaryStat}>
-                  <span className={css.addCount}>+{totals.added}</span>
-                  {' '}
-                  <span className={css.delCount}>-{totals.removed}</span>
-                </span>
-                {aggregation.truncated && <span className={css.summaryTruncated}>{t('summary.truncated')}</span>}
-                <span className={css.summarySpacer} />
-                <button
-                  type="button"
-                  className={css.ghostBtn}
-                  title={sortMode === 'changes' ? t('summary.sortByPath') : t('summary.sortByChanges')}
-                  onClick={() => { setSortMode(sortMode === 'changes' ? 'path' : 'changes') }}
-                >
-                  {sortMode === 'changes' ? t('summary.sortByChanges') : t('summary.sortByPath')}
-                </button>
-                {/* 主控开关（非追加按钮）：未全审 = 全部标记；已全审 = 整体翻转为取消 */}
-                <button
-                  type="button"
-                  className={css.ghostBtn}
-                  onClick={allReviewed ? unmarkAllReviewed : markAllReviewed}
-                >
-                  {allReviewed ? t('summary.unmarkAll') : t('summary.markAll')}
-                </button>
-                <button
-                  type="button"
-                  className={css.iconBtn}
-                  title={t('action.refresh')}
-                  aria-label={t('action.refresh')}
-                  onClick={() => { void loadAll(epochRef.current, true) }}
-                >
-                  <IconRefreshOutline14 size={14} />
-                </button>
+                <div className={css.summaryInfo}>
+                  <span className={css.summaryStat}>{t('summary.fileCount', { n: files.length })}</span>
+                  <span className={css.summaryStat}>{t('summary.editCount', { n: aggregation.data.edits.length })}</span>
+                  <span className={css.summaryStat}>
+                    <span className={css.addCount}>+{totals.added}</span>
+                    {' '}
+                    <span className={css.delCount}>-{totals.removed}</span>
+                  </span>
+                  {aggregation.truncated && <span className={css.summaryTruncated} title={t('summary.truncated')} aria-label={t('summary.truncated')}>…</span>}
+                </div>
+                <SummaryActions
+                  sortMode={sortMode}
+                  onSort={setSortMode}
+                  allReviewed={allReviewed}
+                  onToggleReviewed={allReviewed ? unmarkAllReviewed : markAllReviewed}
+                  onRefresh={() => { void loadAll(epochRef.current, true) }}
+                  t={t}
+                />
               </div>
               <div className={css.fileList}>
                 {files.map((file) => (
@@ -540,7 +559,7 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
           {gitState.status === 'error' && (
             <div className={css.stateBox}>
               <span>{t('git.error')}</span>
-              <button type="button" className={css.ghostBtn} onClick={() => { void loadGit(++epochRef.current) }}>
+              <button type="button" className={css.ghostBtn} onClick={() => { void loadGit(epochRef.current) }}>
                 {t('error.retry')}
               </button>
             </div>
@@ -564,39 +583,24 @@ export function ReviewPage({ sessionId, active, envelopeSource, t }: ReviewPageP
           {gitState.status === 'ready' && gitFiles.length > 0 && (
             <>
               <div className={css.summaryBar}>
-                {gitState.branch !== undefined && <span className={css.summaryStat}>{gitState.branch}</span>}
-                <span className={css.summaryStat}>{t('summary.fileCount', { n: gitFiles.length })}</span>
-                <span className={css.summaryStat}>
-                  <span className={css.addCount}>+{gitTotals.added}</span>
-                  {' '}
-                  <span className={css.delCount}>-{gitTotals.removed}</span>
-                </span>
-                {gitState.truncated && <span className={css.summaryTruncated}>{t('git.truncated')}</span>}
-                <span className={css.summarySpacer} />
-                <button
-                  type="button"
-                  className={css.ghostBtn}
-                  title={sortMode === 'changes' ? t('summary.sortByPath') : t('summary.sortByChanges')}
-                  onClick={() => { setSortMode(sortMode === 'changes' ? 'path' : 'changes') }}
-                >
-                  {sortMode === 'changes' ? t('summary.sortByChanges') : t('summary.sortByPath')}
-                </button>
-                <button
-                  type="button"
-                  className={css.ghostBtn}
-                  onClick={allReviewed ? unmarkAllReviewed : markAllReviewed}
-                >
-                  {allReviewed ? t('summary.unmarkAll') : t('summary.markAll')}
-                </button>
-                <button
-                  type="button"
-                  className={css.iconBtn}
-                  title={t('action.refresh')}
-                  aria-label={t('action.refresh')}
-                  onClick={() => { void loadGit(epochRef.current) }}
-                >
-                  <IconRefreshOutline14 size={14} />
-                </button>
+                <div className={css.summaryInfo}>
+                  {gitState.branch !== undefined && <span className={css.summaryBranch} title={gitState.branch}>{gitState.branch}</span>}
+                  <span className={css.summaryStat}>{t('summary.fileCount', { n: gitFiles.length })}</span>
+                  <span className={css.summaryStat}>
+                    <span className={css.addCount}>+{gitTotals.added}</span>
+                    {' '}
+                    <span className={css.delCount}>-{gitTotals.removed}</span>
+                  </span>
+                  {gitState.truncated && <span className={css.summaryTruncated} title={t('git.truncated')} aria-label={t('git.truncated')}>…</span>}
+                </div>
+                <SummaryActions
+                  sortMode={sortMode}
+                  onSort={setSortMode}
+                  allReviewed={allReviewed}
+                  onToggleReviewed={allReviewed ? unmarkAllReviewed : markAllReviewed}
+                  onRefresh={() => { void loadGit(epochRef.current) }}
+                  t={t}
+                />
               </div>
               <div className={css.fileList}>
                 {gitFiles.map((file) => (

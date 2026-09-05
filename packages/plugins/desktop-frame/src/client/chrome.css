@@ -90,17 +90,43 @@ html[data-dsh-desktop] [data-dsh-frame='new-session'] {
   font-weight: 400 !important;
 }
 
-/* 展开侧栏的主操作、项目、会话和设置统一使用 32px 高度和 8px 圆角。
-   treeitem 使用语义角色定位，避免依赖官方 CSS module hash。 */
-html[data-dsh-desktop] [data-slot='sidebar.workspaces'] div[role='treeitem'],
-html[data-dsh-desktop] [data-slot='sidebar.settings'] > button {
+/* Row geometry belongs to the sidebar item, not its HTML tag. Search
+   results are buttons in 0.1.2; Settings now has a connection-status wrapper.
+   Scope the Settings rule to its dialog trigger, never its reconnect button. */
+html[data-dsh-desktop] [data-slot='sidebar.workspaces'] [role='treeitem'],
+html[data-dsh-desktop] [data-slot='sidebar.settings'] button[aria-haspopup='dialog'] {
+  box-sizing: border-box !important;
   height: 32px !important;
+  min-height: 32px !important;
   border-radius: var(--dsh-radius-control, 8px) !important;
 }
 
-html[data-dsh-desktop] [data-slot='sidebar.settings'] > button {
+html[data-dsh-desktop] [data-slot='sidebar.settings'] > div:has(> button[aria-haspopup='dialog']) {
   width: 100% !important;
   margin-inline: 0 !important;
+}
+
+html[data-dsh-desktop] [data-slot='sidebar.settings'] button[aria-haspopup='dialog'] {
+  margin-inline: 0 !important;
+}
+
+/* Keep search metadata available on the same compact row: title gets the
+   flexible space, workspace/snippet share a bounded trailing region. */
+html[data-dsh-desktop] [data-slot='sidebar.workspaces'] button[role='treeitem'] {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-block: 0;
+}
+
+html[data-dsh-desktop] [data-slot='sidebar.workspaces'] button[role='treeitem'] > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+html[data-dsh-desktop] [data-slot='sidebar.workspaces'] button[role='treeitem'] > :last-child {
+  max-width: 40%;
+  margin-left: 0;
 }
 
 html[data-dsh-desktop] [data-dsh-frame='new-session']:hover {

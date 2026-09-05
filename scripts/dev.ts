@@ -114,7 +114,7 @@ if (process.platform === 'darwin') {
 
 // 3. 构建内置插件 + desktop 壳，再启动
 run('pnpm', ['--filter', './packages/plugins/*', 'build'], rootDir)
-run('pnpm', ['stage:plugins'], rootDir)
+run('pnpm', ['stage:plugins', '--development'], rootDir)
 run('pnpm', ['--filter', '@dsh-desktop/desktop', 'build'], rootDir)
 if (devElectronBin !== null && existsSync(devElectronBin)) {
   run(devElectronBin, [desktopDir], rootDir)

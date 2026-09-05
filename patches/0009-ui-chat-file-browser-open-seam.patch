@@ -1,8 +1,8 @@
 diff --git a/packages/client/ui-chat/src/client/apply.ts b/packages/client/ui-chat/src/client/apply.ts
-index 77739e8593..a15ae661fd 100644
+index 77739e8..9c41407 100644
 --- a/packages/client/ui-chat/src/client/apply.ts
 +++ b/packages/client/ui-chat/src/client/apply.ts
-@@ -120,6 +120,14 @@ export function apply(ctx: Context): void {
+@@ -120,7 +120,15 @@ export function apply(ctx: Context): void {
            },
            fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
            openFile: async (path) => {
@@ -11,9 +11,41 @@ index 77739e8593..a15ae661fd 100644
 +            // browser does not handle fall through to the system opener, and
 +            // the service being absent keeps the upstream behavior unchanged.
 +            const fileBrowser = ctx.get('fileBrowser') as
-+              | { tryOpen?: (path: string, cwd?: string) => boolean | Promise<boolean> }
++              | { tryOpen?: (request: { sessionId: string; cwd: string | undefined; path: string }) => boolean | Promise<boolean> }
 +              | undefined
-+            if (await fileBrowser?.tryOpen?.(path, ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd) === true) return
              const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
++            if (path !== '.' && await fileBrowser?.tryOpen?.({ sessionId, cwd, path: resolveWorkspacePath(cwd, path) }) === true) return
              const result = await ctx.remote.session.openWorkspacePath({
                path: resolveWorkspacePath(cwd, path),
+             })
+diff --git a/packages/client/ui-chat/tests/apply-inject.client.spec.tsx b/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
+index fa7cb20..7380bb4 100644
+--- a/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
++++ b/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
+@@ -186,3 +186,26 @@ describe('Chat inject API', () => {
+     await b.runtime.dispose()
+   })
+ })
++
++
++describe('desktop file handoff contract', () => {
++  it('passes the owning session and absolute path, and preserves dot/system fallback', async () => {
++    const b = await bench()
++    const { injected } = b.chatViewApi(ROOT)
++    const tryOpen = vi.fn(async (_request: { sessionId: string; cwd: string | undefined; path: string }) => true)
++    b.runtime.ctx.provide('fileBrowser', { tryOpen } as never)
++    await injected.openFile('src/a.ts')
++    expect(tryOpen).toHaveBeenCalledWith({ sessionId: ROOT, cwd: '/proj', path: '/proj/src/a.ts' })
++    expect(b.openWorkspacePath).not.toHaveBeenCalled()
++    await injected.openFile('.')
++    expect(tryOpen).toHaveBeenCalledOnce()
++    expect(b.openWorkspacePath).toHaveBeenCalledOnce()
++    tryOpen.mockResolvedValue(false)
++    await injected.openFile('src/b.ts')
++    expect(b.openWorkspacePath).toHaveBeenCalledTimes(2)
++    tryOpen.mockRejectedValue(new Error('preview failed'))
++    await expect(injected.openFile('src/c.ts')).rejects.toThrow('preview failed')
++    expect(b.openWorkspacePath).toHaveBeenCalledTimes(2)
++    await b.runtime.dispose()
++  })
++})

@@ -18,11 +18,13 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  session,
   type WebContents,
 } from 'electron'
 import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSupervisor } from './agent'
+import { createAgentNavigator } from './agent-navigation'
 import {
   isApplicationMenuId,
   isValidPopupAnchor,
@@ -79,6 +81,13 @@ const ciSmokeStage = process.env.DSH_DESKTOP_CI_SMOKE_STAGE ?? ''
 const ciSmokeReadyMarker = '.dsh-desktop-ci-ready.json'
 /** restart-agent 冷却：与上一被接受 restart 间隔不足 3s 的请求拒绝（本地 DoS 防护）。 */
 const restartThrottle = new RestartThrottle()
+const navigateAgent = createAgentNavigator(() => session.defaultSession.cookies)
+
+function loadAgentPage(contents: WebContents, readyUrl: string): Promise<void> {
+  return navigateAgent(readyUrl, () => !quitRequested && !contents.isDestroyed()
+    && webuiContents === contents && agentReadyUrl === readyUrl && allowedPort !== null,
+  () => contents.loadURL(readyUrl))
+}
 
 // dev 态 macOS 菜单栏应用名取的是 Electron 二进制的 CFBundleName，productName
 // 管不到它，必须显式 setName（值与 productName 一致，userData 路径不变）
@@ -131,6 +140,8 @@ const rendererProbe = `(() => {
   }
   const clusterRight = cluster === null ? -1 : Math.round(cluster.getBoundingClientRect().right)
   return {
+    pluginErrors: [...document.querySelectorAll('[role=alert]')]
+      .map(node => node.textContent ?? '').filter(text => text.startsWith('panel-shell:')),
     desktop: document.documentElement.hasAttribute('data-dsh-desktop'),
     platform: document.documentElement.dataset.dshPlatform,
     bridgePlatform: window.dshDesktop?.platform,
@@ -149,6 +160,7 @@ const rendererProbe = `(() => {
 })()`
 
 interface CiSmokeProbe {
+  pluginErrors?: string[]
   desktop?: unknown
   platform?: unknown
   bridgePlatform?: unknown
@@ -219,6 +231,7 @@ async function waitForCiSmokeState(contents: WebContents, win: BaseWindow | null
     }
     if (typeof last === 'object' && last !== null) {
       const state = last as CiSmokeProbe
+      if (state.pluginErrors?.length) throw new Error(`CI smoke: ${state.pluginErrors.join('; ')}`)
       const ready = commonProbeReady(state)
         && (win32 ? windowsProbeReady(state, expectedBackdrop) : (() => {
           // clusterInset：三平台标题栏策略不同，但页面右缘都没有系统按钮
@@ -417,7 +430,7 @@ function wireSupervisor(candidate: AgentSupervisor): void {
     recovering = false
     const contents = webuiContents
     if (contents !== null && !contents.isDestroyed()) {
-      void contents.loadURL(ready.url).catch((error: unknown) => {
+      void loadAgentPage(contents, ready.url).catch((error: unknown) => {
         console.warn('[agent] 恢复后重载 WebUI 失败', error)
       })
     }
@@ -548,7 +561,7 @@ export async function runStartup(
   webuiContents = contents
   // ready 行的完整 URL（含 ?token=）：首载由上游 303 换取签名 cookie，
   // 之后同源 /api、WS 与 anchor 下载自动携带。裸地址在 0.1.2 会被 401 拒绝。
-  await contents.loadURL(ready.url)
+  await loadAgentPage(contents, ready.url)
   const mounted = await controller.waitForMount(contents, MOUNT_TIMEOUT_MS)
   if (generation !== startupGeneration || supervisor !== candidate || quitRequested) return
   if (!mounted) {
@@ -653,12 +666,13 @@ export async function bootstrap(): Promise<void> {
     app.dock?.setIcon(nativeImage.createFromPath(appIconPath()))
   }
   // 收割上一代残留 agent：主进程被 SIGKILL/崩溃时 before-quit 不执行，
-  // detached 子进程会独活并继续持有 ~/.dsh 与 API key。只在 pid 记录存在时
-  // 收割——首启与干净退出后无记录，此时 resolveCliEntry 在打包态首启会因
-  // 运行时尚未解压而抛（ensureDshRuntime 在 runStartup 里才跑）。
+  // detached 子进程会独活并继续持有 ~/.dsh 与 API key。打包态用本 app 的
+  // runtime 根核验记录里的旧版入口，不要求新版 runtime 已解压。
   if (existsSync(agentPidPath())) {
     try {
-      await reapOrphanedAgent(agentPidPath(), resolveCliEntry(), defaultReapDeps())
+      await reapOrphanedAgent(agentPidPath(), app.isPackaged
+        ? { runtimeRoot: join(app.getPath('userData'), 'dsh-runtime') }
+        : { cliEntry: resolveCliEntry() }, defaultReapDeps())
     } catch (error) {
       console.warn('[agent] 收割残留 agent 失败', error)
     }
@@ -818,7 +832,7 @@ export function startMainProcess(): void {
       )
       const target = splash.attachWebui({ visible: true })
       webuiContents = target.contents
-      void target.contents.loadURL(webuiUrl())
+      void loadAgentPage(target.contents, webuiUrl()).catch(reportStartupFailure)
       mainWindow.show()
     }
   })
