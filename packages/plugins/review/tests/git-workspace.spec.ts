@@ -13,6 +13,10 @@ async function repo(files: string[]): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'review-git-workspace-'))
   roots.push(root)
   execFileSync('git', ['init', '-q', root])
+  // Mirror upstream's .gitattributes contract (* text=auto eol=lf): attribute
+  // rules beat core.autocrlf at checkout/restore write-out, so restored
+  // fixtures stay LF even on hosts with system-level autocrlf=true (Windows CI).
+  await writeFile(join(root, '.gitattributes'), '* text=auto eol=lf\n')
   for (const file of files) {
     await mkdir(dirname(join(root, file)), { recursive: true })
     await writeFile(join(root, file), 'original\n')
