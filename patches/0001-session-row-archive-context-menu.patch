@@ -1,5 +1,5 @@
 diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
-index df17251..8c48671 100644
+index df17251c38..8c48671171 100644
 --- a/packages/client/ui-workspace/src/client/contract/slots.ts
 +++ b/packages/client/ui-workspace/src/client/contract/slots.ts
 @@ -1,3 +1,4 @@
@@ -16,7 +16,7 @@ index df17251..8c48671 100644
    /**
     * Start a New Session in a Workspace: reuse-or-create its blank session and
 diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
-index 7c8e110..3454c39 100644
+index 7c8e1108dc..3454c3933b 100644
 --- a/packages/client/ui-workspace/src/client/index.ts
 +++ b/packages/client/ui-workspace/src/client/index.ts
 @@ -1,3 +1,4 @@
@@ -62,7 +62,7 @@ index 7c8e110..3454c39 100644
      createWorkspace: input => workspaces.create(input),
 diff --git a/packages/client/ui-workspace/src/client/row-actions.ts b/packages/client/ui-workspace/src/client/row-actions.ts
 new file mode 100644
-index 0000000..77b6d57
+index 0000000000..77b6d57e46
 --- /dev/null
 +++ b/packages/client/ui-workspace/src/client/row-actions.ts
 @@ -0,0 +1,31 @@
@@ -98,7 +98,7 @@ index 0000000..77b6d57
 +  }
 +}
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index 0f91710..d655bd8 100644
+index 0f917100ff..7ea6ac07b0 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
 @@ -1,3 +1,4 @@
@@ -106,7 +106,7 @@ index 0f91710..d655bd8 100644
  /**
   * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
   * all data and callbacks arrive via props. Hover swaps (folder->chevron,
-@@ -5,7 +6,7 @@
+@@ -5,11 +6,11 @@
   * except workspace Rename/Delete and session Rename/Fork/Archive; the session
   * and workspace hover cards are suppressed while a menu is open.
   */
@@ -115,15 +115,84 @@ index 0f91710..d655bd8 100644
  import clsx from 'clsx'
  import {
    HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
-@@ -170,7 +171,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
-               if (id === 'rename') actions.rename()
-               else actions.delete()
+-  IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
++  IconEditOutline16, IconFolderClose16, IconFolderOpen16,
+   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
+   StateDot,
+ } from '@deepseek-ai/dsh-client-ui-primitives'
+@@ -126,6 +127,18 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+   const active = group.expanded && group.containsCurrent
+   const [menuOpen, setMenuOpen] = useState(false)
++  // 右键锚点（patches/0001）：contextmenu 的指针位置，菜单以此为锚打开。
++  const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
++  const closeWorkspaceMenu = useCallback(() => {
++    setMenuOpen(false)
++    setMenuPoint(null)
++  }, [])
++  // 稳定回调：portaled 菜单的放置 effect 以 getAnchorRect 为依赖，
++  // 内联箭头会导致每次渲染都重新测量。
++  const getWorkspaceMenuAnchorRect = useCallback(
++    () => menuPoint === null ? null : new DOMRect(menuPoint.x, menuPoint.y, 0, 0),
++    [menuPoint],
++  )
+   const workspaceMenuItems = [
+     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
+@@ -136,6 +149,14 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+       role="treeitem"
+       aria-expanded={row.expanded}
+       onClick={onToggle}
++      onContextMenu={actions === undefined
++        ? undefined
++        : (e) => {
++          e.preventDefault()
++          e.stopPropagation()
++          setMenuPoint({ x: e.clientX, y: e.clientY })
++          setMenuOpen(true)
++        }}
+       draggable={drag !== undefined}
+       onDragStart={drag === undefined
+         ? undefined
+@@ -157,12 +178,16 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+       </span>
+       <span className={css.rowActions}>
+         {actions !== undefined && (
++          /* 无锚点菜单（patches/0001）：原生 "..." 触发器已移除，菜单只经
++              contextmenu 以指针位置为锚打开；portal 让列表脱离侧栏列
++             （overflow:hidden 裁剪容器）的遮挡。空锚点 root 是 0 宽 flex
++              子元素，排在行首避免吃掉行尾 gap。 */
+           <Menu
+             open={menuOpen}
+-            onClose={() => { setMenuOpen(false) }}
++            onClose={closeWorkspaceMenu}
+             items={workspaceMenuItems}
+             onSelect={(id) => {
+-              setMenuOpen(false)
++              closeWorkspaceMenu()
+               // Unknown ids leave before the dispatch: a future menu row must
+               // not inherit the destructive branch as an else fallback.
+               /* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
+@@ -172,16 +197,8 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
              }}
--            portal
+             portal
              closeOnPointerLeave
-             anchor={(
-               <button
-@@ -375,7 +375,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
+-            anchor={(
+-              <button
+-                type="button"
+-                className={css.iconButton}
+-                aria-label={t('actions.workspace.aria', { name: label })}
+-                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+-              >
+-                <IconEllipsisOutline16 />
+-              </button>
+-            )}
++            anchor={null}
++            getAnchorRect={getWorkspaceMenuAnchorRect}
+           />
+         )}
+         <button
+@@ -375,7 +392,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
   * @param props.t - the browser root's locale seat.
   * @returns the session row.
   */
@@ -132,7 +201,7 @@ index 0f91710..d655bd8 100644
    node: SessionNode
    currentId: string | undefined
    now: number
-@@ -386,6 +386,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -386,6 +403,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
    onFork: (id: SessionNode['id']) => void
    /** Archive this session (row menu action; commits without a dialog). */
    onArchive: (id: SessionNode['id']) => void
@@ -140,7 +209,7 @@ index 0f91710..d655bd8 100644
    /** Present only on draggable rows (workspace-group sessions outside search). */
    drag?: RowDragProps | undefined
    /** The row is rendered without a parent Workspace header. */
-@@ -399,14 +400,22 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -399,14 +417,28 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
    const primaryStatus = statuses[0]
    const showStatus = primaryStatus.state !== 'done' || row.completed
    const [menuOpen, setMenuOpen] = useState(false)
@@ -150,6 +219,12 @@ index 0f91710..d655bd8 100644
 +    setMenuOpen(false)
 +    setMenuPoint(null)
 +  }, [])
++  // 稳定回调：portaled 菜单的放置 effect 以 getAnchorRect 为依赖，
++  // 内联箭头会导致每次渲染都重新测量。
++  const getSessionMenuAnchorRect = useCallback(
++    () => menuPoint === null ? null : new DOMRect(menuPoint.x, menuPoint.y, 0, 0),
++    [menuPoint],
++  )
    // Archive hides the row through the registry-global archive set and never
    // touches the session log, so it is not styled as destructive and needs no
    // confirmation dialog.
@@ -163,7 +238,7 @@ index 0f91710..d655bd8 100644
    ]
    // Figma session cell: pad 8, status slot 16, then a 4px title gap.
    const ownRow = (
-@@ -419,6 +428,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -419,6 +451,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
        role="treeitem"
        aria-selected={selected}
        onClick={() => { onOpen(node.id) }}
@@ -180,10 +255,51 @@ index 0f91710..d655bd8 100644
        draggable={drag !== undefined}
        onDragStart={drag === undefined
          ? undefined
-@@ -461,24 +480,40 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -455,35 +497,39 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+       <span className={css.title}>{title}</span>
+       {row.hasActiveSchedule && <ActiveScheduleIndicator t={t} />}
+       {/* A blank New Session row is a provisional placeholder: nothing has
+-          happened in it yet, so a "now" timestamp and the row verbs
+-          (rename/fork/archive) would all act on content that does not
+-          exist — both trailing cells stay off until the first prompt. */}
++          happened in it yet, so the timestamp, row action buttons, and the
++          context menu stay off until the first prompt. */}
        {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
        {!row.blank && (
          <span className={css.rowActions}>
++          {/* 无锚点菜单（patches/0001）：原生 "..." 触发器已移除，菜单只经
++              contextmenu 以指针位置为锚打开。空锚点 root 是 0 宽 flex 子元素，
++              必须排在行首——放行尾会吃掉一个 gap，把 inline 快捷动作从右缘
++              向左顶出 12px 幽灵空隙。 */}
+           <Menu
+             open={menuOpen}
+-            onClose={() => { setMenuOpen(false) }}
++            onClose={closeSessionMenu}
+             items={sessionMenuItems}
+             onSelect={(id) => {
+-              setMenuOpen(false)
++              closeSessionMenu()
++              const action = contributed.find(action => action.id === id)
++              if (action !== undefined) { action.run(); return }
+               if (id === 'rename') onRename(node.id, row.title)
+               if (id === 'fork') onFork(node.id)
+               if (id === 'archive') onArchive(node.id)
+             }}
+             portal
+             closeOnPointerLeave
+-            anchor={(
+-              <button
+-                type="button"
+-                className={css.iconButton}
+-                aria-label={t('actions.session.aria', { name: title })}
+-                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+-              >
+-                <IconEllipsisOutline16 />
+-              </button>
+-            )}
++            anchor={null}
++            getAnchorRect={getSessionMenuAnchorRect}
+           />
 +          {contributed.filter(action => action.placement === 'inline').map(action => (
 +            <button key={action.id} type="button" className={css.iconButton}
 +              aria-label={action.label}
@@ -191,41 +307,11 @@ index 0f91710..d655bd8 100644
 +              {action.icon}
 +            </button>
 +          ))}
-           <Menu
-             open={menuOpen}
--            onClose={() => { setMenuOpen(false) }}
-+            onClose={() => { setMenuOpen(false); setMenuPoint(null) }}
-+            portal
-+            getAnchorRect={() => menuPoint === null ? null : new DOMRect(menuPoint.x, menuPoint.y, 0, 0)}
-             items={sessionMenuItems}
-             onSelect={(id) => {
-               setMenuOpen(false)
-+              setMenuPoint(null)
-+              const action = contributed.find(action => action.id === id)
-+              if (action !== undefined) { action.run(); return }
-               if (id === 'rename') onRename(node.id, row.title)
-               if (id === 'fork') onFork(node.id)
-               if (id === 'archive') onArchive(node.id)
-             }}
--            portal
-             closeOnPointerLeave
-             anchor={(
-               <button
-                 type="button"
-                 className={css.iconButton}
-                 aria-label={t('actions.session.aria', { name: title })}
--                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
-+                onClick={(e) => {
-+                  e.stopPropagation()
-+                  const rect = e.currentTarget.getBoundingClientRect()
-+                  setMenuPoint({ x: rect.left, y: rect.bottom })
-+                  setMenuOpen(v => !v)
-+                }}
-               >
-                 <IconEllipsisOutline16 />
-               </button>
+         </span>
+       )}
+     </div>
 diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
-index 9d9dd37..f855a7a 100644
+index 9d9dd376e4..f855a7a855 100644
 --- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
 @@ -1,3 +1,4 @@
@@ -311,11 +397,105 @@ index 9d9dd37..f855a7a 100644
                  forkSession={forkSession}
                  workspaces={workspaces}
                  groupExpansion={groupExpansion}
+diff --git a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
+index d57a89ba8b..1126dc6829 100644
+--- a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
+@@ -12,7 +12,7 @@
+  * workspace-browser.spec.
+  */
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+-import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
++import { cleanup, fireEvent, waitFor } from '@testing-library/react'
+ import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
+ import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
+ import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
+@@ -77,7 +77,7 @@ describe('session rename through the assembled browser', () => {
+ 
+     // The current session's group auto-expands; open the row's action menu.
+     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
+-    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
++    fireEvent.contextMenu(row as HTMLElement)
+     fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+ 
+     // The dialog seeds from the current title; submit a padded value.
+@@ -124,7 +124,7 @@ describe('session rename through the assembled browser', () => {
+     await runtime.flush()
+ 
+     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
+-    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
++    fireEvent.contextMenu(row as HTMLElement)
+     fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+     const input = await view.findByLabelText('会话名称')
+     fireEvent.change(input, { target: { value: '新名' } })
 diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-index 7865c31..091d575 100644
+index 7865c31c22..97c394d241 100644
 --- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
-@@ -484,6 +484,30 @@ describe('workspace browser rows', () => {
+@@ -303,7 +303,7 @@ describe('workspace browser rows', () => {
+     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
+   })
+ 
+-  it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
++  it('workspace row menu opens on contextmenu, renames, and shows the danger delete row', () => {
+     const onRename = vi.fn()
+     const onDelete = vi.fn()
+     const onToggle = vi.fn()
+@@ -315,20 +315,21 @@ describe('workspace browser rows', () => {
+       group={group} onToggle={onToggle} onCreate={vi.fn()}
+       actions={{ rename: onRename, delete: onDelete }} t={t}
+     />)
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
++    // 原生 "..." 触发器已由 patches/0001 移除：菜单只经 contextmenu 打开。
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 40, clientY: 52 })
+     // Opening the menu neither toggles the group nor renames yet.
+     expect(onToggle).not.toHaveBeenCalled()
+     expect(screen.getByRole('menuitem', { name: '删除工作区' }).className).toMatch(/danger/)
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     expect(onRename).toHaveBeenCalledOnce()
+     expect(screen.queryByRole('menu')).toBeNull()
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 40, clientY: 52 })
+     fireEvent.click(screen.getByRole('menuitem', { name: '删除工作区' }))
+     expect(screen.queryByRole('menu')).toBeNull()
+     expect(onRename).toHaveBeenCalledOnce()
+     expect(onDelete).toHaveBeenCalledOnce()
+     // Escape closes without selecting (Menu onClose path).
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 40, clientY: 52 })
+     fireEvent.keyDown(document, { key: 'Escape' })
+     expect(screen.queryByRole('menu')).toBeNull()
+   })
+@@ -459,7 +460,8 @@ describe('workspace browser rows', () => {
+     }
+     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
+       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
+-    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
++    // 原生 "..." 触发器已由 patches/0001 移除：菜单只经 contextmenu 打开。
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 24, clientY: 36 })
+     expect(onOpen).not.toHaveBeenCalled()
+     // Archive is not destructive (log and accounting slot remain): no danger styling.
+     expect(screen.getByRole('menuitem', { name: '归档会话' }).className).not.toMatch(/danger/)
+@@ -468,22 +470,46 @@ describe('workspace browser rows', () => {
+     expect(screen.queryByRole('menu')).toBeNull()
+     expect(onRename).toHaveBeenCalledWith(node.id, 'One')
+     expect(onOpen).not.toHaveBeenCalled()
+-    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 24, clientY: 36 })
+     fireEvent.click(screen.getByRole('menuitem', { name: '分叉会话' }))
+     expect(onFork).toHaveBeenCalledWith(node.id)
+     // Archive dispatches without opening the session.
+-    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 24, clientY: 36 })
+     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+     expect(onArchive).toHaveBeenCalledWith(node.id)
+     expect(onRename).toHaveBeenCalledOnce()
+     expect(onOpen).not.toHaveBeenCalled()
+     // Escape closes without selecting (Menu onClose path).
+-    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
++    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 24, clientY: 36 })
+     fireEvent.keyDown(document, { key: 'Escape' })
+     expect(screen.queryByRole('menu')).toBeNull()
    })
  
  
@@ -346,8 +526,17 @@ index 7865c31..091d575 100644
    it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
      vi.useFakeTimers()
      try {
+@@ -502,7 +528,7 @@ describe('workspace browser rows', () => {
+       expect(screen.getAllByText('进行中')).toHaveLength(2)
+       fireEvent.pointerLeave(wrapper)
+       // Menu open (disabled=true) suppresses the card for the same hover.
+-      fireEvent.click(screen.getByRole('button', { name: '会话“Hovered”的操作' }))
++      fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 24, clientY: 36 })
+       fireEvent.pointerEnter(wrapper)
+       act(() => { vi.advanceTimersByTime(1000) })
+       expect(screen.queryByText('1分钟前')).toBeNull()
 diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
-index 8ee31d3..cf23fda 100644
+index 8ee31d37c9..c44933a5d9 100644
 --- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
 @@ -85,6 +85,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
@@ -358,3 +547,85 @@ index 8ee31d3..cf23fda 100644
      renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
      t,
      ...overrides,
+@@ -418,7 +419,7 @@ describe('WorkspaceBrowser', () => {
+       archiveSession,
+     })
+     fireEvent.click(screen.getByText('alpha'))
+-    fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
++    fireEvent.contextMenu(screen.getByText('gone-s').closest('[role="treeitem"]') as HTMLElement)
+     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
+ 
+@@ -442,7 +443,7 @@ describe('WorkspaceBrowser', () => {
+         archiveSession,
+       })
+       fireEvent.click(screen.getByText('alpha'))
+-      fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
++      fireEvent.contextMenu(screen.getByText('alpha-s').closest('[role="treeitem"]') as HTMLElement)
+       fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+       await Promise.resolve()
+       await Promise.resolve()
+@@ -493,6 +494,9 @@ describe('WorkspaceBrowser', () => {
+     // The loose session's group is UNGROUPED_KEY: expanded by the effect.
+     expect(screen.getByText('loose')).toBeTruthy()
+     expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
++    // The bucket has no backing Workspace: right-click opens no menu either.
++    fireEvent.contextMenu(screen.getByText('未分组').closest('[role="treeitem"]') as HTMLElement)
++    expect(screen.queryByRole('menu')).toBeNull()
+     fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
+     expect(startSession).not.toHaveBeenCalled()
+   })
+@@ -1172,7 +1176,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha'), workspace('beta', [], 'Beta')])),
+       renameWorkspace,
+     })
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++    fireEvent.contextMenu(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
+     expect(input.value).toBe('Alpha')
+@@ -1201,7 +1205,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+       renameWorkspace,
+     })
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++    fireEvent.contextMenu(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
+     // Enter with a blocked draft (unchanged) does nothing.
+@@ -1225,7 +1229,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+       renameWorkspace,
+     })
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++    fireEvent.contextMenu(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     fireEvent.change(screen.getByLabelText('工作区名称'), { target: { value: 'Other' } })
+     fireEvent.click(screen.getByRole('button', { name: '重命名' }))
+@@ -1239,7 +1243,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['session'], 'Alpha')])),
+       deleteWorkspace,
+     })
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++    fireEvent.contextMenu(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+     fireEvent.click(screen.getByRole('menuitem', { name: '删除工作区' }))
+     const dialog = screen.getByRole('dialog', { name: '删除工作区' })
+     expect(dialog.textContent).toContain('将把“Alpha”从工作区列表中移除')
+@@ -1274,7 +1278,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+       deleteWorkspace,
+     })
+-    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++    fireEvent.contextMenu(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+     fireEvent.click(screen.getByRole('menuitem', { name: '删除工作区' }))
+     fireEvent.click(screen.getByRole('button', { name: '删除工作区' }))
+     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('storage unavailable') })
+@@ -1292,7 +1296,7 @@ describe('WorkspaceBrowser', () => {
+       deleteWorkspace,
+     })
+     const open = () => {
+-      fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++      fireEvent.contextMenu(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+       fireEvent.click(screen.getByRole('menuitem', { name: '删除工作区' }))
+     }
+     open()

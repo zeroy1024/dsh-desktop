@@ -76,9 +76,12 @@ patches:
       测试不再提供 view mock，防止回退；上游改用安全解码后撤。
   - file: 0001-session-row-archive-context-menu.patch
     reason: |
-      原生会话行 rename/fork/archive 已直接复用；其菜单数组和行尾无公开贡献面。
-      仅增加通用 sessionRowActions 注册表、menu/inline 渲染与右键锚点；导出链接、
-      hover 快速归档、图标和双语词条归 session-actions 插件，空会话仍隐藏操作。
+      原生会话行 rename/fork/archive 与工作区行 rename/delete 已直接复用；
+      两类菜单数组和行尾均无公开贡献面。仅增加通用 sessionRowActions 注册表、
+      menu/inline 渲染与右键锚点，并移除两类行的原生 "..." 触发器：菜单仅经
+      contextmenu 以指针位置打开（portal 脱离侧栏列 overflow 裁剪），行尾只留
+      插件 inline 快捷动作；导出链接、hover 快速归档、图标和双语词条归
+      session-actions 插件，空会话仍隐藏操作，未分组桶无菜单。
       原 0018 合并，原生菜单与贡献回调并测；上游提供行级 action API 后撤。
   - file: 0007-ui-trajectory-panel-page.patch
     reason: |
