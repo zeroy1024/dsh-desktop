@@ -82,3 +82,33 @@ Kimi Code（MIT，MoonshotAI/kimi-code）给出了第三种架构：**追加墓�
   对齐项）：引用 chip 不带 ReferenceIcon（ui-conversation 内部件未导出）、
   formatClock 为 formatMessageClock 的近似、steering 消息不 shadow（撤回语义
   限定在 turn 边界的 user 消息）。
+
+## 修订记录（0.1.2-rc.1 升级，2026-09-05）
+
+### 上游 fork 原语出现后的决策：维持原地截断
+
+0.1.2 在 `SessionStore` 新增了原生 `fork(source, boundary?, childSessionId?)`（store 级、
+切点必须落在 turn 外、子会话 header 记 `parentSession`/`isSeeded`，配套 `'session/end-seed'`
+日志事件仅构造器可写）。fork 与本 ADR 的墓碑方案解决的是**不同产品语义**：
+
+- **fork = 从某时点分叉出新会话**：会话 id 变化，原会话保持不动，适合「分支尝试」；
+  0.1.2 的 chat 节点已带 `forkAt` 动作（上游 `ChatNodeOwnerProps.forkAt`）。
+- **rewind（本 ADR）= 原会话原地回卷**：撤回某条用户消息之前的上下文并把原文
+  回填输入框，会话 id 不变、视图真实回退。这是「说错了重来」的核心工作流，
+  fork 无法等价表达（id 变化破坏「同一会话继续」的连续性，且输入框回填语义
+  无处安放）。
+
+**决策**：rewind 维持原地截断语义，0012/0013 在 0.1.2 上重做（见
+`docs/upgrade-dsh-0.1.2-rc.1-phases.md` 阶段 7）；fork 作为「从此处分支继续」
+的独立增强另立，不与 rewind 合并。
+
+### 0.1.2 适配要点
+
+- seq 类型全面品牌化（`SessionSeq`/`SessionLogOffset`），墓碑折叠解释与
+  SessionEventMap 登记随品牌类型重放；测试访问器 `session.events` 改
+  `session.snapshotEvents()`。
+- 会话语义持久化由 SQLite 改为 JSONL（`session-persistence-jsonl`），含墓碑
+  会话的 roundtrip 与官方 CLI 拒读行为已随 0.1.2 重放重新验证。
+- 上游以架构笔记明示**否决**「可注册事件类型注册表」方向（事件类型保持
+  生成式硬编码集合，外部事件走 envelope `ignorable`）；墓碑因「跳过=重建出
+  未截断的错误会话」不可标 ignorable，维持 patch 内登记 + 官方 CLI 显式拒读。
