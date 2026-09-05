@@ -16,6 +16,7 @@
  * 目标」的跨缝手势，交接 store 由容器订阅后经 owner props 送进面板页。
  */
 import type { ClientContext, PanelShellFocus } from './types.ts'
+import type { PanelPageMeta } from './registry.ts'
 import { PanelShell } from './PanelShell.tsx'
 import { PanelShellController, reconcilePageHalves } from './registry.ts'
 import { createInspectHandoff, createPanelLedger } from './panel-store.ts'
@@ -89,6 +90,24 @@ export function apply(ctx: ClientContext): void {
     const disposeRegistryWatch = registry.subscribe(reconcile)
     const disposeSlotWatch = ctx.slots.subscribe('panel-shell.page', reconcile)
     reconcile()
+
+    // patches/0007 反转控制：消费 trajectory 的面板页注册服务（cordis 元素=
+    // trajectory 包 id，见 inject）。服务缺席（上游 web）时轮询空转无害。
+    let pageRegistered = false
+    const trySeat = (): void => {
+      if (pageRegistered) return
+      const pageFactory = ctx.get('trajectoryPanelPage') as
+        | { register(host: { registerPage(meta: PanelPageMeta): () => void }): () => void }
+        | undefined
+      if (pageFactory === undefined) return
+      pageRegistered = true
+      const disposePage = pageFactory.register({
+        registerPage: (meta) => registry.registerPage(meta),
+      })
+      ctx.effect(() => disposePage, 'panel-shell: trajectory page')
+    }
+    trySeat()
+    const pollTimer = setInterval(trySeat, 200)
 
     return () => {
       disposeSlotWatch()

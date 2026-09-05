@@ -270,3 +270,15 @@ index 0000000000..c364f272fc
 +    expect(seen).toEqual(['append'])
 +  })
 +})
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index 6dfe0a9d31..c29feb7917 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -106,6 +106,7 @@
+   // suffixes are mutually exclusive, so each aggregate excludes the other's
+   // and the package test glob above needs no per-file entry.
+   "exclude": [
++    "packages/api/session-controller/tests/rewind-visibility.spec.ts",
+     "packages/client/*/src/**",
+     "packages/*/*/tests/**/*.client.ts",
+     "packages/*/*/tests/**/*.client.tsx",
