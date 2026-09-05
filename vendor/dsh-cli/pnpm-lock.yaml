@@ -10,6 +10,7 @@ overrides:
   '@deepseek-ai/dsh-client-ui-chat': file:../deepseek-ai-dsh-client-ui-chat-0.1.2-rc.1.tgz
   '@deepseek-ai/dsh-client-ui-layout': file:../deepseek-ai-dsh-client-ui-layout-0.1.2-rc.1.tgz
   '@deepseek-ai/dsh-client-ui-settings-general': file:../deepseek-ai-dsh-client-ui-settings-general-0.1.2-rc.1.tgz
+  '@deepseek-ai/dsh-client-ui-workspace': file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz
   '@deepseek-ai/dsh-session': file:../deepseek-ai-dsh-session-0.1.2-rc.1.tgz
   '@deepseek-ai/dsh-credentials': file:../deepseek-ai-dsh-credentials-0.1.2-rc.1.tgz
   '@deepseek-ai/dsh-host-directory-picker-native': file:../deepseek-ai-dsh-host-directory-picker-native-0.1.2-rc.1.tgz
@@ -42,6 +43,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-settings-general':
         specifier: file:../deepseek-ai-dsh-client-ui-settings-general-0.1.2-rc.1.tgz
         version: file:../deepseek-ai-dsh-client-ui-settings-general-0.1.2-rc.1.tgz(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz
+        version: file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-credentials':
         specifier: file:../deepseek-ai-dsh-credentials-0.1.2-rc.1.tgz
         version: file:../deepseek-ai-dsh-credentials-0.1.2-rc.1.tgz(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))
@@ -355,7 +359,7 @@ packages:
       '@deepseek-ai/dsh-scope': ^0.1.2-rc.1
 
   '@deepseek-ai/dsh-api-session-controller@file:../deepseek-ai-dsh-api-session-controller-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-1+qe68ZTaviHcledjocLFywztmwU7lAGR7H0YvIBvr8U/WLMGi1o1iJtxCMq45LpSJ8SQbSt7jVmgtdsixh60Q==, tarball: file:../deepseek-ai-dsh-api-session-controller-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-MGLx9fSSGzgEhvsb7lJS0SHLeW5cJ6cSqf0yyARjJ5iW58EDWOjxvoYnZaHYgilgk1a9daeLM3trXxSaz3JGzw==, tarball: file:../deepseek-ai-dsh-api-session-controller-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -528,7 +532,7 @@ packages:
       '@deepseek-ai/cordis': ^4.0.2
 
   '@deepseek-ai/dsh-client-ui-chat@file:../deepseek-ai-dsh-client-ui-chat-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-C4uC0BCw5q8/FGAJlP/pAEkLavlLr7LhBp7OqeZR1Q7rEXyeNhx03k9uFF/DRfIY4VtYvJozeIiOYdJ81KTt5g==, tarball: file:../deepseek-ai-dsh-client-ui-chat-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-j8q6v0YqLjL2/FogFpgjjN7H8OQnE0mYX+CHggJFdWRappcg27W808ZZHYJQPOFrF/l+dV6L/ijM/3jtZdznVA==, tarball: file:../deepseek-ai-dsh-client-ui-chat-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -579,7 +583,7 @@ packages:
       '@deepseek-ai/cordis': ^4.0.2
 
   '@deepseek-ai/dsh-client-ui-layout@file:../deepseek-ai-dsh-client-ui-layout-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-oROW7slKCNQrgmnhYpYDEe9GE3McD+CHDRQ71/2c1yaHDZ5dXGYqQxuln+Q9W3FD1XNyFoOVVyVb1gVTVt8Zbg==, tarball: file:../deepseek-ai-dsh-client-ui-layout-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-COtAZU1z54xzD24yDFwv108BYjZpgWTL4IJEnHycdiNVxMy5TlCUq6YBIROfi/U90qkHlzAXBFfi7/KJ2EkJMA==, tarball: file:../deepseek-ai-dsh-client-ui-layout-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -625,7 +629,7 @@ packages:
       '@deepseek-ai/cordis': ^4.0.2
 
   '@deepseek-ai/dsh-client-ui-settings-general@file:../deepseek-ai-dsh-client-ui-settings-general-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-acaWlz/wRAnHOVTJrjFtsLJBxyFIJ6gD7Z787buTUQSfRzAJC72UeiwbgK8t1o0xXXlghC4Ai8fJae0ronCNww==, tarball: file:../deepseek-ai-dsh-client-ui-settings-general-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-HM8mcS4+kHp8CPxpfNFctpxlxS5EljZzkOBC7teepP8eprKw6kQadbymOyCy4hT1J2OSLq83vvqA7kGV+UmaKw==, tarball: file:../deepseek-ai-dsh-client-ui-settings-general-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -690,8 +694,9 @@ packages:
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
-  '@deepseek-ai/dsh-client-ui-workspace@0.1.2-rc.1':
-    resolution: {integrity: sha512-9zp9ZRfC1nmGEvtF6g5aP9gSgIhA6wAv1LPldxCs5Iicv+5oXr32JqhUzC0X7uCEnh2cFLEcYtEmEllcXsislQ==}
+  '@deepseek-ai/dsh-client-ui-workspace@file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz':
+    resolution: {integrity: sha512-d9uemhKglqU7GOM46nwohBAiUOA1n/FhwvExwbfrb8gQPZj/Uc1NvVovISJYi8R5sRIS+LxH2LF2IT7qUWj6lg==, tarball: file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz}
+    version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
@@ -1081,7 +1086,7 @@ packages:
       '@deepseek-ai/dsh-timeout': ^0.1.2-rc.1
 
   '@deepseek-ai/dsh-llm@file:../deepseek-ai-dsh-llm-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-TKa7pVmqdoPH0x0Fpf1f8T5eNhcKG+6wEycgHf94Jb+G2LCALUV08V6ZkPW2roE86dk6FBlI9NhiFta/Lc0UJA==, tarball: file:../deepseek-ai-dsh-llm-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-hDp3p1SY4wodta6kD+DWiZP7Nl5HfzWyZ8yerexH+l2CgxZtaFs/TxzYPl6nRKx8lDBNqmHJQ0cRtYaEYAvxDQ==, tarball: file:../deepseek-ai-dsh-llm-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -1456,7 +1461,7 @@ packages:
       '@deepseek-ai/dsh-session-projection': ^0.1.2-rc.1
 
   '@deepseek-ai/dsh-session@file:../deepseek-ai-dsh-session-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-YPd0p6V5iArh7PtKbKf60L1n3M8ZAgr0zpW6GEt23iCf9U1bU/t6nH6J6f9UMzatMzfOjuNe9jPcnPpSrpseyw==, tarball: file:../deepseek-ai-dsh-session-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-6LRIuw9esVc3G0ViOviq+Zq322WMfeV3cTGtW9PyNNMBIUDJZhU99ktBeiL/ewPvEVvnI0z78EYWRxOCC9MH8A==, tarball: file:../deepseek-ai-dsh-session-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -1472,7 +1477,7 @@ packages:
       '@deepseek-ai/dsh-settings': ^0.1.2-rc.1
 
   '@deepseek-ai/dsh-settings@file:../deepseek-ai-dsh-settings-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-eAfWTs8yOUXDkQax/sjaW+C64egtkmdzRrBFJDpTSQjlNYVWGxf69iiG5dGTaHMyZx8l2+eCJ2LWvi90Fq181g==, tarball: file:../deepseek-ai-dsh-settings-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-O2/goRviIk6TRcPDMvKEKUa6Uzy8JGghpeIAbtv3oD9Q4BcnY3hVEEtjRMPOtIUDht8sRkBbJ6MkHwNDCkNUDw==, tarball: file:../deepseek-ai-dsh-settings-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -2019,7 +2024,7 @@ packages:
       '@deepseek-ai/dsh-web': ^0.1.2-rc.1
 
   '@deepseek-ai/dsh-web-frontend@file:../deepseek-ai-dsh-web-frontend-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-H7KlX6EPTcMl66g7kB0LSaCAQXUdX07bMSS+a3eNP+1+T2No0gDlIAPKIhpQIU8RZbs4CoQehRb8+yVN//T6LA==, tarball: file:../deepseek-ai-dsh-web-frontend-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-LjXyER322q7lhZOdI+Ndc35dPcWgZkcTHl9Y1oCTv9x4uaWGgSWtSuxz/R2QltDTETAPXoCYeP4c3QWwM+AAiQ==, tarball: file:../deepseek-ai-dsh-web-frontend-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
 
   '@deepseek-ai/dsh-web-search-deepseek@0.1.2-rc.1':
@@ -2103,7 +2108,7 @@ packages:
       '@deepseek-ai/dsh-typert-protocol': ^0.1.2-rc.1
 
   '@deepseek-ai/dsh@file:../deepseek-ai-dsh-0.1.2-rc.1.tgz':
-    resolution: {integrity: sha512-bNDxfEzpKfPXE2Ctpx8EHiL+whHAPx5DDAfHPzzvkD4vKkqp3O6qpR4oeDfpJkzCWODZKEB+agd1OXoAWebzFg==, tarball: file:../deepseek-ai-dsh-0.1.2-rc.1.tgz}
+    resolution: {integrity: sha512-7VmbuuEyLnd30qS/HhTISx69kPZTpFzG/dI5Wlytb1DcPr2RCVi/86nFeUNp6RdhojnR2VX83AEOpgvmJOBSaQ==, tarball: file:../deepseek-ai-dsh-0.1.2-rc.1.tgz}
     version: 0.1.2-rc.1
     hasBin: true
 
@@ -4362,7 +4367,7 @@ snapshots:
     dependencies:
       '@deepseek-ai/cordis': file:../deepseek-ai-cordis-4.0.2.tgz(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
 
-  '@deepseek-ai/dsh-client-ui-workspace@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)':
+  '@deepseek-ai/dsh-client-ui-workspace@file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': file:../deepseek-ai-cordis-4.0.2.tgz(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       clsx: 2.1.1
@@ -5762,7 +5767,7 @@ snapshots:
       '@deepseek-ai/dsh-client-ui-trajectory': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(react-dom@19.2.8(react@18.3.1))(react@18.3.1)
       '@deepseek-ai/dsh-client-ui-user-questions': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-workflow-run': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
-      '@deepseek-ai/dsh-client-ui-workspace': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-workspace': file:../deepseek-ai-dsh-client-ui-workspace-0.1.2-rc.1.tgz(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-cmdline': 0.1.2-rc.1(@deepseek-ai/cordis-plugin-loader@1.0.3)(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-code-runtime-worker-thread': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-code-runtime@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-session@file:../deepseek-ai-dsh-session-0.1.2-rc.1.tgz(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))))(@deepseek-ai/dsh-timeout@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))
       '@deepseek-ai/dsh-cordis-client-runner': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
