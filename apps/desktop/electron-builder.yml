@@ -62,6 +62,9 @@ appImage:
   # Keep Chromium's sandbox enabled; the afterPack hook installs its helper.
   executableArgs: []
 extraResources:
+  # --require runs before dsh and must also work outside Electron's asar loader.
+  - from: dist/windows-job-bootstrap.cjs
+    to: windows-job-bootstrap.cjs
   # 单个未压缩 tar：外层 NSIS solid lzma / dmg UDZO / zip deflate 负责压缩，
   # 安装包体积与逐文件携带基本持平。剪枝（.map/.ts/test 等）在
   # stage-runtime-archive.ts 建包时完成。

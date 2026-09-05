@@ -1,21 +1,144 @@
 diff --git a/packages/client/ui-settings-general/src/client/SettingsRoot.tsx b/packages/client/ui-settings-general/src/client/SettingsRoot.tsx
-index d5b1df190a..9710e6b737 100644
+index d5b1df1..3f7a292 100644
 --- a/packages/client/ui-settings-general/src/client/SettingsRoot.tsx
 +++ b/packages/client/ui-settings-general/src/client/SettingsRoot.tsx
-@@ -14,7 +14,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
- import clsx from 'clsx'
- import {
-   ConnectionIndicator,
--  IconAgentPresetOutline16, IconCloseOutline16, IconDataOutline16,
-+  IconAgentPresetOutline16, IconArchiveOutline20, IconCloseOutline16, IconDataOutline16,
-   IconPersonalizationOutline16, IconSettingsOutline16,
- } from '@deepseek-ai/dsh-client-ui-primitives'
- import type { ConnectionIndicatorState } from '@deepseek-ai/dsh-client-ui-primitives'
-@@ -28,6 +28,7 @@ function navIcon(id: string) {
-   if (id === 'models') return <IconDataOutline16 className={css.navIcon} size={16} />
-   if (id === 'agent-presets') return <IconAgentPresetOutline16 className={css.navIcon} size={16} />
-   if (id === 'plugins') return <IconPersonalizationOutline16 className={css.navIcon} size={16} />
-+  if (id === 'archive-manager') return <IconArchiveOutline20 className={css.navIcon} size={16} />
-   return <IconSettingsOutline16 className={css.navIcon} size={16} />
- }
+@@ -77,7 +77,10 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
+                 aria-current={row.id === active ? 'true' : undefined}
+                 onClick={() => { onSelect(row.id) }}
+               >
+-                {navIcon(row.id)}
++                {renderSlot('settings.section.icon', { className: css.navIcon, size: 16 }, {
++                  entryKey: row.id,
++                  fallback: navIcon(row.id),
++                })}
+                 <span className={css.navLabel}>{row.label}</span>
+               </button>
+             ))}
+diff --git a/packages/client/ui-settings-general/src/client/index.ts b/packages/client/ui-settings-general/src/client/index.ts
+index c8962ec..c1675c1 100644
+--- a/packages/client/ui-settings-general/src/client/index.ts
++++ b/packages/client/ui-settings-general/src/client/index.ts
+@@ -39,6 +39,7 @@ export type {
+ } from './GeneralSection.tsx'
+ export type { SettingsDocumentActionInjected, SettingsDocumentActionProps } from './SettingsDocumentAction.tsx'
+ export type { SettingsDocumentState } from './settings-document-store.ts'
++export type { SettingsSectionIconOwnerProps } from './shell-contract.ts'
+ export { SettingsDocumentStore } from './settings-document-store.ts'
+ export type { SettingsKey } from './locales.ts'
+ 
+@@ -152,6 +153,7 @@ export function apply(ctx: ClientContext): void {
+       'settings.action': { kind: 'list', scope: 'root' },
+       'settings.close': { kind: 'single', scope: 'root' },
+       'settings.section': { kind: 'list', scope: 'root' },
++      'settings.section.icon': { kind: 'keyed', scope: 'root' },
+       'settings.onboarding': { kind: 'list', scope: 'root' },
+     },
+     inject: shellInjected,
+diff --git a/packages/client/ui-settings-general/src/client/shell-contract.ts b/packages/client/ui-settings-general/src/client/shell-contract.ts
+index 210f028..87526fd 100644
+--- a/packages/client/ui-settings-general/src/client/shell-contract.ts
++++ b/packages/client/ui-settings-general/src/client/shell-contract.ts
+@@ -16,6 +16,19 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+ // Type-only: pulls the settings slot declarations the shell renders into.
+ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+ 
++/** Geometry supplied by the Settings nav to a section-owned icon. */
++export interface SettingsSectionIconOwnerProps {
++  className?: string | undefined
++  size: number
++}
++
++declare module '@deepseek-ai/dsh-client-ui-slots' {
++  interface SlotMap {
++    /** Optional section icon, keyed by the matching settings.section id. */
++    'settings.section.icon': { kind: 'keyed'; scope: 'root'; owner: SettingsSectionIconOwnerProps }
++  }
++}
++
+ /** One nav row projected from a settings.section registration's options. */
+ export interface SettingsSectionRow {
+   id: string
+@@ -61,6 +74,7 @@ export type SettingsRootComponentProps =
+     | 'settings.action'
+     | 'settings.close'
+     | 'settings.section'
++    | 'settings.section.icon'
+     | 'settings.onboarding'
+   >
+   & InjectFace<SettingsRootInjected>
+diff --git a/packages/client/ui-settings-general/tests/settings-root.client.spec.tsx b/packages/client/ui-settings-general/tests/settings-root.client.spec.tsx
+index 556c095..5df897f 100644
+--- a/packages/client/ui-settings-general/tests/settings-root.client.spec.tsx
++++ b/packages/client/ui-settings-general/tests/settings-root.client.spec.tsx
+@@ -1,6 +1,6 @@
+ // @vitest-environment jsdom
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+-import { useEffect, useState } from 'react'
++import { useEffect, useState, type ReactNode } from 'react'
+ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+ import type { SettingsRootComponentProps } from '../src/client/shell-contract.ts'
+@@ -30,6 +30,7 @@ const useSessionPendingInteraction: SettingsRootComponentProps['useSessionPendin
+ 
+ function mount({
+   wide = true,
++  icons = {},
+   connectionState = 'connected',
+   onboardingActive = true,
+   rows = [
+@@ -43,6 +44,7 @@ function mount({
+   ],
+ }: {
+   wide?: boolean
++  icons?: Record<string, ReactNode>
+   connectionState?: ConnectionSnapshot
+   onboardingActive?: boolean
+   rows?: Row[]
+@@ -56,7 +58,8 @@ function mount({
+   const connectionListeners = new Set<() => void>()
+   const reconnect = vi.fn()
+   const renderSlot = vi.fn(
+-    ((key: string, _owner: unknown, opts?: { only?: string }) => {
++    ((key: string, _owner: unknown, opts?: { only?: string; entryKey?: string; fallback?: ReactNode }) => {
++      if (key === 'settings.section.icon') return icons[opts?.entryKey ?? ''] ?? opts?.fallback
+       if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
+       return SEAT_CONTENT[key]
+     }) as SettingsRootComponentProps['renderSlot'],
+@@ -341,3 +344,25 @@ describe('SettingsPanel navigation', () => {
+     expect(listeners.size).toBe(0)
+   })
+ })
++
++
++it('lets any section supply its nav icon while keeping built-in and unknown-section fallbacks', () => {
++  const icons: Record<string, ReactNode> = { 'custom-section': <span data-testid="custom-icon" /> }
++  const rows = [
++    { id: 'custom-section', order: 0, label: 'Custom' },
++    { id: 'models', order: 1, label: 'Models' },
++    { id: 'unrecognized-section', order: 2, label: 'Other' },
++  ]
++  const mounted = mount({ rows, icons, steps: [] })
++  openPanel()
++  expect(screen.getByRole('button', { name: 'Custom' }).querySelector('[data-testid="custom-icon"]')).toBeTruthy()
++  expect(screen.getByRole('button', { name: 'Models' }).querySelector('svg')).toBeTruthy()
++  expect(screen.getByRole('button', { name: 'Other' }).querySelector('svg')).toBeTruthy()
++  expect(mounted.renderSlot).toHaveBeenCalledWith('settings.section.icon', {
++    className: expect.any(String), size: 16,
++  }, { entryKey: 'custom-section', fallback: expect.anything() })
++  delete icons['custom-section']
++  mounted.bump([...rows])
++  expect(screen.queryByTestId('custom-icon')).toBeNull()
++  expect(screen.getByRole('button', { name: 'Custom' }).querySelector('svg')).toBeTruthy()
++})
+diff --git a/packages/client/ui-settings-general/tests/shell.client.spec.ts b/packages/client/ui-settings-general/tests/shell.client.spec.ts
+index 8e33a75..edf34d2 100644
+--- a/packages/client/ui-settings-general/tests/shell.client.spec.ts
++++ b/packages/client/ui-settings-general/tests/shell.client.spec.ts
+@@ -59,6 +59,7 @@ const CHILD_SPECS = {
+   'settings.action': { kind: 'list', scope: 'root' },
+   'settings.close': { kind: 'single', scope: 'root' },
+   'settings.section': { kind: 'list', scope: 'root' },
++  'settings.section.icon': { kind: 'keyed', scope: 'root' },
+   'settings.onboarding': { kind: 'list', scope: 'root' },
+ } as const
  

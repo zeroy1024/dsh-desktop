@@ -58,7 +58,10 @@ export interface SectionRegisterOptions {
 }
 
 /** slots.register 的宽松返回：卸载 disposer。 */
-type Register = (options: SectionRegisterOptions, component: unknown) => () => void
+type Register = (
+  options: SectionRegisterOptions | { name: 'settings.section.icon'; key: string },
+  component: unknown,
+) => () => void
 
 export interface SlotsRuntime {
   /** 等目标槽声明存在后执行工厂；声明塌缩时自动回收。 */

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ArchiveSectionIcon } from '../src/client/ArchiveSectionIcon.tsx'
 import { ArchiveManagerSection } from '../src/client/ArchiveManagerSection.tsx'
 import { apply, inject } from '../src/client/index.ts'
 import type { ClientContext } from '../src/client/types.ts'
@@ -7,17 +8,21 @@ describe('client plugin wiring', () => {
   it('registers the locale dictionaries and mounts the archive section', () => {
     const registerLocale = vi.fn(() => () => {})
     const bind = vi.fn(() => (key: string) => `zh:${key}`)
-    let sectionKey: string | undefined
+    const injectedSlots: string[] = []
+    const registered: { options: Record<string, unknown>; component: unknown }[] = []
     let options: Record<string, unknown> | undefined
     let component: unknown
     const context: ClientContext = {
       effect: factory => factory(),
       locale: { register: registerLocale, bind },
       slots: {
-        inject: (name, factory) => { sectionKey = name; return factory() },
+        inject: (name, factory) => { injectedSlots.push(name); return factory() },
         register: (next, entry) => {
-          options = next as unknown as Record<string, unknown>
-          component = entry
+          registered.push({ options: next as unknown as Record<string, unknown>, component: entry })
+          if (next.name === 'settings.section') {
+            options = next as unknown as Record<string, unknown>
+            component = entry
+          }
           return () => {}
         },
       },
@@ -29,7 +34,8 @@ describe('client plugin wiring', () => {
       'archive-manager',
       expect.objectContaining({ zh: expect.anything(), en: expect.anything() }),
     )
-    expect(sectionKey).toBe('settings.section')
+    expect(injectedSlots).toEqual(['settings.section', 'settings.section.icon'])
+    expect(registered).toContainEqual({ options: { name: 'settings.section.icon', key: 'archive-manager' }, component: ArchiveSectionIcon })
     expect(options).toMatchObject({
       name: 'settings.section',
       id: 'archive-manager',

@@ -181,9 +181,43 @@ describe('AgentSupervisor', () => {
     expect(supervisor.readyInfo).toBeNull()
   })
 
+  it.skipIf(process.platform === 'win32')('CLI exit 不等待继承管道，stop 仍升级终止同组孙进程', { timeout: 10_000 }, async () => {
+    const options = makeOptions('fake-dsh-inherited-pipe.mjs', {
+      stopGraceMs: 100,
+      restart: { maxRetries: 0 },
+    })
+    const supervisor = track(new AgentSupervisor(options))
+    const exited = new Promise<void>((resolveExit) => supervisor.once('exit', () => resolveExit()))
+    await supervisor.start()
+    await exited
+    expect(supervisor.state).toBe('stopping')
+    expect(supervisor.readyInfo).toBeNull()
+    await supervisor.stop()
+    expect(supervisor.state).toBe('stopped')
+  })
+
+  it.skipIf(process.platform === 'win32')('独立进程组保留stderr时有界关闭管道并恢复监管器状态', { timeout: 12_000 }, async () => {
+    const options = makeOptions('fake-dsh-inherited-pipe.mjs', { stopGraceMs: 30, restart: { maxRetries: 0 } })
+    const pidFile = join(dirname(options.logDir), 'descendant.pid')
+    options.env = { FAKE_DSH_DETACHED: '1', FAKE_DSH_DESCENDANT_PID: pidFile }
+    const supervisor = track(new AgentSupervisor(options))
+    const gaveUp = new Promise<void>((resolveDone) => supervisor.once('gave-up', () => resolveDone()))
+    await supervisor.start()
+    const descendant = Number(readFileSync(pidFile, 'utf8'))
+    try {
+      await gaveUp
+      expect(supervisor.state).toBe('stopped')
+      expect(supervisor.readyInfo).toBeNull()
+      await supervisor.stop()
+      expect(readFileSync(join(options.logDir, 'dsh-agent.log'), 'utf8')).toContain('token=[REDACTED]')
+    } finally {
+      try { process.kill(-descendant, 'SIGKILL') } catch { /* already gone */ }
+    }
+  })
+
   it('cliEntry 不存在时 start 拒绝且状态回 stopped，不悬挂', async () => {
     const supervisor = track(
-      new AgentSupervisor(makeOptions('fake-dsh-ready.mjs', { cliEntry: '/definitely/missing/dsh-bin.js' })),
+      new AgentSupervisor(makeOptions('fake-dsh-ready.mjs', { cliEntry: join(fixturesDir, 'missing-dsh-bin.mjs') })),
     )
 
     // node 自身能 spawn 成功，入口缺失表现为立即非零退出（close code=1），走 rejectBeforeReady

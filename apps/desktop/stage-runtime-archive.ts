@@ -26,13 +26,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)))
-const sourceDir = resolve(appDir, '..', '..', 'vendor', 'dsh-cli')
-const outputDir = join(appDir, '.runtime-archive')
-const outputTar = join(outputDir, 'dsh-cli.tar')
-const fileListPath = join(outputDir, '.file-list.txt')
-
 /** 与 electron-builder.yml 历史上 extraResources 的剪枝 filter 保持一致。 */
-const PRUNE_EXTENSIONS = ['.map', '.ts', '.mts', '.cts', '.md', '.pdb']
+const PRUNE_EXTENSIONS = ['.map', '.ts', '.mts', '.cts', '.pdb']
 const PRUNE_DIR_NAMES = new Set([
   'example',
   'examples',
@@ -54,6 +49,9 @@ function shouldPrune(relativePath: string): boolean {
   const segments = relativePath.split('/')
   const base = segments[segments.length - 1]!
   if (base.startsWith('CHANGELOG')) return true
+  // Markdown under assets/ can be executable skill content. Only known package
+  // documentation names are disposable; a .md extension alone proves nothing.
+  if (/^README(?:\.[A-Za-z-]+)?\.md$/iu.test(base)) return true
   if (PRUNE_EXTENSIONS.some((extension) => base.endsWith(extension))) return true
   // yaml 包的 doc/ 是运行时依赖（directives.js），不在剪枝名单内
   return segments.some((segment) => PRUNE_DIR_NAMES.has(segment))
@@ -75,7 +73,7 @@ function collectFiles(dir: string, prefix: string, out: string[]): void {
   }
 }
 
-function runTar(args: string[]): string {
+function runTar(args: string[], sourceDir: string): string {
   const result = spawnSync('tar', args, {
     cwd: sourceDir,
     env: { ...process.env, COPYFILE_DISABLE: '1' },
@@ -91,7 +89,16 @@ function runTar(args: string[]): string {
   return result.stdout
 }
 
-function main(): void {
+export interface StageRuntimeArchiveOptions {
+  sourceDir?: string
+  outputDir?: string
+}
+
+export function stageRuntimeArchive(options: StageRuntimeArchiveOptions = {}): string {
+  const sourceDir = resolve(options.sourceDir ?? resolve(appDir, '..', '..', 'vendor', 'dsh-cli'))
+  const outputDir = resolve(options.outputDir ?? join(appDir, '.runtime-archive'))
+  const outputTar = join(outputDir, 'dsh-cli.tar')
+  const fileListPath = join(outputDir, '.file-list.txt')
   if (!existsSync(join(sourceDir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))) {
     throw new Error('stage runtime archive: 缺少 vendor/dsh-cli 安装产物，请先运行 pnpm sync:upstream')
   }
@@ -116,10 +123,10 @@ function main(): void {
     closeSync(fd)
   }
 
-  runTar(['-cf', outputTar, '-h', `-T${fileListPath}`])
+  runTar(['-cf', outputTar, '-h', `-T${fileListPath}`], sourceDir)
   rmSync(fileListPath, { force: true })
 
-  const listing = runTar(['-tf', outputTar])
+  const listing = runTar(['-tf', outputTar], sourceDir)
   for (const required of REQUIRED_MEMBERS) {
     if (!listing.includes(`./${required}`) && !listing.includes(required)) {
       throw new Error(`stage runtime archive: 产物缺少必要成员 ${required}`)
@@ -128,6 +135,9 @@ function main(): void {
 
   const sizeMiB = (statSync(outputTar).size / 1024 / 1024).toFixed(1)
   console.log(`[runtime-archive] staged: ${outputTar}（${members.length} 个文件，${sizeMiB} MiB）`)
+  return outputTar
 }
 
-main()
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stageRuntimeArchive()
+}

@@ -2,20 +2,20 @@
 
 import { VisionCard } from './VisionCard.tsx'
 import { VisionCardController, VISION_NS } from './vision-card-controller.ts'
-import type { ClientContext, ConnectionHandle } from './types.ts'
+import type { ClientContext } from './types.ts'
+import { credentialAdapter } from './credentials.ts'
 import { en, NS, zh } from './locales.ts'
 
 export { VisionCardController, VISION_NS } from './vision-card-controller.ts'
 export type { VisionCardState, VisionCardFace, VisionSettings } from './vision-card-controller.ts'
 export type { ClientContext, VisionCardProps } from './types.ts'
 
-export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope'] as const
+export { inject } from './dependencies.ts'
 
 export function apply(ctx: ClientContext): void {
-  const connection = ctx.get('connection') as ConnectionHandle | undefined
   const controller = new VisionCardController(
     ctx.settingsScope.bind({ namespace: VISION_NS }),
-    connection,
+    { api: { credentials: credentialAdapter(ctx.remote!) } },
   )
 
   ctx.effect(() => {

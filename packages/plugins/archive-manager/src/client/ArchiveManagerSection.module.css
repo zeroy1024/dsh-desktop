@@ -1,4 +1,4 @@
-/* 只用 currentColor / 半透明层，继承官方设置面板的明暗主题，不硬编码配色。 */
+/* 使用宿主语义主题 token，跟随原生边框、交互态和错误色。 */
 
 .section {
   display: flex;
@@ -32,7 +32,7 @@
 }
 
 .error {
-  background: rgba(239, 68, 68, 0.14);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
 }
 
 .empty {
@@ -60,7 +60,7 @@
 .controlBtn {
   padding: 3px 8px;
   border-radius: 7px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border: 1px solid var(--dsw-alias-border-l3);
   background: transparent;
   color: inherit;
   font-size: 12px;
@@ -70,11 +70,11 @@
 
 .select:hover,
 .controlBtn:hover {
-  background: rgba(128, 128, 128, 0.14);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .controlBtn[aria-pressed='true'] {
-  background: rgba(128, 128, 128, 0.2);
+  background: var(--dsw-alias-interactive-bg-active);
 }
 
 .groups {
@@ -99,7 +99,7 @@
 .groupCount {
   padding: 0 6px;
   border-radius: 8px;
-  background: rgba(128, 128, 128, 0.18);
+  background: var(--dsw-alias-border-l2);
   font-size: 10px;
   font-weight: 500;
 }
@@ -117,7 +117,7 @@
   align-items: center;
   gap: 12px;
   padding: 9px 4px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
 .row:last-child {
@@ -151,7 +151,7 @@
   flex: none;
   padding: 4px 12px;
   border-radius: 7px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border: 1px solid var(--dsw-alias-border-l3);
   background: transparent;
   color: inherit;
   font-size: 12px;
@@ -159,7 +159,7 @@
 }
 
 .restoreBtn:hover:not(:disabled) {
-  background: rgba(128, 128, 128, 0.14);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .restoreBtn:disabled {

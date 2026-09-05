@@ -159,14 +159,14 @@ describe('restore handler', () => {
       const body = await res.json() as Record<string, unknown>
       expect(res.status).toBe(200)
       expect(body.reverted).toBe('restored')
-      expect(feed.calls.at(-1)).toEqual(['restore', '--source=HEAD', '--worktree', '--staged', '--', 'a.ts'])
+      expect(feed.calls.at(-1)).toEqual(['--literal-pathspecs', 'restore', '--source=HEAD', '--worktree', '--staged', '--', 'a.ts'])
     })
   })
 
   it('untracked 文件被删除；坏路径 400；status 外的 path 400', async () => {
     const root = await mkdtemp(join(tmpdir(), 'review-restore-'))
     await writeFile(join(root, 'new.txt'), 'draft')
-    const feed = fakeRunGit(() => ({ code: 0, stdout: '?? new.txt\0' }))
+    const feed = fakeRunGit(args => ({ code: 0, stdout: args[0] === 'status' ? '?? new.txt\0' : '' }))
     const handler = createRestoreHandler({ resolveRoot: async () => root, runGit: feed.runGit })
     await withServer(handler, async (port) => {
       const ok = await fetch(`http://127.0.0.1:${port}/dsh-desktop/review/restore`, {

@@ -4,6 +4,7 @@ import { shouldStretchTitleband, titlebandWidthPx } from '../geometry.ts'
 import { markDesktopFrame } from '../mark.ts'
 import { desktopFrameT, type FrameLocaleStore } from './locales.ts'
 import { ApplicationMenuBar } from './ApplicationMenuBar.tsx'
+import { observeContentEnd } from './content-end.ts'
 
 function platform(): string {
   return window.dshDesktop?.platform ?? ''
@@ -60,46 +61,6 @@ export interface TitlebandProps {
 export function createTitleband(actions: TitlebandProps) {
   return function DesktopTitleband() {
     return <Titleband {...actions} />
-  }
-}
-
-/**
- * 左簇测量：观察标题带内真实按钮/菜单栏的右缘，写入
- * --dsh-titleband-content-end（CSS 变量）——折叠态 header padding 与
- * 分隔线位置从它推导（geometry.ts 的单一事实源，不再各自维护
- * 172/168/159.5 常量）。Windows/Linux 不再落入 darwin 假灯区。
- */
-function observeContentEnd(
-  container: HTMLElement,
-  geometryRef: { contentEnd: number },
-  apply: () => void,
-): () => void {
-  let raf = 0
-  const measure = (): void => {
-    raf = 0
-    const origin = container.getBoundingClientRect().left
-    let end = 0
-    for (const node of container.querySelectorAll<HTMLElement>('[data-dsh-menubar], [data-dsh-cluster-button]')) {
-      end = Math.max(end, node.getBoundingClientRect().right - origin)
-    }
-    if (end !== geometryRef.contentEnd) {
-      geometryRef.contentEnd = end
-      // 消费方（折叠态 center-col header padding/分隔线）在 titleband 的
-      // 子树之外，变量必须挂到 documentElement 才能被继承到。
-      document.documentElement.style.setProperty('--dsh-titleband-content-end', `${Math.round(end)}px`)
-      apply()
-    }
-  }
-  const ro = new ResizeObserver(() => {
-    if (raf !== 0) return
-    raf = requestAnimationFrame(measure)
-  })
-  ro.observe(container)
-  measure()
-  return () => {
-    if (raf !== 0) cancelAnimationFrame(raf)
-    ro.disconnect()
-    document.documentElement.style.removeProperty('--dsh-titleband-content-end')
   }
 }
 
@@ -209,7 +170,7 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
 
     sync()
     if (titlebandRef.current !== null) {
-      unobserveContentEnd = observeContentEnd(titlebandRef.current, geometryRef.current, applyTitlebandWidth)
+      unobserveContentEnd = observeContentEnd(titlebandRef.current, geometryRef, applyTitlebandWidth)
     }
     // 只盯折叠标记和子树结构。不能观察 style/class/data-dsh-frame：
     // 官方 AppFrame 每帧写 gridTemplateColumns，我们自己也写 titleband width，

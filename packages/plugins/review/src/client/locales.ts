@@ -12,6 +12,7 @@ export type ReviewKey =
   | 'page.title'
   | 'mode.session'
   | 'mode.git'
+  | 'summary.actions'
   | 'summary.loading'
   | 'summary.fileCount'
   | 'summary.editCount'
@@ -64,6 +65,7 @@ export const zh: Record<ReviewKey, string> = {
   'page.title': '审查',
   'mode.session': '会话内改动',
   'mode.git': '工作区改动',
+  'summary.actions': '审查选项',
   'summary.loading': '加载中…',
   'summary.fileCount': '{n} 个文件',
   'summary.editCount': '{n} 次编辑',
@@ -117,6 +119,7 @@ export const en: Record<ReviewKey, string> = {
   'page.title': 'Review',
   'mode.session': 'Session changes',
   'mode.git': 'Workspace changes',
+  'summary.actions': 'Review options',
   'summary.loading': 'Loading…',
   'summary.fileCount': '{n} files',
   'summary.editCount': '{n} edits',

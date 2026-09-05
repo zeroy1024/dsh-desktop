@@ -12,9 +12,9 @@ process.chdir(appDir)
 await build({
   absWorkingDir: appDir,
   bundle: true,
-  packages: 'external',
-  entryPoints: ['src/index.ts'],
-  outfile: 'lib/index.js',
+  external: ['@deepseek-ai/*', 'zod'],
+  entryPoints: ['src/index.ts', 'src/session-query.ts'],
+  outdir: 'lib',
   format: 'esm',
   platform: 'node',
   target: 'node22',

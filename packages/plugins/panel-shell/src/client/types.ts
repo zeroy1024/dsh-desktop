@@ -50,6 +50,9 @@ export type Translate = (key: string, params?: Record<string, string | number>) 
 /* ===== 2. 客户端 Context（插件 apply 收到的服务面切片）===== */
 
 export interface ClientContext {
+  inject: (services: readonly string[], callback: (scope: ClientContext & {
+    trajectoryView: import('./trajectory.tsx').TrajectoryViewService
+  }) => void) => unknown
   /** 声明 effect 及其释放器（apply 作用域的组册，插件卸载时统一回收）。 */
   effect: (fn: () => (() => void) | void, name: string) => void
   /** 提供命名服务（panelShell 注册表），供页面插件经 ctx 服务面读取。 */
@@ -72,10 +75,10 @@ export interface ClientContext {
         order?: number
         /** 容器在渲染点为子槽提供渲染委托 + 容器自持注入面。 */
         children?: Record<string, { kind: 'list' | 'single'; scope: string }>
-        inject?: () => unknown
+        inject?: (sessionId: Parameters<import('./trajectory.tsx').TrajectoryContribution['options']['inject']>[0]) => unknown
       },
       component: unknown,
-    ) => unknown
+    ) => () => void
     /** 枚举某槽的已注册条目（对账用）。 */
     entries: (name: string) => ReadonlyArray<{ options: { id?: string } }>
     /** 订阅某槽的条目变动（对账用）。 */
@@ -97,7 +100,7 @@ export interface PanelShellContext extends ClientContext {
 /**
  * panelShell 服务的聚焦动作面：容器在 apply 编排层挂到注册表实例上
  * （Object.assign 同一身份，registerPage 消费者不受影响）。0008 缝
- * （ui-conversation 的 inspectCall 探测）经 ctx.get('panelShell') 结构化
+ * （ui-chat 的 inspectCall 探测）经 ctx.get('panelShell') 结构化
  * 读取本面。目标交接为定向单槽：inspect 写入的归属页 id 驱动容器只向该页
  * 座位投递（其余座位收到 null）；轨迹页是第一个消费者，后续页面（变更
  * 审查、文件浏览器等）按需扩展对应的 owner 字段，路由层无需再动。

@@ -13,7 +13,7 @@ DeepSeek Harness Desktop：用 Electron 封装 [deepseek-harness](https://github
 ## 目录结构
 
 ```
-upstream/           git submodule，pin 到 npm 已发布版本对应的 tag（当前 dsh-v0.1.1-rc.2）
+upstream/           git submodule，pin 到 npm 已发布版本对应的 tag（当前 dsh-v0.1.2-rc.1）
 patches/            对上游的最小补丁队列 + patches.yml 登记
 apps/desktop/       Electron 壳（主进程 + preload）
 packages/agent-host/  dsh 子进程监管库（纯 Node，可单测）

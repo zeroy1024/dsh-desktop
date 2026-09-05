@@ -36,10 +36,11 @@ export function resolveBundledPlugins(): BundledPlugin[] {
     if (!existsSync(manifestPath)) continue
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       name?: string
-      dshDesktop?: { enabled?: boolean }
+      dshDesktop?: { enabled?: boolean; developmentOnly?: boolean }
     }
     if (typeof manifest.name !== 'string' || manifest.name === '') continue
     if (manifest.dshDesktop?.enabled === false) continue
+    if (manifest.dshDesktop?.developmentOnly === true && app.isPackaged) continue
     plugins.push({ name: manifest.name, dir })
   }
   plugins.sort((a, b) => a.name.localeCompare(b.name))

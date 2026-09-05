@@ -16,10 +16,10 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-connection",
-        "slots",
+        "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-locale",
-        "@dsh-desktop/panel-shell"
+        "@dsh-desktop/panel-shell",
+        "@deepseek-ai/dsh-api-session-controller"
       ],
       "external": [
         "@dsh-desktop/panel-shell/client"
@@ -53,6 +53,8 @@
     "react-dom": "^18.2.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller",
+    "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis"
   }
 }

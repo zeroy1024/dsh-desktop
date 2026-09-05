@@ -11,16 +11,16 @@
  * drives the same ctx.layout actions.
  *
  * 服务面在注册表之上挂载聚焦动作（openPage/inspect，PanelShellFocus）：
- * inspect 是 0008 缝（ui-conversation 的 inspectCall 可选探测）的生产侧——
+ * inspect 是 0008 缝（ui-chat 的 inspectCall 可选探测）的生产侧——
  * chat 的 Inspect 按钮经它完成「开面板列 → 开轨迹页 → 下发一次性选中
  * 目标」的跨缝手势，交接 store 由容器订阅后经 owner props 送进面板页。
  */
 import type { ClientContext, PanelShellFocus } from './types.ts'
-import type { PanelPageMeta } from './registry.ts'
 import { PanelShell } from './PanelShell.tsx'
 import { PanelShellController, reconcilePageHalves } from './registry.ts'
 import { createInspectHandoff, createPanelLedger } from './panel-store.ts'
 import { en, NS, zh } from './locales.ts'
+import { registerTrajectoryPanel } from './trajectory.tsx'
 
 // Contract exports only: page plugins type their registration halves
 // against these (runtime access rides the ctx.panelShell service).
@@ -31,14 +31,8 @@ export { createInspectHandoff, createPanelLedger } from './panel-store.ts'
 export type { InspectHandoff, InspectHandoffState, PanelLedger } from './panel-store.ts'
 export { useHorizontalTabScroll } from './horizontal-tab-scroll.ts'
 
-/**
- * Required services (cordis fiber inject — the loader passes all module
- * exports as an object plugin). 'trajectoryPanelPage' 是
- * patches/0007 反转控制的服务依赖：trajectory 插件 apply 时
- * reflect.provide 该服务；声明它让 cordis 拓扑保证 trajectory 先行，
- * 本插件 apply 时服务必已就位。
- */
-export const inject = ['slots', 'locale', 'layout', 'trajectoryPanelPage']
+/** Core services only; trajectory is an optional page contributor. */
+export const inject = ['slots', 'locale', 'layout']
 
 /**
  * Client plugin body: provide `ctx.panelShell`, occupy the `panel` column
@@ -70,6 +64,20 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'panel-shell: dictionaries')
 
+  // The container: occupies the panel column and declares the page seam
+  // (declaration = exclusive render authority). The tab ledger store rides
+  // the inject face, not the framework store seat: the session-maybe scope
+  // withholds store instances while no session is current, and the tab strip
+  // must work in both phases.
+  ctx.slots.inject('panel', () => ctx.slots.register({
+    name: 'panel',
+    children: {
+      'panel-shell.page': { kind: 'list', scope: 'session' },
+    },
+    inject: () => ({ registry, ledger, handoff }),
+    locale: NS,
+  }, PanelShell))
+
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('panelShell', service)
 
@@ -87,40 +95,31 @@ export function apply(ctx: ClientContext): void {
       }
       registry.setReconcileError(reconcilePageHalves(registry.pages, slotIds))
     }
-    const disposeRegistryWatch = registry.subscribe(reconcile)
-    const disposeSlotWatch = ctx.slots.subscribe('panel-shell.page', reconcile)
+    let stopped = false
+    let queued = false
+    const scheduleReconcile = (): void => {
+      if (queued) return
+      queued = true
+      queueMicrotask(() => {
+        queued = false
+        if (!stopped) reconcile()
+      })
+    }
+    const disposeRegistryWatch = registry.subscribe(scheduleReconcile)
+    const disposeSlotWatch = ctx.slots.subscribe('panel-shell.page', scheduleReconcile)
     reconcile()
 
-    // patches/0007 反转控制：消费 trajectory 的面板页注册服务（cordis 元素=
-    // trajectory 包 id，见 inject）。服务缺席（上游 web）时轮询空转无害。
-    // patches/0007 反转控制：消费 trajectory 的面板页注册服务。inject 声明
-    // 'trajectoryPanelPage' 后 cordis 拓扑保证 trajectory 先行，服务必已就位。
-    const pageFactory = ctx.get('trajectoryPanelPage') as {
-      register(host: { registerPage(meta: PanelPageMeta): () => void }): () => void
-    }
-    const disposePage = pageFactory.register({
-      registerPage: (meta) => registry.registerPage(meta),
-    })
-
     return () => {
-      disposePage?.()
+      stopped = true
       disposeSlotWatch()
       disposeRegistryWatch()
       void disposeService()
     }
   }, 'panel-shell: service + reconciliation watcher')
 
-  // The container: occupies the panel column and declares the page seam
-  // (declaration = exclusive render authority). The tab ledger store rides
-  // the inject face, not the framework store seat: the session-maybe scope
-  // withholds store instances while no session is current, and the tab strip
-  // must work in both phases.
-  ctx.slots.inject('panel', () => ctx.slots.register({
-    name: 'panel',
-    children: {
-      'panel-shell.page': { kind: 'list', scope: 'session' },
-    },
-    inject: () => ({ registry, ledger, handoff }),
-    locale: NS,
-  }, PanelShell))
+
+  ctx.inject(['trajectoryView'], (scope) => {
+    scope.slots.inject('panel-shell.page', () => registerTrajectoryPanel(scope, registry, scope.trajectoryView))
+  })
+
 }

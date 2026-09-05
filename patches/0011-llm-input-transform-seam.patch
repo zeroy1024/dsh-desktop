@@ -1,5 +1,5 @@
 diff --git a/packages/llm/llm/README.md b/packages/llm/llm/README.md
-index 6baa020a95..badf12bc87 100644
+index 6baa020..badf12b 100644
 --- a/packages/llm/llm/README.md
 +++ b/packages/llm/llm/README.md
 @@ -63,6 +63,7 @@ After a successful mount, `ctx.llm.listProviders()` reports the registered route
@@ -11,7 +11,7 @@ index 6baa020a95..badf12bc87 100644
  ### Failures and recovery
  
 diff --git a/packages/llm/llm/README.zh.md b/packages/llm/llm/README.zh.md
-index f985736da4..f7bcba7ba5 100644
+index f985736..f7bcba7 100644
 --- a/packages/llm/llm/README.zh.md
 +++ b/packages/llm/llm/README.zh.md
 @@ -63,6 +63,7 @@ for await (const chunk of ctx.llm.stream({
@@ -23,7 +23,7 @@ index f985736da4..f7bcba7ba5 100644
  ### 失败与恢复
  
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
-index cdecc4c96e..af02e826de 100644
+index cdecc4c..af02e82 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
 @@ -184,6 +184,37 @@ export interface PreparedAdapterCall {
@@ -252,7 +252,7 @@ index cdecc4c96e..af02e826de 100644
 +
  export default LlmRuntime
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 47309daea1..414546e794 100644
+index 47309da..414546e 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
 @@ -1,4 +1,4 @@

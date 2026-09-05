@@ -1,0 +1,398 @@
+diff --git a/packages/boot/app-boot/tests/provider-replacement.spec.ts b/packages/boot/app-boot/tests/provider-replacement.spec.ts
+new file mode 100644
+index 0000000..f51aa05
+--- /dev/null
++++ b/packages/boot/app-boot/tests/provider-replacement.spec.ts
+@@ -0,0 +1,90 @@
++import { readFileSync } from 'node:fs'
++import { describe, expect, it, vi } from 'vitest'
++import * as yaml from 'js-yaml'
++import { applyEntryPatches, entryListSchema } from '@deepseek-ai/cordis-plugin-include'
++import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
++import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
++
++const ORIGINAL = '@deepseek-ai/dsh-session-query-sqlite'
++const REPLACEMENT = '@example/projected-session-query'
++const load = (path: string): PatchOptions[] => yaml.load(readFileSync(new URL(path, import.meta.url), 'utf8'),
++  { schema: entryListSchema }) as PatchOptions[]
++
++function find(entries: readonly EntryOptions[], id: string): EntryOptions | undefined {
++  for (const entry of entries) {
++    if (entry.id === id) return entry
++    if (entry.group && Array.isArray(entry.config)) {
++      const nested = find(entry.config as EntryOptions[], id)
++      if (nested !== undefined) return nested
++    }
++  }
++  return undefined
++}
++
++describe('provider replacement in composed entry patches', () => {
++  it('preserves the actual base/web config and accepts later user overrides under the same id', () => {
++    const layers = [
++      ...load('../../../bundle/base/cordis.patch.yml'),
++      ...load('../../../bundle/web-app/cordis.patch.yml'),
++    ]
++    const warnings = vi.fn()
++    const before = applyEntryPatches([], layers, warnings)
++    const replacement = { id: 'session-query-sqlite', name: ORIGINAL, replaceName: REPLACEMENT }
++    const projected = applyEntryPatches([], [...layers, replacement], warnings)
++    expect(find(projected, replacement.id)).toEqual({ ...find(before, replacement.id), name: REPLACEMENT })
++    expect(find(projected, replacement.id)?.config).toEqual({ path: ':memory:', openAt: 'never' })
++    const config = { path: '/tmp/user-query.db', openAt: 'first-search', maxLimit: 17 }
++    const final = applyEntryPatches([], [...layers, replacement,
++      { id: replacement.id, config, disabled: true }], warnings)
++    expect(find(final, replacement.id)).toMatchObject({ id: replacement.id, name: REPLACEMENT, config, disabled: true })
++    expect(applyEntryPatches([], layers, warnings)).toEqual(before)
++    expect(warnings).not.toHaveBeenCalled()
++  })
++
++  it('retains the name guard and does not mutate its input or leak replaceName into an entry', () => {
++    const rows = [{ id: 'provider', name: ORIGINAL, config: { path: 'unchanged.db' }, disabled: true }]
++    const warnings = vi.fn()
++    const mismatch = applyEntryPatches(rows, [{ id: 'provider', name: 'wrong', replaceName: REPLACEMENT,
++      config: { path: 'wrong.db' }, disabled: false }], warnings)
++    expect(mismatch).toEqual(rows)
++    expect(warnings).toHaveBeenCalledOnce()
++    const replaced = applyEntryPatches(rows, [{ id: 'provider', name: ORIGINAL, replaceName: REPLACEMENT }], warnings)
++    expect(replaced).toEqual([{ ...rows[0], name: REPLACEMENT }])
++    expect(rows[0]?.name).toBe(ORIGINAL)
++    expect(replaced[0]).not.toHaveProperty('replaceName')
++    expect(applyEntryPatches(rows, [], warnings)).toEqual(rows)
++  })
++
++  it.each(['', '  ', null, false, 7, {}])('rejects malformed replaceName %j before applying other fields', (replaceName) => {
++    const rows = [{ id: 'provider', name: ORIGINAL, config: { path: 'unchanged.db' }, disabled: true }]
++    const warnings = vi.fn()
++    expect(applyEntryPatches(rows, [{ id: 'provider', replaceName: replaceName as unknown as string,
++      config: { path: 'wrong.db' }, disabled: false }], warnings)).toEqual(rows)
++    expect(warnings).toHaveBeenCalledOnce()
++  })
++
++  it('rejects replaceName mixed with insert before adding any entry', () => {
++    const warnings = vi.fn()
++    expect(applyEntryPatches([], [{ replaceName: REPLACEMENT, insert: [{ id: 'extra', name: ORIGINAL }] }], warnings)).toEqual([])
++    expect(warnings).toHaveBeenCalledOnce()
++  })
++
++  it('owns config overrides before later group insertion or caller mutation', () => {
++    const rows = [{ id: 'group', name: 'group', group: true, config: [] }]
++    const patches: PatchOptions[] = [
++      { id: 'group', config: [{ id: 'provider', name: ORIGINAL, config: { path: 'original.db' } }] },
++      { id: 'group', insert: [{ id: 'extra', name: 'extra' }] },
++    ]
++    const input = structuredClone({ rows, patches })
++    const warnings = vi.fn()
++    const composed = applyEntryPatches(rows, patches, warnings)
++    expect(composed[0]?.config).toHaveLength(2)
++    const providerConfig = find(composed, 'provider')?.config as { path: string }
++    providerConfig.path = 'mutated.db'
++    expect({ rows, patches }).toEqual(input)
++    const again = applyEntryPatches(rows, patches, warnings)
++    expect(again[0]?.config).toHaveLength(2)
++    expect(find(again, 'provider')?.config).toEqual({ path: 'original.db' })
++    expect(warnings).not.toHaveBeenCalled()
++  })
++})
+diff --git a/packages/session-query/session-query-sqlite/src/index.ts b/packages/session-query/session-query-sqlite/src/index.ts
+index 4722557..66fccdd 100644
+--- a/packages/session-query/session-query-sqlite/src/index.ts
++++ b/packages/session-query/session-query-sqlite/src/index.ts
+@@ -10,7 +10,6 @@ import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
+ import z from '@deepseek-ai/schemastery'
+ import { SessionSeq } from '@deepseek-ai/dsh-session'
+ import type {
+-  Session,
+   SessionEvent,
+   SessionHeader,
+   SessionId,
+@@ -27,7 +26,6 @@ import SessionQueryEngine, {
+   SessionQueryError,
+   SessionSearchCursor,
+   assertSessionHeadersCompatible,
+-  buildSessionEventSearchDocuments,
+ } from '@deepseek-ai/dsh-session-query'
+ import type {
+   Config as SessionQueryConfig,
+@@ -320,6 +318,18 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
+     })
+   }
+ 
++  /**
++   * Stable identity of this provider's semantic-document projection.
++   * Override when buildSearchDocuments changes; keep constant during an instance's
++   * lifetime. A different identity rebuilds persisted documents even if raw logs
++   * have not changed. Exact reads and the canonical session store are unaffected.
++   */
++  protected get searchDocumentVersion(): string { return '1' }
++
++  private _indexedRevision(revision: SessionPersistenceRevision): string {
++    return JSON.stringify([this.searchDocumentVersion, revision])
++  }
++
+   /** Close the database after every accepted operation reaches quiescence. */
+   close(): Promise<void> {
+     this._closePromise ??= this._close()
+@@ -506,7 +516,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
+           assertNotAborted(signal)
+           persisted = materializePersistenceSnapshots(before)
+           for (const entry of persisted.values()) {
+-            if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
++            if (canReuseIndexed && indexed.get(entry.header.id)?.revision === this._indexedRevision(entry.revision)) continue
+             // Skip work already shadowed by a live owner. `inspect()` is
+             // non-mutating, so an owner attaching after this check cannot cause
+             // crash-repair side effects; the live-membership retry below makes
+@@ -520,6 +530,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
+               loaded.meta,
+               loaded.inheritedEventCount,
+               loaded.events,
++              (id, events) => this.buildSearchDocuments(id, events),
+             )
+           }
+           assertNotAborted(signal)
+@@ -545,7 +556,12 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
+       }
+       const live = new Map<SessionId, ObservedSession>()
+       for (const session of this.ctx.sessions.list()) {
+-        const observed = observeLive(session)
++        const observed = observeSession(
++          session.header,
++          session.inheritedEventCount,
++          session.snapshotEvents(),
++          (id, events) => this.buildSearchDocuments(id, events),
++        )
+         const durable = persisted.get(session.id)
+         if (durable !== undefined) assertSessionHeadersCompatible(observed.header, durable.header)
+         live.set(session.id, observed)
+@@ -590,7 +606,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     `).run(
+       ...headerBindings(entry.header, entry.inheritedEventCount),
+-      revision,
++      this._indexedRevision(revision),
+       generation,
+     )
+     const insert = db.prepare(`
+@@ -868,21 +884,18 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
+   ]
+ }
+ 
+-function observeLive(session: Session): ObservedSession {
+-  return observeSession(session.header, session.inheritedEventCount, session.snapshotEvents())
+-}
+-
+ function observeSession(
+   header: SessionHeader,
+   inheritedEventCount: SessionLogOffset,
+   events: readonly SessionEvent[],
++  buildDocuments: (id: SessionId, events: readonly SessionEvent[]) => SessionEventSearchDocument[],
+ ): ObservedSession {
+   const detachedHeader = structuredClone(header)
+   const detachedEvents = events.map(event => structuredClone(event))
+   return {
+     header: detachedHeader,
+     inheritedEventCount,
+-    documents: buildSessionEventSearchDocuments(detachedHeader.id, detachedEvents),
++    documents: buildDocuments(detachedHeader.id, detachedEvents),
+     fingerprint: createHash('sha256')
+       .update(JSON.stringify({ header: detachedHeader, inheritedEventCount, events: detachedEvents }))
+       .digest('base64url'),
+diff --git a/packages/session-query/session-query-sqlite/tests/document-projection.spec.ts b/packages/session-query/session-query-sqlite/tests/document-projection.spec.ts
+new file mode 100644
+index 0000000..0e2742a
+--- /dev/null
++++ b/packages/session-query/session-query-sqlite/tests/document-projection.spec.ts
+@@ -0,0 +1,65 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { Context, type Fiber } from '@deepseek-ai/cordis'
++import { createUserMessage } from '@deepseek-ai/dsh-llm'
++import SessionStore, { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
++import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
++import { mkdtemp, rm } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++
++class FirstDocumentQuery extends SqliteSessionQueryEngine {
++  protected override get searchDocumentVersion(): string { return 'first-document-v1' }
++  protected override buildSearchDocuments(id: SessionId, events: readonly SessionEvent[]) {
++    return super.buildSearchDocuments(id, events).filter(document => document.seq === 0)
++  }
++}
++
++const fibers: Fiber[] = []
++const paths: string[] = []
++afterEach(async () => {
++  for (const fiber of fibers.splice(0).toReversed()) await fiber.dispose()
++  for (const path of paths.splice(0)) await rm(path, { recursive: true, force: true })
++})
++
++async function fixture() {
++  const root = await mkdtemp(join(tmpdir(), 'dsh-document-projection-'))
++  paths.push(root)
++  const ctx = new Context()
++  fibers.push(await ctx.plugin(SessionProjectionRegistry))
++  fibers.push(await ctx.plugin(SessionStore))
++  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions'), compression: 'none' }))
++  const session = Session.create(SessionId('documents'))
++  for (const text of ['retained needle', 'excluded needle']) {
++    session.append('user/message', createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }), { surfaceOp: 'append' })
++  }
++  await ctx.sessionPersistence.create(session.header)
++  await ctx.sessionPersistence.append(session.id, session.snapshotEvents())
++  return { ctx, session, config: { path: join(root, 'query.db') } }
++}
++
++describe('semantic-document provider extension', () => {
++  it('shares filtering with full-text indexing, without changing exact history reads', async () => {
++    const { ctx, session, config } = await fixture()
++    fibers.push(await ctx.plugin(FirstDocumentQuery, config))
++    expect((await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' })).items.map(hit => hit.seq)).toEqual([0])
++    expect((await ctx.sessionQuery.searchSessions({ query: 'excluded' })).items).toEqual([])
++    expect((await ctx.sessionQuery.filterEvents(session.id, [])).map(document => document.seq)).toEqual([0])
++    expect((await ctx.sessionQuery.readEvent({ sessionId: session.id, seq: SessionSeq(1) })).target.data).toMatchObject({ content: [{ text: 'excluded needle' }] })
++    const live = ctx.sessions.create(SessionId('live-documents'), { seed: session.snapshotEvents() })
++    expect((await ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'excluded' })).items).toEqual([])
++  })
++
++  it('rebuilds unchanged persisted logs when switching projection versions in either direction', async () => {
++    const { ctx, session, config } = await fixture()
++    const native = await ctx.plugin(SqliteSessionQueryEngine, config)
++    expect((await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' })).items).toHaveLength(2)
++    await native.dispose()
++    const projected = await ctx.plugin(FirstDocumentQuery, config)
++    expect((await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' })).items.map(hit => hit.seq)).toEqual([0])
++    await projected.dispose()
++    fibers.push(await ctx.plugin(SqliteSessionQueryEngine, config))
++    expect((await ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' })).items).toHaveLength(2)
++  })
++})
+diff --git a/packages/session-query/session-query/src/index.ts b/packages/session-query/session-query/src/index.ts
+index 8d533f6..41358e8 100644
+--- a/packages/session-query/session-query/src/index.ts
++++ b/packages/session-query/session-query/src/index.ts
+@@ -9,6 +9,7 @@ import {
+   Session,
+   SessionSeq,
+   snapshotSessionEvent,
++  type SessionEvent,
+   type SessionId,
+   type SessionSeq as SessionSeqType,
+ } from '@deepseek-ai/dsh-session'
+@@ -247,6 +248,20 @@ export abstract class SessionQueryEngine extends Service {
+     }, signal)
+   }
+ 
++  /**
++   * Project semantic documents for filtering and full-text indexing.
++   * Providers may override this without changing exact raw-log reads or traces.
++   * @param sessionId - session owning the complete contiguous event log.
++   * @param events - complete raw log, retaining its original sequence numbers.
++   * @returns searchable documents in ascending sequence order.
++   */
++  protected buildSearchDocuments(
++    sessionId: SessionId,
++    events: readonly SessionEvent[],
++  ): SessionEventSearchDocument[] {
++    return buildSessionEventSearchDocuments(sessionId, events)
++  }
++
+   /**
+    * List lightweight raw-log event records for one logical session.
+    * @param sessionId - live-preferred session id to read.
+@@ -283,7 +298,7 @@ export abstract class SessionQueryEngine extends Service {
+     filters: readonly SessionEventResultFilter[],
+   ): Promise<SessionEventSearchDocument[]> {
+     const loaded = await this._corpus.load(sessionId)
+-    const documents = buildSessionEventSearchDocuments(sessionId, loaded.events)
++    const documents = this.buildSearchDocuments(sessionId, loaded.events)
+     return filterSessionEventDocuments(documents, filters)
+   }
+ 
+diff --git a/vendor/README.md b/vendor/README.md
+index 4cfbe89..5c5d6f2 100644
+--- a/vendor/README.md
++++ b/vendor/README.md
+@@ -50,6 +50,8 @@ Keep this log exhaustive — every divergence from upstream must be listed.
+ 18. **Entry `disabled` interpolation in `loader/src/config/entry.ts`**: a `disabled: !!js` expression evaluates against the loader context at every mount decision; the raw node stays in the options, so write-back keeps the `!!js` form. `disabled` is the only interpolated metadata field. Covered by `packages/boot/app-boot/tests/user-patches.spec.ts` and `apps/cli/tests/windows-shell.spec.ts`.
+ 19. **`loader/src/internal.ts` runtime shape detection**: `ModuleLoader.fromInternal()` classifies the internal loader by which module-job API it owns — `getOrCreateModuleJob` for v2, `getModuleJobForImport` for v1 — instead of by Node major version. Upstream tags every major `>= 24` as v2, but the v2 interface arrived in Node 24.12.0, so 24.0–24.11.1 report major 24 while still carrying the v1 loader; consumers then called `resolveSync` with reversed parameters and every call threw. `dsh web` served an empty client graph (`__DSH_BOOT__.entries: []`) and HMR partial reload resolved no entry URL, both behind swallowed or warn-level errors. Arity cannot discriminate the two shapes, because each reports `resolveSync.length === 2`. A loader owning neither API is left unclassified rather than guessed, so consumers take their documented no-internals path. Covered on the `node-compat` Node version matrix, which pins 24.9 for the mistagged range.
+ 
++20. **Desktop provider replacement (`include/src/index.ts`)**: adds optional `PatchOptions.replaceName` to change a target entry's module while preserving its id, config, disabled state, and other options. Existing `name` stays a matching assertion. Empty, whitespace-only, non-string replacements and replacement/insert combinations warn and skip the whole patch before mutation. Inserted entry graphs and override values are cloned before assignment so later renaming, nested insertion, or result mutation cannot modify a reused patch list; config dumps and reloads can recompose it or remove the replacement. This lets a deployment replace a provider without copying its configuration or breaking later layers that address the original id. Covered by `packages/boot/app-boot/tests/provider-replacement.spec.ts`.
++
+ ## Sync procedure
+ 
+ To update a vendored package from upstream:
+diff --git a/vendor/include/src/index.ts b/vendor/include/src/index.ts
+index 5ee20ef..5884a1e 100644
+--- a/vendor/include/src/index.ts
++++ b/vendor/include/src/index.ts
+@@ -75,9 +75,23 @@ export function applyEntryPatches(
+   buildMap(data)
+ 
+   for (const patch of patches) {
+-    const { id, insert, name, ...overrides } = patch
++    const { id, insert, name, replaceName, ...overrides } = patch
++
++    // Validate before touching any entry: a malformed replacement must not
++    // partially apply its config or disabled overrides.
++    if (replaceName !== undefined && (typeof replaceName !== 'string' || replaceName.trim().length === 0)) {
++      warn('patch: invalid replaceName for %C, skipping', id)
++      continue
++    }
++    if (replaceName !== undefined && insert !== undefined) {
++      warn('patch: replaceName cannot be combined with insert, skipping')
++      continue
++    }
+ 
+     if (insert) {
++      // Later patches may rename or configure these rows. Own the inserted
++      // graph so another composition of the same patch list starts cleanly.
++      const entries = structuredClone(insert)
+       if (id) {
+         const target = entryMap.get(id)
+         if (!target) {
+@@ -89,16 +103,16 @@ export function applyEntryPatches(
+           continue
+         }
+         if (!Array.isArray(target.config)) target.config = []
+-        target.config.push(...insert)
++        target.config.push(...entries)
+       } else {
+-        data.push(...insert)
++        data.push(...entries)
+       }
+       // Index what this patch added so a LATER patch in the same list can
+       // target it. Patch lists compose one layer per source (each bundle
+       // layer, then the user's, then `--patch` overlays), and a layer must be
+       // able to configure or disable a row an earlier layer inserted; without
+       // this, inserted rows were silently unpatchable.
+-      buildMap(insert)
++      buildMap(entries)
+       continue
+     }
+ 
+@@ -118,9 +132,11 @@ export function applyEntryPatches(
+       continue
+     }
+ 
++    if (replaceName !== undefined) target.name = replaceName
++
+     for (const [key, value] of Object.entries(overrides)) {
+       if (key === 'id') continue
+-      target[key] = value
++      target[key] = structuredClone(value)
+     }
+   }
+ 
+@@ -145,7 +161,10 @@ class ConfigFileError extends Error {
+ export interface PatchOptions {
+   id?: string
+   insert?: EntryOptions[]
++  /** Optional assertion of the target's current module name; never renames it. */
+   name?: string
++  /** Replace only the module name, retaining the target id and untouched options. */
++  replaceName?: string
+   config?: any
+   group?: boolean | null
+   disabled?: boolean | null

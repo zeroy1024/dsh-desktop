@@ -1,114 +1,114 @@
-# 对 upstream/ 的全部源码变更都在此登记，sync-upstream.ts 按顺序 git apply。
-#
-# 边界铁律：能做成 dsh 插件的不动配置，能写成 cordis.patch.yml 配置叠层的不动源码。
-# 只有当前两条路都走不通时才允许新增补丁，且必须写明理由。
-#
-# ⚠️ 0.1.2 迁移期（upgrade/dsh-v0.1.2-rc.1 分支）：其余补丁按
-#    docs/upgrade-dsh-0.1.2-rc.1-phases.md 逐个重做后回归登记。
-#
-# 每条记录：
-#   file:     补丁文件名（相对本目录，建议 NNNN-描述.patch 命名）
-#   reason:   为什么必须改源码（而不是插件/配置）
-#   upstream: 对应的上游 issue/PR（有则填，上游修复后应移除本补丁）
+# 对 upstream/ 的全部源码变更在此登记，sync-upstream.ts 按队列顺序应用。
+# 优先 dsh 插件，再配置叠层，最后才是公开 API 不可达处的最小源码接缝。
+# 所有补丁均针对 dsh-v0.1.2-rc.1；后续修正与测试并回对应补丁，不叠加补丁修补补丁。
 patches:
   - file: 0006-ui-layout-panel-seam.patch
     reason: |
-      右侧面板列缝（承载 @dsh-desktop/panel-shell 插件）：ui-layout 四列化
-      （panel 让位步骤 3-5 + panel/panelExpanded store 状态 + ctx.layout panel
-      动作 + panel 槽声明与渲染点/拖拽手柄/全屏 overlay 接管）。panel 默认宽
-      480、最小 320、无固定偏好上限（viewport 余量为动态上限）；CENTER_MIN
-      640→360 以在四列下留出中栏空间；SIDEBAR_DEFAULT 280→320（吸收原 0004，
-      其补丁撤销——columns 是契约常量且 layout 服务面刻意不暴露宽度写入，
-      插件与配置层均不可达，两个修改点同文件已合并）。0.1.2 适配：store 绑定
-      改 dsh-client-store（defineStore/EngineStoreHandle）、panel 槽按
-      declaring-is-claiming 在同一 register() children 声明、details 槽保留
-      SessionProvider 内 eager 调用（上游契约：无会话时槽注册仍发生）、
-      --dsh-sidebar-collapsed-track 折叠轨变量缝与 100cqi 全屏 pin 语义保留。
-      撤 0006 无连带（原 0004 已并入）；上游未来自带 panel 列应整体撤补丁，
-      插件改指上游契约
+      ui-layout 内部列分配、宽度常量、缩放与全屏布局不支持插件增列，也无配置写入面。
+      保留 panel 列、声明/渲染点、布局 store 和动作；实际页签与面板内容由 panel-shell
+      客户端插件提供。保留 main 的侧栏 320、主栏最小 360、面板默认 480/最小 320
+      及无固定偏好宽度上限，覆盖拖动、放大、静态槽与折叠轨回归。
+      原 0019 布局测试并入；上游提供等价可扩展列布局后撤。
   - file: 0008-ui-chat-panel-inspect-handoff.patch
     reason: |
-      面板侧 inspect 交接缝（0.1.2 重做，宿主迁 ui-chat）：inspectCall 内嵌于
-      ChatView 的 openView 合成，插件无拦截点；且面板列在 conversation 子树之外，
-      chat store 的 inspect 目标对面板侧不可达。经 ChatViewInjected 增加
-      inspectHandoff 可选注入——apply 层惰性探测 panelShell 服务，在则整体委托
-      （开列→开页→下发一次性选中目标），不在则上游 openView 路径原样保留。
-      上游自带面板 inspect 集成后撤
+      Inspect 的 openView 合成封闭于 ChatView；conversation 外的面板无法收到内部
+      store 目标。保留可选 inspectHandoff 注入，panelShell 存在时委托一次性交接，
+      缺席时走原生 trajectory tab；面板页适配、metadata 与入口接管在 panel-shell。
+      上游提供跨容器 Inspect 路由贡献面后撤。
   - file: 0009-ui-chat-file-browser-open-seam.patch
     reason: |
-      ui-chat 的 openFile 回调内嵌于 apply 注入闭包（0.1.2 已改走
-      ctx.remote.session.openWorkspacePath），插件没有可替换的拦截点；新增可选
-      fileBrowser.tryOpen 接缝，保留目录打开、服务缺席及未处理路径的原系统打开
-      回退。上游提供可扩展 openFile service/middleware 后撤
+      openFile 封闭于 ui-chat 的注入闭包，原生只调用系统 openWorkspacePath。
+      保留可选 tryOpen 拦截点，传 sessionId/cwd/解析后的 path；点目录、服务缺席或
+      未处理路径仍走原生系统打开。树、预览和路径判定均在 file-browser 插件。
+      原 0019 请求契约和回归并入；上游提供 openFile middleware 后撤。
   - file: 0005-conversation-chat-group-seam.patch
     reason: |
-      对话流活动分组缝（0.1.2 重做，宿主迁 ui-chat）：conversation.chat.group
-      槽声明（chat view entry 的 children）+ flowGrouping 可选装配服务
-      （ChatViewInjected，ctx.get 惰性读取）+ ChatNodeSeat 区间渲染变体
-      （renderVariant 块范围投影：折叠组把 reasoning 半留在组内、prose 半
-      留在组外）。缝属 ui-chat 内部装配，插件只能经槽位契约消费、无法自
-      声明。上游未来自带此缝应撤补丁
+      上游无 chat flow 重组座位，插件无法替换私有节点装配或复用原生 Seat 的回合
+      折叠与搜索隐藏逻辑。保留 conversation.chat.group、可选 flowGrouping、
+      块范围渲染变体及原生 Seat 可见性；分组规则、摘要、交互和全部双语词条归
+      activity-group 插件。原 0017 与 0019 分组修正/回归并入，不在上游保存分组词典。
+      上游提供等价 flow 与节点变体 API 后撤。
   - file: 0010-api-session-controller-image-admission.patch
     reason: |
-      Web prompt 的图片准入缝（0.1.2 重做，宿主迁 api/session-controller 的
-      prompt 命令）：准入逻辑内嵌于 Remote 服务实现，插件无法在附件持久化前
-      表达“可转写”。抽出可测的 imagePromptAdmission helper（image-admission.ts，
-      补丁新增）经可选 imageInputAdmission 服务询问 bridge/abstain——
-      inputModalities 原生事实不变、原生图片路由与无图请求不受影响、无服务时
-      行为与上游一致；解析失败经 admit('unknown','failed') 决定是否桥接。
-      错误面保持上游 RemoteError session/attachment-invalid。上游提供正式图片
-      桥接准入契约后撤
+      附件持久化前的图片准入位于 Session Remote 私有实现，插件无法表达可转写。
+      commands.ts 内抽取 imagePromptAdmission 并询问可选 imageInputAdmission；
+      模型原生 inputModalities 不伪装，native/unknown 与无图路径保留原行为，明确
+      text-only 才由桥接服务决定。桥接失败沿用原生 RemoteError；原 0019 语义/测试并入。
+      上游提供等价持久化前图片准入钩子后撤。
   - file: 0011-llm-input-transform-seam.patch
     reason: |
-      LlmRuntime 原先只提供 text-only 占位投影，插件无法在精确模型能力解析后、
-      适配器分发前提供一次性图片转写。0.1.2 实测：adapterStream 分发边界、
-      resolveModelInfo→resolveCallConfig→图像投影→dispatch 的瀑布原样，缝位
-      不变，补丁近乎平移（基类 TypertRemoteService/deepFreeze 移位/README 区域
-      上游重写为 "What you can do" 摘要列表，registerInputTransform 以一条
-      bullet 并入）。上游提供同等 pre-dispatch transform 契约后撤
+      精确模型能力解析后、适配器 dispatch 前没有公开输入变换钩子。保留通用
+      registerInputTransform 与序列/卸载契约；图片转写、缓存和媒体策略均在
+      @dsh-desktop/vision 插件，不改变模型原生能力。上游提供等价 pre-dispatch API 后撤。
   - file: 0012-core-session-rewind-tombstone.patch
     reason: |
-      会话撤回（墓碑）的 core 解释层（0.1.2 重做）：'dsh-desktop/session-rewind'
-      事件由 @dsh-desktop/rewind 插件 append（写入侧零源码改动），其折叠解释
-      （surface truncate）内嵌于 dsh-session 的 planSurfaceEvent/applySurfacePlan
-      私有汇合点——live append、fromRestore、foldSurface 三条路径共用，插件无
-      拦截面。0.1.2 适配：seq 类型品牌化（SessionSeq/SessionLogOffset）下重放；
-      known-event-types 仍为生成式硬编码集合（上游架构笔记明示否决可注册注册表），
-      墓碑按旧法登记目录与 SessionEventMap declaration-merge；测试访问器随新 API
-      改 snapshotEvents()。墓碑不可标 ignorable（跳过=重建出未截断的错误会话）；
-      官方 CLI 打开含墓碑会话显式拒读（ADR-0007）。持久化已改 JSONL，roundtrip
-      与拒读行为在阶段 7 专项测试覆盖。上游落地原生 rewind/truncate 原语后撤
+      append 已有公开 API，墓碑写入由 rewind 插件负责；但 live append、fromRestore
+      与 foldSurface 共用的 planSurfaceEvent/applySurfacePlan 汇合点是私有的，
+      插件无法改变模型上下文折叠。保留截断解释及 required 已知事件登记，覆盖重放。
+      TokenMeter 私有游标状态与构造器注册的价格投影同样无法局部替换；同步截断
+      测量/压缩表面并移除失效校准。投影 apply 的可选惰性只读历史参数仅暴露当前
+      已提交前缀，普通事件仍 O(1)；v5/v3 缓存版本使旧价格重算，累计计费不回滚。
+      墓碑不能标 ignorable，否则原版 CLI 会重建错误上下文；其拒读行为见 ADR-0007。
+      上游提供通用 surface reducer 或原生 rewind/truncate 后撤。
   - file: 0013-session-controller-rewind-fold.patch
     reason: |
-      会话撤回的客户端解释层（0.1.2 重设计）：session-controller 的 Session
-      已重构为 MutableSessionEventSource 统一事件源（conversation 装配经 feed
-      订阅消费），旧 0013 的 replaceWindow/append 调用点不复存在。改为
-      createRewindVisibilitySource 装饰器（contract/events.ts）：Session 内部
-      写 raw 源（seq 连续性/分页/去重不受影响），对外发布的窗口按
-      [atSeq, markerSeq) 折叠可见性——marker 本身始终放行，墓碑写重发布为
-      全窗口 replace 以驱动装配增量重建。折叠常量本地字面量。上游落地原生
-      rewind 后撤
+      Session 事件源由私有构造/订阅路径持有，现有插件不能为已打开与未来 Session
+      一致安装、卸载读取投影。补丁只提供通用 sessionEventViews 注册表、稳定代理
+      与 historyStartSeq 只读原始分页游标；内部 raw 源仍负责分页/去重，公开
+      session.eventSource 与 binding.eventSource 始终共享同一视图。
+      墓碑识别、范围过滤与零拷贝 delta 均移到 rewind 客户端；turnOutline 则由
+      rewind 使用原生 sessionProjections + 配置禁用原 owner 替换，无上游投影补丁。
+      覆盖既有/新建绑定、卸载恢复、注册失败清理及隐藏整页仍推进原始游标。
+      上游提供等价 Session event view middleware 后撤。
   - file: 0014-settings-nav-archive-icon.patch
     reason: |
-      设置导航项图标由 ui-settings-general shell 的 navIcon(id) 按 section id
-      硬编码映射（未知 id 回退齿轮），settings.section 注册 options 仅透传
-      id/order/label，图标面插件层完全不可达；为 @dsh-desktop/archive-manager
-      的归档页补一行 archive-manager → IconArchiveOutline20 映射（0.1.2 重放：
-      上游新版同区域新增了 ConnectionIndicator 导入，冲突合并保留）。
-      上游开放 section 图标贡献面后撤
+      settings.section options 不接受图标，shell 的 navIcon 只按内建 id 分派。
+      仅新增通用 keyed settings.section.icon 贡献槽与原生图标 fallback；
+      archive-manager 的 id、图标选择和注册均在其客户端插件，不在上游硬编码。
+      上游提供 section 图标贡献面后撤。
   - file: 0015-win32-dialog-sandbox-safe-utf16-read.patch
     reason: |
-      Win32 目录选择器 worker 在 Electron 宿主（ELECTRON_RUN_AS_NODE）下 fatal：
-      readUtf16 用 koffi.view 把 COM 内存零拷贝包成 external ArrayBuffer，
-      Electron 全进程强制的 V8 Sandbox 禁止此操作（官方 Node 不开，上游 Windows
-      CI 测不出）。0.1.2 实测上游仍未修（仅修了 NUL 扫描的双字节边界），本补丁
-      继续改为 koffi.decode.string16 的拷贝式读取并吸收上游双字节语义（string16
-      原生按两字节 NUL 终止）；fake koffi 移除 view mock 以防回退。上游修复后撤
+      Electron 的 V8 Sandbox 禁止 koffi.view 将 COM 内存包装成 external ArrayBuffer。
+      保留 readUtf16 单处兼容修复，以 koffi.decode.string16 复制解码并保留原生
+      COM dialog、DPI、取消和 worker 生命周期。已验证可公开替换整个 provider，但
+      原生 API 仅允许替换完整 pickWin32Dialog，无解码/COM bindings/worker 细粒度
+      钩子；零补丁需自持约 576 行五个原生实现文件，维护面大于本兼容修复。
+      测试不再提供 view mock，防止回退；上游改用安全解码后撤。
   - file: 0001-session-row-archive-context-menu.patch
     reason: |
-      会话行的会话日志导出入口（0.1.2 重做，最小化）：0.1.2 的会话行已带
-      原生 rename/fork/archive 菜单（常量数组、dispatch 硬编码），无 action
-      槽可扩展；追加「导出会话日志」项——同源 /api/session.export 的 anchor
-      下载（0.1.2 起该路由经 connection.fetch.register 挂载、cookie 鉴权，
-      页面同源自动携带）。含 menu.exportSessionLog 双语词条与行菜单断言。
-      上游开放行级 action 槽后撤
+      原生会话行 rename/fork/archive 已直接复用；其菜单数组和行尾无公开贡献面。
+      仅增加通用 sessionRowActions 注册表、menu/inline 渲染与右键锚点；导出链接、
+      hover 快速归档、图标和双语词条归 session-actions 插件，空会话仍隐藏操作。
+      原 0018 合并，原生菜单与贡献回调并测；上游提供行级 action API 后撤。
+  - file: 0007-ui-trajectory-panel-page.patch
+    reason: |
+      原生 TrajectoryView 的注入闭包/图片子槽和默认 tab 占位无法由外部插件复用。
+      仅公开通用 trajectoryView.create 与 setDefaultEnabled，缺省仍保留原生 tab。
+      PanelTrajectoryView、inspect props 适配、required 会话元数据、图标和接管逻辑
+      均在 panel-shell；原 0016 receiver 修正合回，验证重复 enable 幂等及卸载恢复。
+      上游提供可复用轨迹贡献 factory 与默认入口开关后撤。
+  - file: 0016-workspace-unarchive-api.patch
+    reason: |
+      WorkspaceRegistry 没有公开取消归档 API；直接写 storageDomain 无法更新内存，
+      插件访问私有 state/setState/enqueueOperation 则绕过类型契约。仅公开幂等
+      unarchiveSession，复用 registry 串行队列与持久化提交，并在销毁前排空已接纳操作。
+      archive-manager 的鉴权、路由和 UI 留在插件；覆盖并发、失败重试与卸载持久化。
+      上游提供等价取消归档 API 后撤。
+  - file: 0017-session-query-document-projection.patch
+    reason: |
+      查询服务的全文索引和 literal filter 都在私有路径生成语义文档，事后过滤搜索
+      结果会破坏排序、分页与摘要，也不能清除旧索引。只提供可覆写 buildSearchDocuments
+      与稳定 searchDocumentVersion 接缝；版本参与持久化修订比对，旧索引自动重建。
+      rewind 通过配置替换 SQLite provider，复用其索引、取消、生命周期和分页；
+      墓碑规则完全在插件，精确日志读取/审计与搜索启用配置保留原语义。
+      Include 的 name 是目标校验而非替换操作，新增显式 replaceName 并保留该校验；
+      克隆插入和覆写值，避免重复合成污染配置层。真实 base/web/插件/用户层组合回归。
+      上游提供等价文档投影、索引版本和配置 provider 替换接口后撤。
+  - file: 0018-conversation-draft-image-api.patch
+    reason: |
+      inputActions.addImages 只接受已经注册的 DraftAttachmentId，不能直接放入历史
+      attachmentId。ConversationController 已有 createDraftImages/releaseDraftImages，
+      但 IConversation 不暴露。仅公开这两个通用方法，并在整批注册失败时回滚临时URL。
+      rewind 插件通过公开 Session.readAttachment 读取图片，先准备完整草稿，再执行
+      撤回与回填；失败、取消和跨会话回调的资源管理均由插件负责。
+      上游公开等价草稿附件注册接口后撤。

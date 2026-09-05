@@ -6,13 +6,17 @@
   "description": "当前一代 agent 的 loopback HTTP origin 判定（页面直连 127.0.0.1，不含自定义协议）。",
   "exports": {
     ".": "./src/index.ts",
-    "./fs-guard": "./src/fs-guard.ts"
+    "./fs-guard": "./src/fs-guard.ts",
+    "./host-routes": "./src/host-routes.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-client-connection": "link:../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-connection",
+    "@deepseek-ai/dsh-host-webserver": "link:../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver",
     "@types/node": "^24.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"

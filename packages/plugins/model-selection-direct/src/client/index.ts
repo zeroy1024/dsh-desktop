@@ -17,7 +17,9 @@ export const inject = ['locale', 'slots']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'model-selection-direct: dictionaries')
 
-  ctx.inject(['slots', 'modelDirectories', 'sessions'], (scope: ModelSelectionScope) => {
+  // Cordis 服务方法沿调用方作用域执行；directoryFor 首次建目录会读取
+  // remote.session，必须声明它，否则 seat 崩溃并静默回退到官方菜单。
+  ctx.inject(['slots', 'modelDirectories', 'sessions', 'remote', 'remote.session'], (scope: ModelSelectionScope) => {
     scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model',
       // 官方 ui-model-selection 使用默认 priority 0；更低者胜出，官方仍是 fallback。

@@ -565,7 +565,12 @@ export function visionAborted(signal: AbortSignal | undefined, fallback?: unknow
 
 export function abortableWait<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return promise
-  if (signal.aborted) return Promise.reject(visionAborted(signal))
+  if (signal.aborted) {
+    // The caller may already have started this operation while preparing the
+    // arguments. Observe its eventual rejection even though this waiter left.
+    void promise.catch(() => {})
+    return Promise.reject(visionAborted(signal))
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => { reject(visionAborted(signal)) }
     signal.addEventListener('abort', onAbort, { once: true })

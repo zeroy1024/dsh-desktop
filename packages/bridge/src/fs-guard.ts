@@ -20,6 +20,18 @@ export interface GuardRequest {
   headers: Pick<Headers, 'get'> | Record<string, string | string[] | undefined>
 }
 
+/** Archive/rewind POST contract requires an explicit, exact loopback Origin. */
+export function isSameLoopbackOrigin(originHeader: string | undefined, hostHeader: string | undefined): boolean {
+  if (originHeader === undefined || hostHeader === undefined) return false
+  let origin: URL
+  try { origin = new URL(originHeader) } catch { return false }
+  if (origin.protocol !== 'http:' && origin.protocol !== 'https:') return false
+  if (origin.username !== '' || origin.password !== '') return false
+  const hostname = /^(.*):\d+$/u.exec(hostHeader)?.[1] ?? hostHeader
+  if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '[::1]') return false
+  return origin.host === hostHeader
+}
+
 /** Windows 盘符绝对路径（`C:\\repo` 与 `C:/repo`）；`C:repo` 是 drive-relative，必须拒绝。 */
 const WINDOWS_DRIVE_ROOT = /^[A-Za-z]:[\\/]/u
 const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:/u

@@ -1,6 +1,3 @@
-// 迁移期 @ts-nocheck（upgrade/dsh-v0.1.2-rc.1）：0012 暂摘后 vendor 内上游类型不含墓碑事件
-// 与旧 events API；阶段 7 重做 0012 时移除本行并适配 SessionSeq 品牌类型。
-// @ts-nocheck
 /**
  * 真实包集成测试：直接驱动 vendor/dsh-cli 里打了 0012 补丁的
  * @deepseek-ai/dsh-session，验证墓碑在「发布产物」上真实生效（append 合法、
@@ -32,9 +29,6 @@ function assistantMessage(text: string) {
   } as never
 }
 
-// 迁移期 @ts-nocheck（upgrade/dsh-v0.1.2-rc.1）：0012 暂摘后 vendor 内上游类型不含墓碑事件
-// 与旧 events API；阶段 7 重做 0012 时移除本行并适配 SessionSeq 品牌类型。
-// @ts-nocheck
 /** 两个完整 turn；用户消息在 seq 1 与 seq 5。 */
 function appendTwoTurns(session: Session): void {
   session.append('turn/start', { turn: 1 })
@@ -47,9 +41,7 @@ function appendTwoTurns(session: Session): void {
   session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
 }
 
-// 迁移期 skip（upgrade/dsh-v0.1.2-rc.1）：0012 暂摘后 vendor 内上游类型不含墓碑事件，
-// 阶段 7 重做 0012 时恢复（届时顺带适配 SessionSeq 品牌类型与新版 events API）。
-describe.skip('rewind tombstone on the vendored patched package', () => {
+describe('rewind tombstone on the vendored patched package', () => {
   it('truncates the derived model context and replays identically from a seed', () => {
     expect(KNOWN_SESSION_EVENT_TYPES.has(REWIND_EVENT_TYPE)).toBe(true)
 
@@ -66,18 +58,18 @@ describe.skip('rewind tombstone on the vendored patched package', () => {
     expect(session.deriveMessages()).toHaveLength(3)
 
     // 种子重放（恢复路径的 fold 共用点）与 live 增量一致。
-    const replayed = Session.create(SessionId('replay'), session.events)
+    const replayed = Session.create(SessionId('replay'), session.snapshotEvents())
     expect(replayed.deriveMessages()).toHaveLength(3)
 
     // 墓碑事件的 data 完整保留在原始日志里（审计/重放源）。
-    expect(session.events.find(event => event.type === REWIND_EVENT_TYPE)?.data).toEqual({ atSeq: 5 })
+    expect(session.snapshotEvents().find(event => event.type === REWIND_EVENT_TYPE)?.data).toEqual({ atSeq: 5 })
   })
 
   it('rejects a malformed marker before it enters the log', () => {
     const session = Session.create(SessionId('bad'))
     appendTwoTurns(session)
     expect(() => session.append(REWIND_EVENT_TYPE, { atSeq: 999 })).toThrow(/invalid atSeq/)
-    expect(session.events).toHaveLength(8)
+    expect(session.snapshotEvents()).toHaveLength(8)
   })
 
   it('documents the fork-resurrection semantics: a pre-marker seed fork revives withdrawn turns', () => {
@@ -90,16 +82,16 @@ describe.skip('rewind tombstone on the vendored patched package', () => {
     expect(session.deriveMessages()).toHaveLength(2)
 
     // fork 到 turn 1 结束（boundary = seq 3）：不含被撤回段，行为无关撤回。
-    const earlyFork = Session.create(SessionId('fork-early'), session.events.slice(0, 4))
+    const earlyFork = Session.create(SessionId('fork-early'), session.snapshotEvents().slice(0, 4))
     expect(earlyFork.deriveMessages()).toHaveLength(2)
 
     // fork 到墓碑之前最后一个回合边界（boundary = seq 7）：seed 含被撤回的
     // turn 2 但不含墓碑——子会话派生出全部 4 条消息（复活）。
-    const lateFork = Session.create(SessionId('fork-late'), session.events.slice(0, marker.seq))
+    const lateFork = Session.create(SessionId('fork-late'), session.snapshotEvents().slice(0, marker.seq))
     expect(lateFork.deriveMessages()).toHaveLength(4)
 
     // fork 覆盖墓碑（boundary = 墓碑自身）：截断随之复制，与源一致。
-    const throughFork = Session.create(SessionId('fork-through'), session.events.slice(0, marker.seq + 1))
+    const throughFork = Session.create(SessionId('fork-through'), session.snapshotEvents().slice(0, marker.seq + 1))
     expect(throughFork.deriveMessages()).toHaveLength(2)
   })
 })

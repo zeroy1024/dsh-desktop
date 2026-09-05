@@ -10,6 +10,9 @@ describe('client plugin wiring', () => {
     const registered: Array<{ slot: unknown; options: Record<string, unknown>; component: unknown }> = []
     let currentSlot: unknown
     const context: ClientContext = {
+      sessions: { binding: vi.fn() },
+      conversation: { createDraftImages: vi.fn(() => []), releaseDraftImages: vi.fn(), input: { for: vi.fn() } },
+      sessionEventViews: { register: vi.fn(() => () => {}) },
       effect: factory => factory(),
       inject: (services, callback) => {
         callback({})
@@ -25,7 +28,7 @@ describe('client plugin wiring', () => {
     }
 
     apply(context)
-    expect(inject).toEqual(['locale', 'slots'])
+    expect(inject).toEqual(['locale', 'slots', 'sessionEventViews', 'sessions', 'conversation'])
     expect(registerLocale).toHaveBeenCalledWith(
       'rewind',
       expect.objectContaining({ zh: expect.anything(), en: expect.anything() }),

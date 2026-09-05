@@ -12,7 +12,7 @@ process.chdir(appDir)
 await build({
   absWorkingDir: appDir,
   bundle: true,
-  packages: 'external',
+  external: ['@deepseek-ai/*', 'zod'],
   entryPoints: ['src/index.ts'],
   outfile: 'lib/index.js',
   format: 'esm',

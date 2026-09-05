@@ -8,11 +8,12 @@ import { createElement } from 'react'
 import { IconChecklistOutline14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext } from './types.ts'
 import { setHostWriteClipboard } from './copy.ts'
+import { sessionData } from './session-data.ts'
 import { ReviewPage } from './ReviewPage.tsx'
 import { en, NS, zh } from './locales.ts'
 
 /** Required services（loader 把本模块全部导出当对象插件交给 cordis fiber）。 */
-export const inject = ['slots', 'locale', 'panelShell', 'connection']
+export const inject = ['slots', 'locale', 'panelShell', 'sessions']
 
 /**
  * 插件体：一个 apply，两半注册。
@@ -25,23 +26,23 @@ export function apply(ctx: ClientContext): void {
   }, 'review: host clipboard')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'review: dictionaries')
   const t = ctx.locale.bind(NS)
-  ctx.slots.inject('panel-shell.page', () => {
-    const disposeMeta = ctx.panelShell.registerPage({
+  ctx.slots.inject('panel-shell.page', function* () {
+    yield ctx.panelShell.registerPage({
       id: 'review',
       title: () => t('page.title'),
       icon: createElement(IconChecklistOutline14, { size: 14 }),
       order: 30,
       sessionMode: 'required',
     })
-    const disposeSlot = ctx.slots.register({
+    yield ctx.slots.register({
       name: 'panel-shell.page',
       id: 'review',
       locale: NS,
-      inject: () => ({ envelopeSource: ctx.connection.api }),
+      inject: (sessionId) => {
+        const session = ctx.sessions.binding(sessionId)?.session
+        if (!session) throw new Error(`review: session ${sessionId} is unavailable`)
+        return { data: sessionData(session) }
+      },
     }, ReviewPage)
-    return () => {
-      disposeSlot()
-      disposeMeta()
-    }
   })
 }

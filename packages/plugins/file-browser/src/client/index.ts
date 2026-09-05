@@ -7,6 +7,7 @@
 import { createElement } from 'react'
 import { IconFolderClose16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext } from './types.ts'
+import { fileEvents } from './session-data.ts'
 import { FileBrowserPage } from './FileBrowserPage.tsx'
 import {
   absoluteFilePath, createFileOpenMailbox, toWorkspaceRelativePath, type FileBrowserOpenService,
@@ -14,7 +15,7 @@ import {
 import { en, NS, zh } from './locales.ts'
 
 /** Required services（loader 把本模块全部导出当对象插件交给 cordis fiber）。 */
-export const inject = ['slots', 'locale', 'panelShell', 'layout', 'connection']
+export { inject } from './dependencies.ts'
 
 /**
  * 插件体：一个 apply，两半注册。
@@ -50,23 +51,30 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'file-browser: optional open service')
   const t = ctx.locale.bind(NS)
-  ctx.slots.inject('panel-shell.page', () => {
-    const disposeMeta = ctx.panelShell.registerPage({
+  ctx.slots.inject('panel-shell.page', function* () {
+    yield ctx.panelShell.registerPage({
       id: 'files',
       title: () => t('page.title'),
       icon: createElement(IconFolderClose16, { size: 14 }),
       order: 20,
       sessionMode: 'required',
     })
-    const disposeSlot = ctx.slots.register({
+    yield ctx.slots.register({
       name: 'panel-shell.page',
       id: 'files',
       locale: NS,
-      inject: () => ({ fileOpenMailbox, envelopeSource: ctx.connection.api }),
+      inject: (sessionId) => {
+        const session = ctx.sessions.binding(sessionId)?.session
+        if (!session) throw new Error(`file-browser: session ${sessionId} is unavailable`)
+        return {
+          fileOpenMailbox,
+          envelopeSource: fileEvents(session, sessionId),
+          openPath: async (path: string) => {
+            const result = await ctx.remote.session.openWorkspacePath({ path })
+            if (!result.ok) throw new Error('file-browser: open path failed')
+          },
+        }
+      },
     }, FileBrowserPage)
-    return () => {
-      disposeSlot()
-      disposeMeta()
-    }
   })
 }

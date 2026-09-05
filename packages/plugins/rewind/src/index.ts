@@ -6,10 +6,14 @@
  * session/event 广播链路——本插件不碰任何存储。
  */
 
-import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
+import { registerHostRoute, type HostRouteContext } from '@dsh-desktop/bridge/host-routes'
+import { isSameLoopbackOrigin as isSameOrigin } from '@dsh-desktop/bridge/fs-guard'
+export { isSameLoopbackOrigin as isSameOrigin } from '@dsh-desktop/bridge/fs-guard'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REWIND_EVENT_TYPE, REWIND_EXECUTE_PATH } from './shared.ts'
+import { rewindTurnOutlineProjection } from './turn-outline.ts'
 
 export { REWIND_EVENT_TYPE, REWIND_EXECUTE_PATH } from './shared.ts'
 
@@ -17,7 +21,7 @@ export { REWIND_EVENT_TYPE, REWIND_EXECUTE_PATH } from './shared.ts'
 export const name = 'rewind'
 
 /** 依赖未就绪时 fiber 保持 PENDING，就绪后自动补跑 apply。 */
-export const inject = ['webServer', 'sessions', 'agents']
+export const inject = ['webServer', 'connection', 'sessions', 'agents', 'sessionProjections']
 
 /** 请求体上限：sessionId + atSeq 远用不到这个量级。 */
 const MAX_BODY_BYTES = 4096
@@ -66,32 +70,6 @@ export function precheckRewind(
   return undefined
 }
 
-/** Host 头的主机部分必须是 loopback 字面量（webServer 只绑 loopback 的镜像校验）。 */
-function isLoopbackHostHeader(hostHeader: string): boolean {
-  const portMatch = hostHeader.match(/^(.*):\d+$/u)
-  const hostname = portMatch?.[1] ?? hostHeader
-  return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]'
-}
-
-/**
- * 同源判定：Origin 与 Host 头必须指向同一 http(s) 主机与端口，且 Host 的
- * 主机部分是 loopback（防 DNS rebinding：攻击域解析到 127.0.0.1 时 Origin
- * 与 Host 同为攻击域，单纯相等比对放行，loopback 白名单把它拒掉）。
- * 逻辑镜像 packages/bridge/src/origin.ts（staged 闭包解析不到 workspace 包，内联）。
- */
-export function isSameOrigin(originHeader: string | undefined, hostHeader: string | undefined): boolean {
-  if (originHeader === undefined || hostHeader === undefined) return false
-  let origin: URL
-  try {
-    origin = new URL(originHeader)
-  } catch {
-    return false
-  }
-  if (origin.protocol !== 'http:' && origin.protocol !== 'https:') return false
-  if (origin.username !== '' || origin.password !== '') return false
-  if (!isLoopbackHostHeader(hostHeader)) return false
-  return origin.host === hostHeader
-}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   if (res.headersSent) return
@@ -174,26 +152,23 @@ export async function handleRewindRequest(
 
 /** 把撤回路由注册进 webServer；disposer 交给 ctx.effect 管理生命周期。 */
 export function registerRewindRoute(
-  webServer: WebServer,
+  ctx: HostRouteContext,
   sessions: SessionsRuntime,
   agents: AgentsRuntime,
-): () => void {
-  return webServer.register({
+): () => Promise<void> {
+  return registerHostRoute(ctx, {
     kind: 'exact',
     path: REWIND_EXECUTE_PATH,
-    handler: (req, res) => { void handleRewindRequest(req, res, sessions, agents) },
+    handler: (req, res) => handleRewindRequest(req, res, sessions, agents),
   })
 }
 
 /** cordis 插件入口。 */
-export function apply(ctx: {
-  effect: (factory: () => void | (() => void), name?: string) => unknown
-  webServer: WebServer
+export function apply(ctx: HostRouteContext & {
   sessions: SessionsRuntime
   agents: AgentsRuntime
+  sessionProjections: Pick<SessionProjectionRegistry, 'register'>
 }): void {
-  ctx.effect(
-    () => registerRewindRoute(ctx.webServer, ctx.sessions, ctx.agents),
-    'rewind: execute route',
-  )
+  ctx.sessionProjections.register(rewindTurnOutlineProjection)
+  registerRewindRoute(ctx, ctx.sessions, ctx.agents)
 }

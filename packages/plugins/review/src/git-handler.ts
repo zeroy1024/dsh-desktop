@@ -106,7 +106,7 @@ export function parseStatusZ(stdout: string): GitStatusEntry[] {
     const x = token[0] as string
     const y = token[1] as string
     const path = token.slice(3)
-    const renamed = x === 'R' || x === 'C'
+    const renamed = x === 'R' || x === 'C' || y === 'R' || y === 'C'
     const oldPath = renamed ? tokens[++i] : undefined
     entries.push({ x, y, path, ...(oldPath === undefined ? {} : { oldPath }) })
   }
@@ -116,6 +116,35 @@ export function parseStatusZ(stdout: string): GitStatusEntry[] {
 /** status 条目是否未跟踪（全问号）。 */
 function isUntracked(entry: GitStatusEntry): boolean {
   return entry.x === '?' && entry.y === '?'
+}
+
+/** Porcelain paths are repository-relative; our protocol is session-cwd-relative. */
+async function readWorkspaceStatus(
+  runGit: NonNullable<GitHandlerDeps['runGit']>,
+  root: string,
+): Promise<GitStatusEntry[] | undefined> {
+  const prefix = await runGit(['rev-parse', '--show-prefix'], root)
+  if (prefix.code !== 0) return undefined
+  // Remove the command's newline, preserving whitespace in real directory names.
+  const base = prefix.stdout.replace(/\r?\n$/u, '')
+  const status = await runGit(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.'], root)
+  if (status.code !== 0) return undefined
+  return parseStatusZ(status.stdout).flatMap(entry => {
+    if (!entry.path.startsWith(base)) return []
+    const path = entry.path.slice(base.length)
+    if (path === '' || resolveWithinRoot(root, path) === undefined) return []
+    const oldPath = entry.oldPath?.startsWith(base) === true ? entry.oldPath.slice(base.length) : undefined
+    return [{ x: entry.x, y: entry.y, path, ...(oldPath === undefined ? {} : { oldPath }) }]
+  })
+}
+
+/** Bound the encoded payload without splitting a UTF-8 code point. */
+function clipBytes(text: string, bytes: number): string {
+  const buffer = Buffer.from(text)
+  if (buffer.length <= bytes) return text
+  let end = Math.max(0, bytes)
+  while (end > 0 && (buffer[end]! & 0xc0) === 0x80) end -= 1
+  return buffer.subarray(0, end).toString('utf8')
 }
 
 /**
@@ -152,26 +181,23 @@ export function createGitGetHandler(deps: GitHandlerDeps): (req: IncomingMessage
       sendJson(res, 200, { ok: true, git: false })
       return
     }
-    const statusRun = await runGit(['status', '--porcelain=v1', '-z'], root)
-    if (statusRun.code !== 0) {
+    const status = await readWorkspaceStatus(runGit, root)
+    if (status === undefined) {
       sendJson(res, 500, { ok: false, error: 'git-error' })
       return
     }
-    const status = parseStatusZ(statusRun.stdout)
-    const branchRun = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root)
-    const tracked = await runGit(['diff', 'HEAD'], root)
+    const [branchRun, tracked] = await Promise.all([
+      runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root),
+      runGit(['diff', 'HEAD', '--relative', '--no-ext-diff', '--no-textconv', '--', '.'], root),
+    ])
     if (tracked.code !== 0) {
       sendJson(res, 500, { ok: false, error: 'git-error' })
       return
     }
-    let trackedText = tracked.stdout
-    let truncated = false
-    if (trackedText.length > maxDiffBytes) {
-      trackedText = trackedText.slice(0, maxDiffBytes)
-      truncated = true
-    }
+    const trackedText = clipBytes(tracked.stdout, maxDiffBytes)
+    let truncated = trackedText !== tracked.stdout
     const parts: string[] = [trackedText]
-    let totalBytes = trackedText.length
+    let totalBytes = Buffer.byteLength(trackedText)
     const untracked = status.filter(isUntracked)
     for (const entry of untracked.slice(0, maxUntracked)) {
       if (totalBytes >= maxDiffBytes) {
@@ -179,12 +205,16 @@ export function createGitGetHandler(deps: GitHandlerDeps): (req: IncomingMessage
         break
       }
       // --no-index 以退出码 1 表达「有差异」——是预期路径，不算失败。
-      const run = await runGit(['diff', '--no-index', '--', '/dev/null', entry.path], root)
-      if (run.code === 0 || run.code === 1) {
-        parts.push(run.stdout)
-        totalBytes += run.stdout.length
-        if (totalBytes > maxDiffBytes) truncated = true
+      const run = await runGit(['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--', '/dev/null', entry.path], root)
+      // A no-index operational failure may also return 1 with no diff output.
+      if (run.code !== 0 && (run.code !== 1 || run.stdout === '')) {
+        truncated = true
+        continue
       }
+      const text = clipBytes(run.stdout, maxDiffBytes - totalBytes)
+      parts.push(text)
+      totalBytes += Buffer.byteLength(text)
+      if (text !== run.stdout) truncated = true
     }
     if (untracked.length > maxUntracked) truncated = true
     sendJson(res, 200, {
@@ -238,12 +268,12 @@ export function createRestoreHandler(deps: GitHandlerDeps): (req: IncomingMessag
       sendJson(res, 400, { ok: false, error: 'bad-path' })
       return
     }
-    const statusRun = await runGit(['status', '--porcelain=v1', '-z'], root)
-    if (statusRun.code !== 0) {
+    const status = await readWorkspaceStatus(runGit, root)
+    if (status === undefined) {
       sendJson(res, 500, { ok: false, error: 'git-error' })
       return
     }
-    const entry = parseStatusZ(statusRun.stdout).find(item => item.path === rawPath)
+    const entry = status.find(item => item.path === rawPath)
     if (entry === undefined) {
       sendJson(res, 400, { ok: false, error: 'not-in-status' })
       return
@@ -258,7 +288,7 @@ export function createRestoreHandler(deps: GitHandlerDeps): (req: IncomingMessag
       return
     }
     const restore = await runGit(
-      ['restore', '--source=HEAD', '--worktree', '--staged', '--', rawPath],
+      ['--literal-pathspecs', 'restore', '--source=HEAD', '--worktree', '--staged', '--', rawPath],
       root,
     )
     if (restore.code !== 0) {

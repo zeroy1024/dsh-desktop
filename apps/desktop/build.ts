@@ -43,6 +43,7 @@ const mains: BuildOptions[] = [
 const splashAssets: Array<[string, string]> = [
   ['src/renderer/splash/index.html', 'dist/splash.html'],
   ['src/renderer/splash/splash.css', 'dist/splash.css'],
+  ['../../packages/agent-host/assets/windows-job-bootstrap.cjs', 'dist/windows-job-bootstrap.cjs'],
 ]
 
 function copySplashAssets(): Promise<void[]> {

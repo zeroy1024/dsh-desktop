@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "koffi": "link:../../vendor/dsh-cli/node_modules/koffi",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^4.1.8",
     "typescript": "^6.0.3",

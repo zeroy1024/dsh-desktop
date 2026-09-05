@@ -5,16 +5,14 @@
  */
 
 import type { ReactNode } from 'react'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IConversation, InputActions as NativeInputActions, UserMessageNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { RewindImageRuntime } from './restore-images.ts'
 
 export type SessionId = string
 
 /** 内容块的触及子集（text 块参与撤回回填，其余按官方语义走图片/降级）。 */
-export interface TextContentBlock {
-  type: 'text'
-  text: string
-}
-
-export type ContentBlock = TextContentBlock | ({ type: string } & Record<string, unknown>)
+export type ContentBlock = UserMessageNode['content'][number]
 
 /** chat 'user' 节点数据的触及子集（UserMessageNode 本地面）。 */
 export interface UserNodeData {
@@ -36,9 +34,7 @@ export interface ChatNodeOwnerFace<TData> {
 export type Translate = (key: string, params?: Record<string, string | number>) => string
 
 /** 输入框动作面（standard kit 注入）。 */
-export interface InputActions {
-  setDraft: (text: string) => void
-}
+export type InputActions = Pick<NativeInputActions, 'setDraft' | 'addImages'>
 
 /** 会话快照的触及子集。 */
 export interface SessionSnapshotFace {
@@ -53,6 +49,7 @@ export interface RewindUserMessageProps extends ChatNodeOwnerFace<UserNodeData> 
   t: Translate
   inputActions: InputActions
   useSession: SnapshotSelectorHook<SessionSnapshotFace>
+  imageRuntime?: RewindImageRuntime
 }
 
 export interface LocaleRuntime {
@@ -66,6 +63,14 @@ export interface SlotsRuntime {
 }
 
 export interface ClientContext {
+  sessions: Pick<ISessions, 'binding'>
+  conversation: Pick<IConversation, 'createDraftImages' | 'releaseDraftImages' | 'input'>
+  sessionEventViews: {
+    register(transform: (source: import('./event-visibility.ts').EventSource) => {
+      source: import('./event-visibility.ts').EventSource
+      dispose(): void
+    }): () => void
+  }
   effect: (factory: () => void | (() => void), name?: string) => unknown
   inject: (services: readonly string[], callback: (scope: Record<string, unknown>) => unknown) => unknown
   locale: LocaleRuntime

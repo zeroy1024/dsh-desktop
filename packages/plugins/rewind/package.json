@@ -3,12 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "会话撤回：用户消息行「撤回编辑」——墓碑事件回退到该消息发送前（模型上下文与视图一致），原文回输入框。机制见 docs/adr/0007。",
+  "description": "\u4f1a\u8bdd\u64a4\u56de\uff1a\u7528\u6237\u6d88\u606f\u884c\u300c\u64a4\u56de\u7f16\u8f91\u300d\u2014\u2014\u5893\u7891\u4e8b\u4ef6\u56de\u9000\u5230\u8be5\u6d88\u606f\u53d1\u9001\u524d\uff08\u6a21\u578b\u4e0a\u4e0b\u6587\u4e0e\u89c6\u56fe\u4e00\u81f4\uff09\uff0c\u539f\u6587\u56de\u8f93\u5165\u6846\u3002\u673a\u5236\u89c1 docs/adr/0007\u3002",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./session-query": "./lib/session-query.js"
   },
   "dsh": {
     "bundle": {
@@ -16,10 +17,10 @@
     },
     "client": {
       "inject": [
-        "slots",
-        "sessions",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-locale",
-        "uiConversation",
+        "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-primitives"
       ],
       "platform": "web",
@@ -30,7 +31,8 @@
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "lib/session-query.js"
   ],
   "scripts": {
     "build": "tsx ./build.ts",
@@ -40,13 +42,19 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-host-webserver": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-session": "^0.1.2-rc.1"
+    "@deepseek-ai/dsh-session": "^0.1.2-rc.1",
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-session-projection": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-query": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-query-sqlite": "^0.1.2-rc.1"
   },
   "devDependencies": {
     "@dsh-desktop/plugin-kit": "workspace:*",
     "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis",
     "@deepseek-ai/dsh-host-webserver": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver",
     "@deepseek-ai/dsh-session": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller",
+    "@deepseek-ai/dsh-client-ui-conversation": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-client-ui-conversation",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/jsdom": "^28.0.3",
@@ -59,6 +67,16 @@
     "react-dom": "^18.2.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@dsh-desktop/bridge": "workspace:*",
+    "zod": "link:../../../vendor/dsh-cli/node_modules/zod",
+    "@deepseek-ai/dsh-session-projection": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-projection",
+    "@deepseek-ai/dsh-session-turn-outline": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-turn-outline",
+    "@deepseek-ai/dsh-session-query": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-query",
+    "@deepseek-ai/dsh-session-query-sqlite": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-query-sqlite",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence-jsonl",
+    "@deepseek-ai/cordis-plugin-include": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis-plugin-include",
+    "js-yaml": "^4.2.0",
+    "@types/js-yaml": "^4.0.9"
   }
 }

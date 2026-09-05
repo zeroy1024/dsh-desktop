@@ -1,0 +1,157 @@
+diff --git a/packages/workspace/workspace/README.md b/packages/workspace/workspace/README.md
+index 49ca861..902f999 100644
+--- a/packages/workspace/workspace/README.md
++++ b/packages/workspace/workspace/README.md
+@@ -160,7 +160,7 @@ These limits define when the project list is a poor fit or needs special operati
+ - **Removal never deletes data** — removing a project leaves its folder, files, and session histories in place; those sessions become ungrouped, and session deletion or folder removal are separate, absent capabilities ([decision](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)).
+ - **A session joins only with a recorded directory** — a session belongs to a project only when its record carries a directory that resolves to the project's path; sessions without one stay ungrouped, and a session from another directory cannot be moved in.
+ - **External changes are seen late** — if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
+-- **Archiving is one-way** — a hidden session keeps its history and its place, but no unarchive action exists yet; the archive set is a durable display filter.
++- **Archiving is a reversible display filter** — `unarchiveSession(sessionId)` restores the session's existing position, returns whether the durable archive set changed, and shares the registry write queue. Unloading drains accepted registry writes before closing storage.
+ - **Re-adding a directory starts fresh** — after removal, adding the same directory again creates a new project with an empty session list; the old sessions do not come back automatically.
+ 
+ <a id="dev-note"></a>
+diff --git a/packages/workspace/workspace/README.zh.md b/packages/workspace/workspace/README.zh.md
+index 7070449..078bfd3 100644
+--- a/packages/workspace/workspace/README.zh.md
++++ b/packages/workspace/workspace/README.zh.md
+@@ -160,7 +160,7 @@ ctx.workspaceRegistry.list() // shows the project, newest first
+ - **移除绝不删除数据**——移除项目会保留其文件夹、文件与会话历史；这些会话变成 Ungrouped，而会话删除与文件夹移除是彼此独立且尚未提供的功能（参见[决策记录](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.zh.md)）。
+ - **只有带记录目录的会话才能加入**——只有记录中带有可解析为项目路径的目录的会话才属于项目；没有目录的会话保持 Ungrouped，来自其他目录的会话无法移入。
+ - **外部变更延迟可见**——如果另一进程删除或损坏目录，项目只能在下次刷新或重启后反映出来。
+-- **归档是单向的**——被隐藏的会话保留其历史与位置，但目前没有取消归档操作；归档集合是持久的显示过滤器。
++- **归档是可撤销的显示过滤器**——`unarchiveSession(sessionId)` 恢复会话的原有位置，返回持久化归档集合是否发生变化，并复用注册表写入队列。卸载会先排空已接纳的注册表写入，再关闭存储。
+ - **重新添加目录从空开始**——移除后再次添加同一目录会创建空会话列表的新项目；旧会话不会自动回来。
+ 
+ <a id="dev-note"></a>
+diff --git a/packages/workspace/workspace/src/index.ts b/packages/workspace/workspace/src/index.ts
+index 87edb28..8f6e950 100644
+--- a/packages/workspace/workspace/src/index.ts
++++ b/packages/workspace/workspace/src/index.ts
+@@ -100,6 +100,7 @@ export class WorkspaceRegistry extends Service {
+   private readonly sessionPaths = new Map<SessionId, string>()
+   private readonly invalidSessionPaths = new Map<SessionId, string>()
+   private operationTail: Promise<void> = Promise.resolve()
++  private stopping = false
+ 
+   private readonly host: WorkspaceEntityHost = {
+     table: () => this.requireTable(),
+@@ -117,8 +118,13 @@ export class WorkspaceRegistry extends Service {
+ 
+   /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
+   protected async [Service.init](): Promise<void> {
++    this.stopping = false
+     const domain = await this.ctx.storageDomain.open(workspaceDomainSpec)
+-    this.ctx.effect(() => () => domain.close(), 'workspace.domainClose')
++    this.ctx.effect(() => async () => {
++      this.stopping = true
++      await this.operationTail
++      await domain.close()
++    }, 'workspace.domainClose')
+     this.table = domain.table('workspaces')
+     this.global = domain.global
+     this.state = domain.global.get()
+@@ -254,6 +260,22 @@ export class WorkspaceRegistry extends Service {
+     })
+   }
+ 
++  /**
++   * Restore one archived session to its existing workspace position. This
++   * only removes the durable display filter; it never changes session logs
++   * or workspace accounting. Unknown/unarchived ids are idempotent no-ops.
++   * @param sessionId - The session to restore.
++   * @returns `true` after the archive-set change is durable, otherwise `false`.
++   */
++  unarchiveSession(sessionId: SessionId): Promise<boolean> {
++    return this.enqueueOperation(async () => {
++      const state = this.requireState()
++      if (!state.archivedSessionIds.includes(sessionId)) return false
++      await this.setState({ ...state, archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId) })
++      return true
++    })
++  }
++
+   /**
+    * Whether a session is live, header-indexed, or present in a fresh
+    * persistence listing. Only a definite miss returns false — a failing
+@@ -646,6 +668,7 @@ export class WorkspaceRegistry extends Service {
+   }
+ 
+   private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
++    if (this.stopping) return Promise.reject(new Error('workspace registry is stopping'))
+     const result = this.operationTail.then(async () => {
+       // A committed delete may leave only its marker cleanup pending. Retry
+       // recovery before another create/delete can overwrite that pending operation record.
+diff --git a/packages/workspace/workspace/tests/workspace.spec.ts b/packages/workspace/workspace/tests/workspace.spec.ts
+index 49348ce..c9692b2 100644
+--- a/packages/workspace/workspace/tests/workspace.spec.ts
++++ b/packages/workspace/workspace/tests/workspace.spec.ts
+@@ -874,6 +874,68 @@ describe('workspace mutation and status', () => {
+ })
+ 
+ describe('registry-global session archive', () => {
++  it('unarchives durably and idempotently without changing the workspace position', async () => {
++    const dir = await makeDir('unarchive-home')
++    const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
++    const workspace = result.registry.list()[0]!
++    const position = [...workspace.sessionIds]
++    await result.registry.archiveSession(SessionId('gone'))
++    const before = result.changes.length
++    await expect(result.registry.unarchiveSession(SessionId('gone'))).resolves.toBe(true)
++    expect(result.registry.archivedSessionIds).toEqual([])
++    expect(workspace.sessionIds).toEqual(position)
++    expect(storedState(result.pool).archivedSessionIds).toEqual([])
++    expect(result.changes.slice(before)).toMatchObject([{ domain: 'workspace', table: '' }])
++    await expect(result.registry.unarchiveSession(SessionId('gone'))).resolves.toBe(false)
++    await expect(result.registry.unarchiveSession(SessionId('unknown'))).resolves.toBe(false)
++    expect(result.changes).toHaveLength(before + 1)
++    await result.fiber.dispose()
++    const restored = await harness({ pool: result.pool, sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
++    expect(restored.registry.archivedSessionIds).toEqual([])
++    expect(restored.registry.list()[0]!.sessionIds).toEqual(position)
++    await restored.fiber.dispose()
++  })
++
++  it('preserves memory on a failed unarchive write and accepts a subsequent retry', async () => {
++    const result = await harness({ sessions: [header('gone')] })
++    await result.registry.archiveSession(SessionId('gone'))
++    const before = result.changes.length
++    result.pool.failNextWrites = 1
++    await expect(result.registry.unarchiveSession(SessionId('gone'))).rejects.toThrow(/injected/)
++    expect(result.registry.archivedSessionIds).toEqual(['gone'])
++    expect(storedState(result.pool).archivedSessionIds).toEqual(['gone'])
++    expect(result.changes).toHaveLength(before)
++    await expect(result.registry.unarchiveSession(SessionId('gone'))).resolves.toBe(true)
++    await result.fiber.dispose()
++  })
++
++  it('serializes archive/unarchive requests and drains accepted operations before unloading', async () => {
++    const pool = storedPool([], { initialized: true, workspaceIds: [], archivedSessionIds: [SessionId('old')] })
++    const result = await harness({ pool })
++    let release!: (headers: SessionHeader[]) => void
++    const pendingList = new Promise<SessionHeader[]>(resolve => { release = resolve })
++    result.list.mockImplementationOnce(() => pendingList)
++    const archive = result.registry.archiveSession(SessionId('new'))
++    await vi.waitFor(() => { expect(result.list).toHaveBeenCalledOnce() })
++    const old = result.registry.unarchiveSession(SessionId('old'))
++    const newlyArchived = result.registry.unarchiveSession(SessionId('new'))
++    let unloaded = false
++    const unloading = result.fiber.dispose().then(() => { unloaded = true })
++    await new Promise(resolve => { setTimeout(resolve, 0) })
++    expect(unloaded).toBe(false)
++    await expect(result.registry.unarchiveSession(SessionId('late'))).rejects.toThrow(/stopping/)
++    release([header('new')])
++    await expect(archive).resolves.toBeUndefined()
++    await expect(old).resolves.toBe(true)
++    await expect(newlyArchived).resolves.toBe(true)
++    await unloading
++    expect(storedState(pool).archivedSessionIds).toEqual([])
++    await expect(result.registry.archiveSession(SessionId('late'))).rejects.toThrow(/stopping/)
++    const restored = await harness({ pool })
++    expect(restored.registry.archivedSessionIds).toEqual([])
++    await restored.fiber.dispose()
++  })
++
+   it('archives durably in order, idempotently skips repeats, and leaves accounting untouched', async () => {
+     const dir = await makeDir('archive-home')
+     const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })

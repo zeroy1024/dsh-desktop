@@ -45,7 +45,7 @@ describe('client plugin wiring', () => {
     const context: ClientContext = {
       effect: (factory) => factory(),
       inject: (services, callback) => {
-        expect(services).toEqual(['slots', 'modelDirectories', 'sessions'])
+        expect(services).toEqual(['slots', 'modelDirectories', 'sessions', 'remote', 'remote.session'])
         return callback(scope)
       },
       locale: { register: vi.fn(() => localeDisposer) },

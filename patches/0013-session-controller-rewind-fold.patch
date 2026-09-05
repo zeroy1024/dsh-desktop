@@ -1,169 +1,269 @@
-diff --git a/packages/api/session-controller/src/client/contract/events.ts b/packages/api/session-controller/src/client/contract/events.ts
-index 39ce09ccab..bdf10875af 100644
---- a/packages/api/session-controller/src/client/contract/events.ts
-+++ b/packages/api/session-controller/src/client/contract/events.ts
-@@ -156,3 +156,125 @@ export class MutableSessionEventSource implements SessionEventSource {
-     notifySubscribers(this.listeners, '[session-controller] event feed')
+diff --git a/packages/api/session-controller/src/client/contract/event-views.ts b/packages/api/session-controller/src/client/contract/event-views.ts
+new file mode 100644
+index 0000000..970bc26
+--- /dev/null
++++ b/packages/api/session-controller/src/client/contract/event-views.ts
+@@ -0,0 +1,112 @@
++/** Plugin-owned views over the read-only event feed; transport keeps the raw log. */
++import { notifySubscribers } from '@deepseek-ai/dsh-client-store'
++import type { SessionId } from '@deepseek-ai/dsh-session/types'
++import type { SessionEventSource, SessionEventWindow } from './events.ts'
++
++export interface SessionEventSourceView {
++  readonly source: SessionEventSource
++  dispose(): void
++}
++
++export type SessionEventSourceTransform = (source: SessionEventSource, sessionId: SessionId) => SessionEventSourceView
++
++export interface SessionEventViewRegistry {
++  /** Register in a plugin effect. Disposal restores every live binding's previous view. */
++  register(transform: SessionEventSourceTransform): () => void
++  /** Bind one source until its Session scope is disposed. */
++  bind(source: SessionEventSource, sessionId: SessionId): SessionEventSourceView
++}
++
++/** Stable binding identities and monotonic revisions across plugin load/unload. */
++export function createSessionEventViewRegistry(): SessionEventViewRegistry {
++  const transforms = new Set<SessionEventSourceTransform>()
++  const bindings = new Set<() => void>()
++  return {
++    register(transform) {
++      if (transforms.has(transform)) throw new Error('session event transform already registered')
++      transforms.add(transform)
++      try {
++        for (const rebind of bindings) rebind()
++      } catch (error) {
++        transforms.delete(transform)
++        for (const rebind of bindings) rebind()
++        throw error
++      }
++      let disposed = false
++      return () => {
++        if (disposed) return
++        disposed = true
++        transforms.delete(transform)
++        for (const rebind of bindings) rebind()
++      }
++    },
++    bind(raw, sessionId) {
++      const listeners = new Set<() => void>()
++      let revision = 0
++      let published: SessionEventWindow
++      let release = () => {}
++      const rebind = () => {
++        const views: SessionEventSourceView[] = []
++        let source = raw
++        let active = false
++        let unsubscribe = () => {}
++        let initial: SessionEventWindow
++        const publish = (replace: boolean, window = source.getSnapshot()) => {
++          revision += 1
++          published = {
++            // Do not materialize the whole rope on a streaming delta.
++            get entries() { return window.entries },
++            hasMore: window.hasMore,
++            revision,
++            change: replace
++              ? { kind: 'replace', get entries() { return window.entries } }
++              : window.change,
++          }
++          notifySubscribers(listeners, '[session-controller] event view')
++        }
++        try {
++          for (const transform of transforms) {
++            const view = transform(source, sessionId)
++            views.push(view)
++            source = view.source
++          }
++          // Prepare the complete candidate before releasing the active view.
++          // A provider may fail while subscribing or reading its first value.
++          unsubscribe = source.subscribe(() => { if (active) publish(false) })
++          initial = source.getSnapshot()
++        } catch (error) {
++          unsubscribe()
++          for (let i = views.length - 1; i >= 0; i--) views[i]?.dispose()
++          throw error
++        }
++        release()
++        active = true
++        release = () => {
++          active = false
++          unsubscribe()
++          for (let i = views.length - 1; i >= 0; i--) views[i]?.dispose()
++        }
++        publish(true, initial)
++      }
++      rebind()
++      bindings.add(rebind)
++      let disposed = false
++      return {
++        source: {
++          getSnapshot: () => published,
++          subscribe(listener) {
++            listeners.add(listener)
++            return () => { listeners.delete(listener) }
++          },
++        },
++        dispose() {
++          if (disposed) return
++          disposed = true
++          bindings.delete(rebind)
++          release()
++          listeners.clear()
++        },
++      }
++    },
++  }
++}
+diff --git a/packages/api/session-controller/src/client/contract/session.ts b/packages/api/session-controller/src/client/contract/session.ts
+index 43c0f2d..f763608 100644
+--- a/packages/api/session-controller/src/client/contract/session.ts
++++ b/packages/api/session-controller/src/client/contract/session.ts
+@@ -58,6 +58,8 @@ export interface ProjectionsFace {
+ 
+ /** Identity plus the behavior verbs features may invoke on a session. */
+ export interface ISession {
++  /** Raw history cursor; may be absent before opening. Read around loadOlder to detect progress even when a view hides the entire page. */
++  readonly historyStartSeq?: number | undefined
+   /** The session's host identity (agent id — same axis). */
+   readonly sessionId: SessionId
+   /** Host-computed projection values by key (the useProjection seat). */
+diff --git a/packages/api/session-controller/src/client/index.ts b/packages/api/session-controller/src/client/index.ts
+index 4bad2bb..bbcd398 100644
+--- a/packages/api/session-controller/src/client/index.ts
++++ b/packages/api/session-controller/src/client/index.ts
+@@ -48,6 +48,8 @@ export type {
+ } from './contract/session.ts'
+ export type { ISessions } from './contract/sessions.ts'
+ export { MutableSessionEventSource } from './contract/events.ts'
++export { createSessionEventViewRegistry } from './contract/event-views.ts'
++export type { SessionEventSourceView, SessionEventSourceTransform, SessionEventViewRegistry } from './contract/event-views.ts'
+ export type {
+   SessionEventChange,
+   SessionEventLike,
+@@ -70,6 +72,7 @@ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     /** Client Session object layer and Agent scope owner. */
+     sessions: import('./contract/sessions.ts').ISessions
++    sessionEventViews: import('./contract/event-views.ts').SessionEventViewRegistry
    }
  }
-+
-+
-+// ---------------------------------------------------------------------------
-+// patches/0013 — rewind-visibility fold over the Conversation-facing feed.
-+//
-+// A tombstone event ('dsh-desktop/session-rewind', appended by the desktop
-+// rewind plugin) hides the raw events with seq in [atSeq, markerSeq) from the
-+// Conversation assembly. Only the assembled view is filtered: the raw window
-+// keeps every event so seq continuity, pagination cursors, and the
-+// live-append dedup guard keep operating on the untouched log. The marker
-+// itself always flows through (a definition may claim it to render a rewind
-+// marker; unclaimed it is dropped by the fallback).
-+//
-+// The literal below duplicates the core declaration
-+// (packages/core/session/src/rewind.ts) deliberately: importing the constant
-+// from the built dsh-session surface would couple this fold's resolution to
-+// that package's build freshness.
-+//
-+
-+/** The rewind tombstone event type. Namespaced to the desktop harness owner. */
-+const REWIND_EVENT_TYPE = 'dsh-desktop/session-rewind'
-+
-+/** One tombstone's withdrawn range: raw events with seq in [atSeq, markerSeq). */
-+export interface RewindRange {
-+  readonly atSeq: number
-+  readonly markerSeq: number
-+}
-+
-+/** Unwrap a window entry ({ event }) or a bare event to its log face. */
-+function logFaceOf(entry: unknown): { readonly seq: number; readonly type: string; readonly data?: unknown } {
-+  const e = entry as { event?: { seq: number; type: string; data?: unknown }; seq?: number; type?: string; data?: unknown }
-+  return e.event ?? (e as { seq: number; type: string; data?: unknown })
-+}
-+
-+/** Collect every tombstone range declared inside a raw event window. */
-+export function rewindRangesOf(events: readonly unknown[]): RewindRange[] {
-+  const ranges: RewindRange[] = []
-+  for (const entry of events) {
-+    const event = logFaceOf(entry)
-+    if (event.type === REWIND_EVENT_TYPE) {
-+      ranges.push({ atSeq: (event.data as { atSeq: number }).atSeq, markerSeq: event.seq })
-+    }
-+  }
-+  return ranges
-+}
-+
-+/**
-+ * Whether one event stays in the Conversation view input: tombstones always
-+ * flow through (a definition may claim one to render a rewind marker),
-+ * every other event is hidden exactly when a tombstone's range covers it.
-+ */
-+export function keepViewEvent(
-+  entry: unknown,
-+  ranges: readonly RewindRange[],
-+): boolean {
-+  const event = logFaceOf(entry)
-+  if (event.type === REWIND_EVENT_TYPE) return true
-+  for (const range of ranges) {
-+    if (event.seq >= range.atSeq && event.seq < range.markerSeq) return false
-+  }
-+  return true
-+}
-+
-+/**
-+ * Wrap the raw event source with the rewind-visibility fold. The returned
-+ * facade satisfies the MutableSessionEventSource surface Session and the
-+ * bindings expose; every write routes to `raw`, and the published snapshot
-+ * carries the folded view. A write whose tail entry is (or lands inside) a
-+ * tombstone range republishes as a full window replacement so the
-+ * assembler's incremental path rebuilds instead of appending a hidden row.
-+ */
-+export function createRewindVisibilitySource(raw: MutableSessionEventSource): SessionEventSource & { replace(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void; prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void; append(entry: SessionLiveEventEntry): void } {
-+  let listeners: Set<() => void> = new Set()
-+  let published: SessionEventWindow | undefined
-+
-+  raw.subscribe(() => {
-+    const rawWindow = raw.getSnapshot()
-+    const change = rawWindow.change
-+    // A write that carries (or follows) a tombstone rewrites visibility
-+    // across the whole window: republish as a full replacement so the
-+    // assembler's incremental path rebuilds instead of tripping over a
-+    // hidden (withdrawn) materialized row.
-+    const tombstone = change.entries.some(
-+      entry => logFaceOf(entry).type === REWIND_EVENT_TYPE,
-+    )
-+    const ranges = rewindRangesOf(rawWindow.entries)
-+    const entries = rawWindow.entries.filter(entry => keepViewEvent(entry.event, ranges))
-+    published = {
-+      entries,
-+      hasMore: rawWindow.hasMore,
-+      revision: rawWindow.revision,
-+      change: tombstone ? { kind: 'replace', entries } : change,
-+    }
-+    for (const listener of [...listeners]) listener()
-+  })
-+
-+  return {
-+    getSnapshot: () => {
-+      // Lazy self-heal for direct reads that skipped a notification: keep the
-+      // last published window (its change semantics matter to the assembler)
-+      // but refresh the folded entries and revision.
-+      const rawWindow = raw.getSnapshot()
-+      if (published === undefined || published.revision !== rawWindow.revision) {
-+        const ranges = rewindRangesOf(rawWindow.entries)
-+        published = {
-+          entries: rawWindow.entries.filter(entry => keepViewEvent(entry.event, ranges)),
-+          hasMore: rawWindow.hasMore,
-+          revision: rawWindow.revision,
-+          change: { kind: 'replace', entries: [] },
-+        }
-+      }
-+      return published
-+    },
-+    subscribe: listener => {
-+      listeners.add(listener)
-+      return () => { listeners.delete(listener) }
-+    },
-+    replace: (entries, hasMore) => raw.replace(entries, hasMore),
-+    prepend: (entries, hasMore) => raw.prepend(entries, hasMore),
-+    append: entry => raw.append(entry),
-+  }
-+}
+ 
+diff --git a/packages/api/session-controller/src/client/sessions/manager.ts b/packages/api/session-controller/src/client/sessions/manager.ts
+index fd39fef..a99fcfc 100644
+--- a/packages/api/session-controller/src/client/sessions/manager.ts
++++ b/packages/api/session-controller/src/client/sessions/manager.ts
+@@ -1,3 +1,4 @@
++import type { SessionEventViewRegistry } from '../contract/event-views.ts'
+ // SessionManager: the instance cluster Map<SessionId, Session> (lazy-built, resident) + the frame
+ // dispatch entry + list state, constructed and held by ClientSessions (one per browser client).
+ // List data never enters zustand; React connects via subscribe/getListSnapshot.
+@@ -153,6 +154,7 @@ export class SessionManager {
+     private readonly remote: SessionRemotes,
+     restoredSelection?: SessionId,
+     restoredAddress?: SubagentAddress,
++    private readonly eventViews?: SessionEventViewRegistry,
+   ) {
+     this.selected = restoredSelection
+     if (restoredAddress !== undefined) this.addresses.set(restoredAddress.childSessionId, restoredAddress)
+@@ -332,6 +334,7 @@ export class SessionManager {
+         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
+       },
+       projections: this.projectionStore(sessionId),
++      ...this.eventViews === undefined ? {} : { eventViews: this.eventViews },
+     })
+   }
+ 
+diff --git a/packages/api/session-controller/src/client/sessions/service.ts b/packages/api/session-controller/src/client/sessions/service.ts
+index d1d840c..c4de4a1 100644
+--- a/packages/api/session-controller/src/client/sessions/service.ts
++++ b/packages/api/session-controller/src/client/sessions/service.ts
+@@ -1,3 +1,4 @@
++import { createSessionEventViewRegistry } from '../contract/event-views.ts'
+ /**
+  * ClientSessions: root sessions service — list snapshot store (manager
+  * projection; carries `current`, the persisted selection every
+@@ -201,6 +202,7 @@ export class ClientSessions implements ISessions {
+    */
+   private readonly selection: SnapshotStore<SessionSelection>
+ 
++  private readonly eventViews = createSessionEventViewRegistry()
+   private readonly scopes = new Map<SessionId, ScopeRecord>()
+   /** In-flight scope drops remain here after records leave `scopes`, so root disposal can await quiescence. */
+   private readonly scopeDrops = new Set<Promise<void>>()
+@@ -230,6 +232,7 @@ export class ClientSessions implements ISessions {
+       remote,
+       restored.sessionId,
+       restored.subagentAddress,
++      this.eventViews,
+     )
+     this.list = createSnapshotStore<SessionListState>({
+       ids: [], byId: {}, current: undefined, phase: 'pending',
+@@ -261,6 +264,7 @@ export class ClientSessions implements ISessions {
+       await this.manager.dispose()
+     }, 'session-controller.client.sessions')
+     rootCtx.reflect.provide('sessions', this, undefined)
++    rootCtx.reflect.provide('sessionEventViews', this.eventViews)
+   }
+ 
+   /**
 diff --git a/packages/api/session-controller/src/client/sessions/session.ts b/packages/api/session-controller/src/client/sessions/session.ts
-index d9d58d41e2..150fffc1a2 100644
+index d9d58d4..421f62b 100644
 --- a/packages/api/session-controller/src/client/sessions/session.ts
 +++ b/packages/api/session-controller/src/client/sessions/session.ts
-@@ -23,7 +23,11 @@ import type {
- import type {
-   OpenState, PendingSubmission, PromptError, SessionSnapshot,
- } from '../contract/snapshot.ts'
--import { MutableSessionEventSource } from '../contract/events.ts'
-+import { createRewindVisibilitySource, MutableSessionEventSource } from '../contract/events.ts'
-+// patches/0013: re-exported for the rewind-visibility specs. Importing
-+// ../contract/events.ts directly from a spec would drag client-store sources
-+// into the host tsconfig program (TS6307 cascade).
-+export { createRewindVisibilitySource, keepViewEvent, rewindRangesOf, MutableSessionEventSource } from '../contract/events.ts'
- import type {
-   SessionEventLikeEntry, SessionLiveEventEntry,
- } from '../contract/events.ts'
-@@ -136,8 +140,15 @@ export class Session implements SessionFace {
-    */
+@@ -1,3 +1,5 @@
++import type { SessionEventSourceView, SessionEventViewRegistry } from '../contract/event-views.ts'
++import type { SessionEventSource } from '../contract/events.ts'
+ // Sessions remain resident after creation so their open Remote sources keep running off-screen.
+ 
+ import type { Context } from '@deepseek-ai/cordis'
+@@ -51,6 +53,8 @@ export const JUMP_PAGE_MESSAGES = 200
+ 
+ /** Manager-owned observers of a Session object's local state edges. */
+ export interface SessionOptions {
++  /** Plugin-owned read views; raw transport state remains private. */
++  eventViews?: SessionEventViewRegistry
+   /** Catalog-discovered address selecting non-activating subagent transport. */
+   address?: SubagentAddress
+   /** Whether the exact direct parent Agent was live at the latest catalog read; absent before that read. */
+@@ -81,6 +85,7 @@ export interface SessionOptions {
+ export class Session implements SessionFace {
+   // ---- Window and derived state (all private; the snapshot is the only read API) ----
+   private baseSeq = SessionLogOffset(0)
++  get historyStartSeq(): number | undefined { return this.openState === 'cold' ? undefined : this.baseSeq }
+   private hasMore = false
+   private openState: OpenState = 'cold'
+   private openError: RemoteFailure | null = null
+@@ -137,7 +142,9 @@ export class Session implements SessionFace {
    readonly projections: ProjectionValueStore
  
--  /** Contiguous history and live tail consumed by Conversation assembly. */
+   /** Contiguous history and live tail consumed by Conversation assembly. */
 -  readonly eventSource = new MutableSessionEventSource()
-+  /**
-+   * Raw contiguous history and live tail. Never published to Conversation
-+   * assembly directly (patches/0013): `eventSource` wraps this source with
-+   * the rewind-visibility fold, so the raw log keeps every event for seq
-+   * continuity, pagination cursors, and live-append dedup.
-+   */
 +  private readonly rawEvents = new MutableSessionEventSource()
-+  /** Conversation-facing view of {@link rawEvents} with rewind tombstones folded. */
-+  readonly eventSource: MutableSessionEventSource = createRewindVisibilitySource(this.rawEvents) as MutableSessionEventSource
++  readonly eventSource: SessionEventSource
++  private readonly eventView: SessionEventSourceView | undefined
    private snapshotCache: SessionSnapshot
    private readonly notifier: Notifier
    /**
-@@ -636,7 +647,7 @@ export class Session implements SessionFace {
+@@ -159,6 +166,8 @@ export class Session implements SessionFace {
+     private readonly remote: SessionRemotes,
+     private readonly options: SessionOptions = {},
+   ) {
++    this.eventView = options.eventViews?.bind(this.rawEvents, sessionId)
++    this.eventSource = this.eventView?.source ?? this.rawEvents
+     this.projections = options.projections ?? new ProjectionValueStore()
+     this.address = options.address
+     this.parentAvailable = options.parentAvailable
+@@ -568,6 +577,7 @@ export class Session implements SessionFace {
+    * @returns when the Remote iterator has completed teardown.
+    */
+   async dispose(): Promise<void> {
++    this.eventView?.dispose()
+     // Unsettled echoes retire as failed so their owners can restore or
+     // release browser resources; echoes already scheduled as observed keep
+     // that settlement.
+@@ -636,7 +646,7 @@ export class Session implements SessionFace {
      this.hasMore = hasMore
      if (entries.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
      if (projections !== undefined) this.projections.seed(projections)
@@ -172,7 +272,7 @@ index d9d58d41e2..150fffc1a2 100644
      for (const entry of entries) this.observeSubmissionEvent(entry.event)
      this.notifier.markDirty()
    }
-@@ -645,7 +656,7 @@ export class Session implements SessionFace {
+@@ -645,7 +655,7 @@ export class Session implements SessionFace {
    private prependWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
      this.baseSeq = entries[0] === undefined ? this.baseSeq : SessionLogOffset(entries[0].event.seq)
      this.hasMore = hasMore
@@ -181,7 +281,7 @@ index d9d58d41e2..150fffc1a2 100644
    }
  
    /** Append one stream-validated live event. */
-@@ -654,7 +665,7 @@ export class Session implements SessionFace {
+@@ -654,7 +664,7 @@ export class Session implements SessionFace {
      const awaitingFirstTurn = this.firstPromptPendingTurn
      if (event.type === 'turn/start') this.firstPromptPendingTurn = false
      const queueChanged = this.queueMirror.acceptDurable(event)
@@ -190,95 +290,107 @@ index d9d58d41e2..150fffc1a2 100644
      // After the feed append: the conversation assembly's animation frame is
      // registered by the feed subscribers above, so the echo-retirement frame
      // scheduled here always runs after the durable node became renderable.
-diff --git a/packages/api/session-controller/tests/rewind-visibility.spec.ts b/packages/api/session-controller/tests/rewind-visibility.spec.ts
+diff --git a/packages/api/session-controller/tests/event-views.client.spec.ts b/packages/api/session-controller/tests/event-views.client.spec.ts
 new file mode 100644
-index 0000000000..c364f272fc
+index 0000000..8adadef
 --- /dev/null
-+++ b/packages/api/session-controller/tests/rewind-visibility.spec.ts
-@@ -0,0 +1,74 @@
-+/**
-+ * Rewind-visibility fold (patches/0013): the Conversation-facing event source
-+ * hides [atSeq, markerSeq) raw ranges, always flows the marker, and
-+ * republishes a tombstone write as a full replacement.
-+ */
-+import { describe, expect, it } from 'vitest'
-+import {
-+  createRewindVisibilitySource,
-+  keepViewEvent,
-+  MutableSessionEventSource,
-+  rewindRangesOf,
-+  type SessionEventLikeEntry,
-+} from '../src/client/sessions/session.ts'
++++ b/packages/api/session-controller/tests/event-views.client.spec.ts
+@@ -0,0 +1,52 @@
++import { describe, expect, it, vi } from 'vitest'
++import { SessionId } from '@deepseek-ai/dsh-session/types'
++import { MutableSessionEventSource, type SessionEventLikeEntry, type SessionLiveEventEntry } from '../src/client/contract/events.ts'
++import { createSessionEventViewRegistry } from '../src/client/contract/event-views.ts'
 +
-+let nextSeq = 100
-+function entry(type: string, data: Record<string, unknown> = {}): SessionEventLikeEntry {
-+  const seq = nextSeq++
-+  return { type: 'event' as const, event: { seq, time: seq, type, data } } as unknown as SessionEventLikeEntry
-+}
-+const user = () => entry('user/message', { content: [] })
-+const marker = (atSeq: number) => entry('dsh-desktop/session-rewind', { atSeq })
-+
-+describe('rewindRangesOf / keepViewEvent', () => {
-+  it('collects tombstone ranges and keeps the marker itself visible', () => {
-+    const events = [user(), marker(100), user(), user()]
-+    const ranges = rewindRangesOf(events)
-+    expect(ranges).toEqual([{ atSeq: 100, markerSeq: events[1]!.event!.seq }])
-+    expect(keepViewEvent(events[1]!, ranges)).toBe(true)
-+    expect(keepViewEvent(events[0]!, ranges)).toBe(false)
-+    expect(keepViewEvent(events[2]!, ranges)).toBe(true)
-+    expect(keepViewEvent(events[3]!, ranges)).toBe(true)
++describe('Session event view contributions', () => {
++  it('updates existing and future binding identities, restores on unload, and disposes subscriptions', () => {
++    const registry = createSessionEventViewRegistry()
++    const raw = new MutableSessionEventSource()
++    const entry = { type: 'event', event: { seq: 0, type: 'user/message', time: 0, data: {} } } as unknown as SessionEventLikeEntry
++    raw.replace([entry], false)
++    const binding = registry.bind(raw, SessionId('a'))
++    const seen = vi.fn()
++    binding.source.subscribe(seen)
++    const before = binding.source.getSnapshot().revision
++    const dispose = vi.fn()
++    const unregister = registry.register(source => ({
++      source: { getSnapshot: () => ({ ...source.getSnapshot(), entries: [], change: { kind: 'replace', entries: [] } }), subscribe: listener => source.subscribe(listener) },
++      dispose,
++    }))
++    expect(binding.source.getSnapshot().entries).toEqual([])
++    expect(binding.source.getSnapshot().revision).toBeGreaterThan(before)
++    expect(seen).toHaveBeenCalledOnce()
++    const next = registry.bind(raw, SessionId('b'))
++    expect(next.source.getSnapshot().entries).toEqual([])
++    unregister()
++    expect(binding.source.getSnapshot().entries).toEqual([entry])
++    expect(next.source.getSnapshot().entries).toEqual([entry])
++    expect(dispose).toHaveBeenCalledTimes(2)
++    binding.dispose(); next.dispose()
 +  })
++  it('releases a candidate whose subscription fails without losing the active source', () => {
++    const registry = createSessionEventViewRegistry()
++    const raw = new MutableSessionEventSource()
++    const binding = registry.bind(raw, SessionId('a'))
++    const disposed = vi.fn()
++    expect(() => registry.register(source => ({
++      source: {
++        getSnapshot: () => source.getSnapshot(),
++        subscribe: () => { throw new Error('subscription failed') },
++      },
++      dispose: disposed,
++    }))).toThrow('subscription failed')
++    expect(disposed).toHaveBeenCalledOnce()
++    const seen = vi.fn()
++    binding.source.subscribe(seen)
++    raw.append({ type: 'event', event: { seq: 1, type: 'test', time: 0, data: {} } } as unknown as SessionLiveEventEntry)
++    expect(seen).toHaveBeenCalledOnce()
++    binding.dispose()
++  })
++
 +})
-+
-+describe('createRewindVisibilitySource', () => {
-+  it('hides withdrawn ranges from the published window while keeping the raw log intact', () => {
-+    const raw = new MutableSessionEventSource()
-+    const source = createRewindVisibilitySource(raw)
-+    const u1 = user()
-+    const u2 = user()
-+    raw.replace([u1, u2], false)
-+    expect(source.getSnapshot().entries).toEqual([u1, u2])
-+
-+    const m = marker(0)
-+    raw.append(m)
-+    const window = source.getSnapshot()
-+    expect(window.entries).toEqual([m])
-+    expect(raw.getSnapshot().entries).toHaveLength(3)
+diff --git a/packages/api/session-controller/tests/session.client.spec.ts b/packages/api/session-controller/tests/session.client.spec.ts
+index f91e574..eda34b8 100644
+--- a/packages/api/session-controller/tests/session.client.spec.ts
++++ b/packages/api/session-controller/tests/session.client.spec.ts
+@@ -6,6 +6,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+ import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
+ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+ import { JUMP_PAGE_MESSAGES, Session, type SessionOptions } from '../src/client/sessions/session.ts'
++import { createSessionEventViewRegistry } from '../src/client/contract/event-views.ts'
+ import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+ import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
+ 
+@@ -69,6 +70,33 @@ describe('Session open', () => {
+     expect(session.eventSource.getSnapshot().change).toMatchObject({ kind: 'replace' })
+   })
+ 
++  it('keeps event views on the real Session while raw paging progresses through hidden pages', async () => {
++    const eventViews = createSessionEventViewRegistry()
++    const { api, session } = makeSession(new FakeApiClient(), { eventViews })
++    expect(session.historyStartSeq).toBeUndefined()
++    api.onHistory = () => histResponse(plainTurn(SessionSeq(10), 3, 'hidden', 'hidden'), true)
++    await session.open()
++    const source = session.eventSource
++    const restore = eventViews.register(raw => ({
++      source: {
++        getSnapshot: () => ({ ...raw.getSnapshot(), entries: [], change: { kind: 'replace', entries: [] } }),
++        subscribe: listener => raw.subscribe(listener),
++      },
++      dispose() {},
++    }))
++    expect(source.getSnapshot().entries).toEqual([])
++    expect(session.historyStartSeq).toBe(10)
++    api.onHistory = () => histResponse(plainTurn(SessionSeq(4), 2, 'older', 'older'), true)
++    await session.loadOlder()
++    expect(session.historyStartSeq).toBe(4)
++    expect(source.getSnapshot().entries).toEqual([])
++    expect(source.getSnapshot().hasMore).toBe(true)
++    expect(session.eventSource).toBe(source)
++    restore()
++    expect(source.getSnapshot().entries[0]?.event.seq).toBe(4)
++    session.dispose()
 +  })
 +
-+  it('republishes a tombstone append as a full replacement', () => {
-+    const raw = new MutableSessionEventSource()
-+    const source = createRewindVisibilitySource(raw)
-+    raw.replace([user()], false)
-+    const seen: string[] = []
-+    source.subscribe(() => {
-+      seen.push(source.getSnapshot().change.kind)
-+    })
-+    raw.append(marker(0))
-+    expect(seen).toEqual(['replace'])
-+  })
-+
-+  it('passes ordinary appends through as appends', () => {
-+    const raw = new MutableSessionEventSource()
-+    const source = createRewindVisibilitySource(raw)
-+    raw.replace([user()], false)
-+    const seen: string[] = []
-+    source.subscribe(() => {
-+      seen.push(source.getSnapshot().change.kind)
-+    })
-+    raw.append(user())
-+    expect(seen).toEqual(['append'])
-+  })
-+})
-diff --git a/tsconfig.host.json b/tsconfig.host.json
-index 6dfe0a9d31..c29feb7917 100644
---- a/tsconfig.host.json
-+++ b/tsconfig.host.json
-@@ -106,6 +106,7 @@
-   // suffixes are mutually exclusive, so each aggregate excludes the other's
-   // and the package test glob above needs no per-file entry.
-   "exclude": [
-+    "packages/api/session-controller/tests/rewind-visibility.spec.ts",
-     "packages/client/*/src/**",
-     "packages/*/*/tests/**/*.client.ts",
-     "packages/*/*/tests/**/*.client.tsx",
+   it('is idempotent: concurrent opens share one follow, reopening when open is a no-op', async () => {
+     const { api, session } = makeSession()
+     await Promise.all([session.open(), session.open()])

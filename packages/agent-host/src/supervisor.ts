@@ -21,7 +21,9 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { fileURLToPath } from 'node:url'
 import { parseReadyLine, type ReadyLineInfo } from './ready-line'
+import { createWindowsJob, windowsJobNodeOptions, type WindowsJob } from './windows-job'
 
 /** start() 成功时返回的信息。 */
 export interface AgentReadyInfo extends ReadyLineInfo {
@@ -40,7 +42,7 @@ export interface RestartPolicy {
   /**
    * 「稳定」判定阈值：一次意外退出前的存活时间 ≥ stableRunMs + 当期退避延迟
    * 才视为偶发崩溃并把重试次数清零——即「活过了自己当下的退避期」才算稳定。
-   * 无独立计时器，判定全部发生在 close 时，默认 30s。
+   * 无独立计时器，以 exit 时刻计存活时间、清理完毕后判定，默认 30s。
    */
   stableRunMs: number
 }
@@ -67,6 +69,8 @@ export interface AgentSupervisorOptions {
   nodeExecutable?: string
   /** 传给 Node 的 flags（如 web profile 的 HMR 需要 --expose-internals），默认 []。 */
   nodeArgs?: string[]
+  /** Win32 pre-entry bootstrap, copied outside app.asar by the desktop package. */
+  windowsJobBootstrap?: string
   /** CLI 参数，默认 ['--profile', 'web', '--no-open', '--port', '0']。 */
   profileArgs?: string[]
   /** 追加的环境变量（DSH_HOME 由 dshHome 自动注入）。 */
@@ -87,9 +91,9 @@ export interface AgentSupervisorOptions {
  * win32 进程树 `taskkill` 命令构造：纯函数，便于非 Windows 主机精确单测 argv。
  * /pid /T 常规树杀，SIGKILL 升级 /T /F；控制台窗口闪现由 execFile 的
  * windowsHide 抑制（taskkill 自身没有此类参数）。
- * Job Object 是更彻底的长期方案（subtree 全杀 + 防逃逸），留作 backlog。
+ * 仅用于旧版本孤儿进程兼容；新启动的 Windows agent 由 Job Object 管理。
  */
-export function killProcessTreeCommand(pid: number, sig: NodeJS.Signals): string[] {
+export function killProcessTreeCommand(pid: number, sig: NodeJS.Signals): [string, ...string[]] {
   const force = sig === 'SIGKILL' ? ['/F'] : []
   return ['taskkill', ...force, '/pid', String(pid), '/T']
 }
@@ -100,7 +104,8 @@ export function killProcessTreeCommand(pid: number, sig: NodeJS.Signals): string
  */
 export function killProcessTree(pid: number, sig: NodeJS.Signals): void {
   if (process.platform !== 'win32') return
-  execFile('taskkill', killProcessTreeCommand(pid, sig), { timeout: 10_000, windowsHide: true }, () => {
+  const [command, ...args] = killProcessTreeCommand(pid, sig)
+  execFile(command, args, { timeout: 10_000, windowsHide: true }, () => {
     // taskkill 失败（如进程刚退出）由调用方的 close/探活等待兜底，这里只记日志
   })
 }
@@ -122,6 +127,10 @@ export class AgentSupervisor extends EventEmitter {
   private child: ChildProcess | null = null
   private logStream: WriteStream | null = null
   private readonly logCloseTasks = new WeakMap<ChildProcess, Promise<void>>()
+  private readonly childCloseTasks = new WeakMap<ChildProcess, Promise<void>>()
+  private readonly terminationTasks = new WeakMap<ChildProcess, Promise<void>>()
+  private readonly childLogStreams = new WeakMap<ChildProcess, Set<WriteStream>>()
+  private readonly windowsJobs = new WeakMap<ChildProcess, WindowsJob>()
   private latestLogCloseTask: Promise<void> = Promise.resolve()
   private restartTimer: NodeJS.Timeout | null = null
   private currentState: AgentState = 'stopped'
@@ -171,7 +180,7 @@ export class AgentSupervisor extends EventEmitter {
     }
     const child = this.child
     if (!child) {
-      await this.latestLogCloseTask
+      await this.waitForCleanup(this.latestLogCloseTask, 5_000)
       this.currentState = 'stopped'
       this.currentReady = null
       return
@@ -191,19 +200,37 @@ export class AgentSupervisor extends EventEmitter {
         return
       }
       this.currentState = 'starting'
-      let logStream = this.openLogStream()
+      let job: WindowsJob | undefined
+      const bootstrap = this.options.windowsJobBootstrap
+        ?? fileURLToPath(new URL('../assets/windows-job-bootstrap.cjs', import.meta.url))
+      let logStream: WriteStream
+      try {
+        if (process.platform === 'win32') {
+          if (!existsSync(bootstrap)) throw new Error(`Windows job bootstrap missing: ${bootstrap}`)
+          job = createWindowsJob(this.options.cliEntry)
+        }
+        logStream = this.openLogStream()
+      } catch (error) {
+        this.closeJob(job)
+        this.currentState = 'stopped'
+        rejectPromise(error)
+        return
+      }
       this.logStream = logStream
       // 运行期日志字节计数；写日志统一走 writeLog（脱敏 + 计数 + 越阈轮转同一处）
       let logBytes = 0
       // 每代进程的日志关闭承诺链：运行期轮转会中途换流，只有最后一个流的
       // close 才算这一代日志关毕，terminate()/stop() 不能提前返回
       let logCloseTask: Promise<void> = Promise.resolve()
+      const openLogStreams = new Set<WriteStream>()
       const attachLogStream = (stream: WriteStream): void => {
+        openLogStreams.add(stream)
         const closed = new Promise<void>((resolveLogClose) => {
           let settled = false
           const done = (): void => {
             if (settled) return
             settled = true
+            openLogStreams.delete(stream)
             resolveLogClose()
           }
           stream.once('close', done)
@@ -232,21 +259,41 @@ export class AgentSupervisor extends EventEmitter {
 
       const node = this.options.nodeExecutable ?? process.execPath
       const args = [
+        // NODE_OPTIONS runs our preload before user preloads. Keep an argv copy
+        // for runtimes that disable NODE_OPTIONS; CommonJS caches the duplicate.
+        ...(job === undefined ? [] : ['--require', bootstrap]),
         ...(this.options.nodeArgs ?? []),
         this.options.cliEntry,
         ...(this.options.profileArgs ?? ['--profile', 'web', '--no-open', '--port', '0']),
       ]
 
-      const child = spawn(node, args, {
-          env: { ...process.env, DSH_HOME: this.options.dshHome, ...this.options.env },
+      let child: ChildProcess
+      try {
+        child = spawn(node, args, {
+          env: {
+            ...process.env, DSH_HOME: this.options.dshHome, ...this.options.env,
+            ...(job === undefined ? {} : {
+              DSH_DESKTOP_JOB_NAME: job.name,
+              NODE_OPTIONS: windowsJobNodeOptions(bootstrap, this.options.env?.NODE_OPTIONS ?? process.env.NODE_OPTIONS),
+            }),
+          },
           // POSIX 下独立进程组，stop() 才能整组 SIGTERM/SIGKILL；
-          // win32 无进程组信号，child.kill 只杀单进程——dsh 会派生孙进程
-          // （工具执行/终端），由 signal() 的 taskkill /T 整树收割
+          // Windows bootstrap 在 dsh 代码前加入父进程拥有的 Job Object。
           detached: process.platform !== 'win32',
+          windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      )
+        })
+      } catch (error) {
+        this.closeJob(job)
+        logStream.destroy()
+        this.currentState = 'stopped'
+        rejectPromise(error)
+        return
+      }
       this.child = child
+      if (job !== undefined) this.windowsJobs.set(child, job)
+      this.childLogStreams.set(child, openLogStreams)
+      this.childCloseTasks.set(child, new Promise<void>((resolveClose) => child.once('close', resolveClose)))
       attachLogStream(logStream)
       // 分隔行：日志以追加方式写入，多次启动的输出必须能区分开；
       // 记录完整命令行，参数类问题看一眼日志就能定位
@@ -254,7 +301,7 @@ export class AgentSupervisor extends EventEmitter {
 
       let promiseSettled = false
       let reachedReady = false
-      // ready 行到达时刻：close 侧据此判定「跑够了算稳定」还是「照常累积退避」
+      // ready 行到达时刻：与 exit 时刻相减判定稳定，不计清理耗时。
       let readyAt = 0
       let startupFailure: Error | null = null
       let stdoutBuf = ''
@@ -322,9 +369,51 @@ export class AgentSupervisor extends EventEmitter {
       child.on('error', (err) => {
         if (!reachedReady) startupFailure = err
       })
-      child.on('close', (code, signal) => {
+      let exitObserved = false
+      const observeExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+        if (exitObserved) return
+        exitObserved = true
+        this.closeJob(this.windowsJobs.get(child))
+        const exitedAt = Date.now()
         clearTimeout(timer)
-        const isCurrentChild = this.child === child
+        if (this.child === child) {
+          this.currentReady = null
+          this.currentState = 'stopping'
+        }
+        // A descendant may retain stdout/stderr after the CLI exits. Invalidate
+        // transport immediately, then finish bounded pipe/tree cleanup before
+        // starting another generation.
+        this.emit('exit', code, signal)
+        void this.terminate(child).catch((error: unknown) => {
+          console.warn('[agent] 退出后清理失败', error)
+        }).then(() => {
+          if (this.child !== child) return
+          this.child = null
+          if (!reachedReady) {
+            rejectBeforeReady(
+              this.intentionalStop
+                ? new Error('agent 在 ready 前被停止')
+                : startupFailure
+                  ?? new Error(`agent 在 ready 前退出（code=${code} signal=${signal}），日志见 ${this.options.logDir}`),
+            )
+            return
+          }
+          if (this.intentionalStop) {
+            this.currentState = 'stopped'
+            return
+          }
+          const expectedDelay = Math.min(
+            this.restartPolicy.baseDelayMs * 2 ** this.retryCount,
+            this.restartPolicy.maxDelayMs,
+          )
+          if (exitedAt - readyAt >= this.restartPolicy.stableRunMs + expectedDelay) {
+            this.retryCount = 0
+          }
+          this.scheduleRestart()
+        })
+      }
+      child.once('exit', observeExit)
+      child.on('close', (code, signal) => {
         // decoder.end() 吐出跨 chunk 扣留的尾部字节，拼在行缓冲之后一并落盘；
         // 收尾写入不再轮转（下一次 spawn 的 openLogStream 会做同样的轮转）
         const stdoutTail = stdoutBuf + stdoutDecoder.end()
@@ -333,36 +422,8 @@ export class AgentSupervisor extends EventEmitter {
         if (stderrTail.length > 0) writeLog(stderrTail, false)
         logStream.end()
         if (this.logStream === logStream) this.logStream = null
-        if (isCurrentChild) {
-          this.child = null
-          this.currentReady = null
-        }
-        this.emit('exit', code, signal)
-        if (!reachedReady) {
-          rejectBeforeReady(
-            this.intentionalStop
-              ? new Error('agent 在 ready 前被停止')
-              : startupFailure
-                ?? new Error(`agent 在 ready 前退出（code=${code} signal=${signal}），日志见 ${this.options.logDir}`),
-          )
-          return
-        }
-        if (this.intentionalStop) {
-          this.currentState = 'stopped'
-          return
-        }
-        // 稳定判定内置在 close 路径，没有独立 stableTimer——不存在定时器与
-        // close 竞态导致预算被持续重置的问题。存活 ≥ stableRunMs + 当次退避
-        // 延迟才算稳定（偶发崩溃）并清零预算；崩溃周期比自身退避还短的进程
-        // 照常累积，最终走到 gave-up，UI 不会永远挂着等待
-        const expectedDelay = Math.min(
-          this.restartPolicy.baseDelayMs * 2 ** this.retryCount,
-          this.restartPolicy.maxDelayMs,
-        )
-        if (Date.now() - readyAt >= this.restartPolicy.stableRunMs + expectedDelay) {
-          this.retryCount = 0
-        }
-        this.scheduleRestart()
+        // A spawn error emits close without exit.
+        observeExit(code, signal)
       })
     })
   }
@@ -432,15 +493,20 @@ export class AgentSupervisor extends EventEmitter {
 
   /**
    * 整组 SIGTERM，超时后 SIGKILL；stdio 已关闭并完成清场后 resolve。
-   * win32：taskkill /pid /T 杀整棵进程树（SIGTERM 无优雅期语义，立即树杀；
-   * SIGKILL 路径升级到 /T /F）。
+   * win32：关闭父进程持有的 Job handle，立即终止本代 agent 的进程树。
    */
-  private async terminate(child: ChildProcess): Promise<void> {
-    const closed = child.exitCode !== null || child.signalCode !== null
-      ? Promise.resolve()
-      : new Promise<void>((resolvePromise) => {
-          child.once('close', () => resolvePromise())
-        })
+  private terminate(child: ChildProcess): Promise<void> {
+    const existing = this.terminationTasks.get(child)
+    if (existing !== undefined) return existing
+    const task = this.terminateChild(child)
+    this.terminationTasks.set(child, task)
+    return task
+  }
+
+  private async terminateChild(child: ChildProcess): Promise<void> {
+    // exitCode/signalCode describe exit, never pipe closure. This promise is
+    // installed at spawn so exit-before-stop cannot miss the close event.
+    const closed = this.childCloseTasks.get(child)!
     this.signal(child, 'SIGTERM')
     const grace = this.options.stopGraceMs ?? 5_000
     let graceTimer: NodeJS.Timeout | undefined
@@ -470,10 +536,35 @@ export class AgentSupervisor extends EventEmitter {
         }
       })()
       if (!forcedClosed) {
-        throw new Error(`agent SIGKILL 后 5000ms 内未关闭（pid=${String(child.pid)}）`)
+        if (child.exitCode === null && child.signalCode === null) {
+          throw new Error(`agent SIGKILL 后 5000ms 内未退出（pid=${String(child.pid)}）`)
+        }
+        // Detached tools may outlive their CLI and retain inherited pipes.
+        // The CLI is confirmed dead; release our pipe handles rather than
+        // waiting forever for an unrelated process group to close them.
+        child.stdout?.destroy()
+        child.stderr?.destroy()
+        if (!await this.waitForCleanup(closed, 1_000)) {
+          throw new Error(`agent 日志管道未关闭（pid=${String(child.pid)}）`)
+        }
       }
     }
-    await this.logCloseTasks.get(child)
+    if (!await this.waitForCleanup(this.logCloseTasks.get(child) ?? Promise.resolve(), 5_000)) {
+      for (const stream of this.childLogStreams.get(child) ?? []) stream.destroy()
+      throw new Error(`agent 日志落盘超时（pid=${String(child.pid)}）`)
+    }
+  }
+
+  private async waitForCleanup(task: Promise<void>, timeoutMs: number): Promise<boolean> {
+    let timer: NodeJS.Timeout | undefined
+    try {
+      return await Promise.race([
+        task.then(() => true),
+        new Promise<false>((resolveTimeout) => { timer = setTimeout(() => resolveTimeout(false), timeoutMs) }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
   }
 
   private signal(child: ChildProcess, sig: NodeJS.Signals): void {
@@ -485,11 +576,9 @@ export class AgentSupervisor extends EventEmitter {
         return
       }
       if (process.platform === 'win32' && pid !== undefined) {
-        // taskkill /T 整树收割孙进程（工具执行/终端）；它是尽力而为的
-        // 增强（静默失败由调用方的 close 等待兜底），child.kill 的
-        // TerminateProcess 单杀是保底下限——两路并发，先到的生效。
-        // Job Object 是更彻底的长期方案（subtree 全杀 + 防逃逸），留作 backlog
-        killProcessTree(pid, sig)
+        // Closing our sole lasting handle kills the complete job, including
+        // detached grandchildren. child.kill also stops a pre-bootstrap child.
+        this.closeJob(this.windowsJobs.get(child))
         child.kill(sig)
         return
       }
@@ -501,6 +590,14 @@ export class AgentSupervisor extends EventEmitter {
       } catch {
         // 同上
       }
+    }
+  }
+
+  private closeJob(job: WindowsJob | undefined): void {
+    try {
+      job?.close()
+    } catch (error) {
+      console.error('[agent] Windows Job Object 关闭失败', error)
     }
   }
 }

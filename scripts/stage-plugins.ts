@@ -27,10 +27,12 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 interface PluginManifest {
   name?: unknown
   files?: unknown
-  dshDesktop?: { enabled?: unknown }
+  dshDesktop?: { enabled?: unknown; developmentOnly?: unknown }
 }
 
 export interface StagePluginsOptions {
+  /** 仅 pnpm dev 显式开启；普通构建不分发开发诊断插件。 */
+  development?: boolean
   /** 插件源目录（缺省 packages/plugins）。 */
   pluginsDir?: string
   /** dsh CLI 闭包 node_modules（缺省 vendor/dsh-cli/node_modules）。 */
@@ -96,9 +98,10 @@ export function stagePlugins(options: StagePluginsOptions = {}): string {
       const manifestPath = join(packageDir, 'package.json')
       if (!existsSync(manifestPath)) continue
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PluginManifest
-      // 默认不装配的插件（dshDesktop.enabled:false，如 hello-panel/panel-page-stub）
+      // 默认禁用及仅开发使用的插件按装配模式筛选。
       // 不进 staged 闭包：不随安装包分发；bundled-plugins 侧的 enabled 判定保持兜底。
       if (manifest.dshDesktop?.enabled === false) continue
+      if (manifest.dshDesktop?.developmentOnly === true && !options.development) continue
       const segment = pluginName(manifest.name, manifestPath)
       const destination = join(stagedScope, segment)
       mkdirSync(destination, { recursive: true })
@@ -142,5 +145,5 @@ export function stagePlugins(options: StagePluginsOptions = {}): string {
 
 if (process.argv[1] !== undefined
   && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(`[plugins] staged: ${stagePlugins()}`)
+  console.log(`[plugins] staged: ${stagePlugins({ development: process.argv.includes('--development') })}`)
 }

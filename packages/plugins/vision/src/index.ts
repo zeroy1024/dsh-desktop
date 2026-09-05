@@ -16,6 +16,7 @@ import z from '@deepseek-ai/schemastery'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { createRequire } from 'node:module'
+import { installLegacyStreamBridge } from './legacy-stream.ts'
 import {
   DEFAULT_ANTHROPIC_API_VERSION,
   DEFAULT_ANTHROPIC_MAX_TOKENS,
@@ -131,7 +132,7 @@ export type {
 export const name = '@dsh-desktop/vision'
 export const inject = ['llm'] as const
 export const NS = 'vision'
-export const MARKER = '__dshVisionBridged'
+export { MARKER } from './legacy-stream.ts'
 const CORDIS_ORIGINAL = Symbol.for('cordis.original')
 const VERSION = createRequire(import.meta.url)('../package.json').version as string
 const USER_AGENT = `dsh-vision/${VERSION}`
@@ -252,18 +253,10 @@ interface AttachmentsService {
 
 interface LlmService {
   resolveModelInfo?: ResolveModelInfo
-  stream?: (options: GenerateOptions) => AsyncIterable<unknown>
   /** Optional first-class seam supplied by newer LlmRuntime versions. */
   registerInputTransform?: (
     transform: (request: ImageInputTransformRequest) => ImageInputTransformResult | Promise<ImageInputTransformResult>,
   ) => () => void
-}
-
-interface GenerateOptions extends Record<string, unknown> {
-  provider?: string
-  model?: string
-  messages?: readonly Message[]
-  signal?: AbortSignal
 }
 
 interface ContextLike {
@@ -669,18 +662,73 @@ interface RewriteState {
   signal?: AbortSignal
 }
 
+interface PendingEvidence {
+  controller: AbortController
+  promise: Promise<EvidenceResult>
+  consumers: number
+  settled: boolean
+}
+
+// A shared operation has its own cancellation signal. One caller leaving must
+// not cancel another caller's image; the last waiter leaving cancels the work.
+interface CacheOperations {
+  pending: Map<string, PendingEvidence>
+  active: Set<PendingEvidence>
+}
+const evidenceOperations = new WeakMap<EvidenceCache, CacheOperations>()
+
+function cancelEvidenceOperations(cache: EvidenceCache): void {
+  const operations = evidenceOperations.get(cache)
+  if (operations === undefined) return
+  for (const operation of operations.active) operation.controller.abort()
+  operations.pending.clear()
+}
+
 async function imageBlockResult(block: ImageBlock, state: RewriteState): Promise<EvidenceResult & { key: string }> {
+  if (state.signal?.aborted === true) throw visionAborted(state.signal)
   const key = evidenceKey(block, state.opts)
   const existing = state.cache.get(key)
   if (existing !== undefined) return { key, ...(await abortableWait(existing, state.signal)) }
-  const pending = describeAttachment(state.opts, state.attachments, block, state.focus, state.signal).then(
-    text => ({ ok: true, text } satisfies EvidenceResult),
-    error => failureResult(error),
-  )
-  state.cache.set(key, pending)
-  const result = await abortableWait(pending, state.signal)
-  if (!result.ok && state.cache.peek(key) === pending) state.cache.deleteKey(key)
-  return { key, ...result }
+  let operations = evidenceOperations.get(state.cache)
+  if (operations === undefined) {
+    operations = { pending: new Map(), active: new Set() }
+    evidenceOperations.set(state.cache, operations)
+  }
+  const { pending, active } = operations
+  let operation = pending.get(key)
+  if (operation === undefined) {
+    const controller = new AbortController()
+    const created: PendingEvidence = {
+      controller, consumers: 0, settled: false,
+      promise: describeAttachment(state.opts, state.attachments, block, state.focus, controller.signal)
+        .then(text => ({ ok: true, text } satisfies EvidenceResult), failureResult)
+        .then(result => {
+          // Failures (including cancellation) never enter the reusable cache.
+          if (result.ok && !controller.signal.aborted && pending.get(key) === created) {
+            state.cache.set(key, Promise.resolve(result))
+          }
+          return result
+        })
+        .finally(() => {
+          created.settled = true
+          active.delete(created)
+          if (pending.get(key) === created) pending.delete(key)
+        }),
+    }
+    pending.set(key, created)
+    active.add(created)
+    operation = created
+  }
+  operation.consumers += 1
+  try {
+    return { key, ...(await abortableWait(operation.promise, state.signal)) }
+  } finally {
+    operation.consumers -= 1
+    if (operation.consumers === 0 && !operation.settled) {
+      if (pending.get(key) === operation) pending.delete(key)
+      operation.controller.abort()
+    }
+  }
 }
 
 async function rewriteBlock(block: ContentBlock, state: RewriteState): Promise<ContentBlock> {
@@ -867,25 +915,13 @@ export function installBridge(
   cache: EvidenceCache,
   resolveInfo?: ResolveModelInfo,
 ): void {
-  const llm = ctx.get('llm') as LlmService | undefined
-  if (llm?.stream === undefined || ctx.on === undefined) return
-  ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<unknown>) => {
-    const opts = getOptions()
-    if (!bridgeConfigured(opts) || options[MARKER] === true) return next()
-    if (typeof options.provider !== 'string' || typeof options.model !== 'string') return next()
-    if (!Array.isArray(options.messages) || !messagesContainImage(options.messages)) return next()
-    const attachments = ctx.get('attachments') as AttachmentsService | undefined
-    if (attachments === undefined) return next()
-    return (async function* (): AsyncGenerator<unknown> {
-      const bridged = await isBridgedModel(resolveInfo, opts, options.provider as string, options.model as string, options.signal)
-      if (!bridged) {
-        yield* next()
-        return
-      }
-      const focus = opts.focusHint ? extractFocus(options.messages ?? []) : ''
-      const messages = await rewriteMessages(opts, attachments, cache, options.messages ?? [], focus, options.signal)
-      yield* llm.stream?.({ ...options, messages, [MARKER]: true }) ?? next()
-    })()
+  installLegacyStreamBridge(ctx, {
+    getOptions,
+    configured: bridgeConfigured,
+    resolveInfo,
+    rewrite: (opts, messages, focus, signal) => rewriteMessages(
+      opts, ctx.get('attachments') as AttachmentsService, cache, messages, focus, signal,
+    ),
   })
 }
 
@@ -910,21 +946,27 @@ export function apply(ctx: VisionContext, config?: VisionConfig): void {
   validateConfig(base)
   let current: () => VisionConfig = () => base
   const cache = makeEvidenceCache(() => resolveOptions(ctx, current()).cacheSize)
-  // 0.1.2 迁移：installSettingsSection 模块函数已移除，等价改用
-  // SettingsProvider 实例方法 installSection；settings 为可选服务，
-  // 缺席时保持组合配置（与旧 API 的回退语义一致）。
-  const settings = ctx.get('settings') as SettingsHost | undefined
-  settings?.installSection(ctx, NS, Config, base, {
-    setSource: source => { current = source as () => VisionConfig },
-    validate: value => { validateConfig(value) },
-    onChange: () => {
-      cache.clear()
-    },
+  // Bind settings for its full service lifetime, including late activation.
+  ctx.inject?.(['settings'], (scope) => {
+    const settings = scope.get('settings') as SettingsHost
+    settings.installSection(ctx, NS, Config, base, {
+      setSource: source => { current = source as () => VisionConfig },
+      validate: value => { validateConfig(value) },
+      onChange: () => {
+        // Current consumers can finish with their captured settings, but new
+        // requests must neither join nor cache work from the previous settings.
+        evidenceOperations.get(cache)?.pending.clear()
+        cache.clear()
+      },
+    })
   })
   const getOptions = (): VisionOptions => resolveOptions(ctx, current())
   installImageInputAdmission(ctx, getOptions)
   const resolveInfo = getModelInfoResolver(ctx)
   const registered = installImageInputTransform(ctx, getOptions, cache, resolveInfo)
   if (!registered) installBridge(ctx, getOptions, cache, resolveInfo)
-  ctx.effect?.(() => () => cache.clear(), 'dsh-vision: evidence cache')
+  ctx.effect?.(() => () => {
+    cancelEvidenceOperations(cache)
+    cache.clear()
+  }, 'dsh-vision: evidence cache')
 }

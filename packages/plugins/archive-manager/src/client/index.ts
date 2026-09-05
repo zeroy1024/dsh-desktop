@@ -4,6 +4,7 @@
  * 写走 host 半挂在 webServer 上的同源恢复路由。
  */
 import { ArchiveManagerSection } from './ArchiveManagerSection.tsx'
+import { ArchiveSectionIcon } from './ArchiveSectionIcon.tsx'
 import { en, NS, zh } from './locales.ts'
 import type { ClientContext } from './types.ts'
 
@@ -22,4 +23,7 @@ export function apply(ctx: ClientContext): void {
     label: () => t('nav'),
     locale: NS,
   }, ArchiveManagerSection))
+  ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+    name: 'settings.section.icon', key: 'archive-manager',
+  }, ArchiveSectionIcon))
 }

@@ -14,12 +14,12 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnCommandSync } from './command'
+import { patchQueueTree, upstreamWorktreeTree } from './patch-queue'
 import {
   defaultPatchesDir,
   defaultUpstreamDir,
   readPatchRegistry,
   registeredPatchPath,
-  type PatchEntry,
 } from './sync-fingerprint'
 
 export interface RehearseOptions {
@@ -41,42 +41,12 @@ function runGit(worktree: string, args: string[], env?: Record<string, string>):
     env: { ...process.env, ...env },
   })
   if (r.status !== 0) {
-    const detail = r.stderr?.toString().trim()
+    const detail = [r.stderr, r.stdout].map(output => output?.toString().trim() ?? '').filter(Boolean).join('\n')
     throw new Error(
       `命令失败（exit ${String(r.status)}）：git ${args.join(' ')}${detail === '' ? '' : `\n${detail}`}`,
     )
   }
   return r.stdout.trim()
-}
-
-/** 在临时 Git index 上构造 diff，避免污染 worktree 的真实 index（同 sync-upstream）。 */
-function withScratchIndex<T>(worktree: string, prefix: string, fn: (indexEnv: Record<string, string>) => T): T {
-  const scratch = mkdtempSync(join(tmpdir(), prefix))
-  const indexEnv = { GIT_INDEX_FILE: join(scratch, 'index') }
-  try {
-    runGit(worktree, ['read-tree', 'HEAD'], indexEnv)
-    return fn(indexEnv)
-  } finally {
-    rmSync(scratch, { recursive: true, force: true })
-  }
-}
-
-/** 只套登记补丁的标准 diff（与 sync-upstream 的 registeredPatchDiff 同构）。 */
-function registeredDiff(worktree: string, patches: readonly PatchEntry[], patchesDir: string): string {
-  return withScratchIndex(worktree, 'dsh-rehearse-registered-', (indexEnv) => {
-    for (const entry of patches) {
-      runGit(worktree, ['apply', '--cached', registeredPatchPath(entry.file, patchesDir)], indexEnv)
-    }
-    return runGit(worktree, ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], indexEnv)
-  })
-}
-
-/** 工作树实际 diff（临时 index 纳入未跟踪文件；被 .gitignore 忽略的产物不进 index）。 */
-function actualDiff(worktree: string): string {
-  return withScratchIndex(worktree, 'dsh-rehearse-actual-', (indexEnv) => {
-    runGit(worktree, ['add', '--all'], indexEnv)
-    return runGit(worktree, ['diff', '--cached', '--binary', '--no-ext-diff', 'HEAD'], indexEnv)
-  })
 }
 
 export function rehearseQueue(options: RehearseOptions = {}): void {
@@ -109,24 +79,28 @@ export function rehearseQueue(options: RehearseOptions = {}): void {
     console.log(`[rehearse] scratch worktree：${worktree}`)
     for (const entry of entries) {
       const patchPath = registeredPatchPath(entry.file, patchesDir)
-      runGit(worktree, ['apply', '--check', patchPath])
-      runGit(worktree, ['apply', patchPath])
+      runGit(worktree, ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn', '--check', patchPath])
+      runGit(worktree, ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn', patchPath])
       console.log(`[rehearse] 已套用：${entry.file}`)
     }
-    const actual = actualDiff(worktree)
-    const expected = registeredDiff(worktree, entries, patchesDir)
+    const actual = upstreamWorktreeTree(worktree)
+    const expected = patchQueueTree(worktree, entries, patchesDir)
     if (actual !== expected) {
       throw new Error('[rehearse] 套用后工作树 diff 与登记队列不一致，队列存在未登记改动')
     }
+    // Blank unified-diff context lines are syntax, so .gitattributes excludes
+    // patch-file EOL warnings. Validate the resulting source, including added
+    // files, where whitespace mistakes can actually affect maintained code.
+    runGit(worktree, ['diff', '--no-ext-diff', '--no-textconv', '--check', 'HEAD', expected])
     console.log('[rehearse] 正序套用 = 登记队列 ✓')
 
     for (const entry of entries.toReversed()) {
       const patchPath = registeredPatchPath(entry.file, patchesDir)
-      runGit(worktree, ['apply', '--reverse', '--check', patchPath])
-      runGit(worktree, ['apply', '--reverse', patchPath])
+      runGit(worktree, ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn', '--reverse', '--check', patchPath])
+      runGit(worktree, ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn', '--reverse', patchPath])
       console.log(`[rehearse] 已撤销：${entry.file}`)
     }
-    if (actualDiff(worktree) !== '') {
+    if (upstreamWorktreeTree(worktree) !== runGit(worktree, ['rev-parse', 'HEAD^{tree}'])) {
       throw new Error('[rehearse] 逆序撤销后工作树未回到 HEAD，队列存在隐藏依赖或残留改动')
     }
     console.log('[rehearse] 逆序撤销 = HEAD ✓')

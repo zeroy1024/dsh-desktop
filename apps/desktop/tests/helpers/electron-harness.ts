@@ -328,6 +328,7 @@ export interface Harness {
     }
     session: {
       defaultSession: {
+        cookies: { get: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> }
         setPermissionRequestHandler: ReturnType<typeof vi.fn>
         setPermissionCheckHandler: ReturnType<typeof vi.fn>
         webRequest: { onHeadersReceived: ReturnType<typeof vi.fn> }
@@ -416,6 +417,7 @@ export function buildHarness(): Harness {
       },
       session: {
         defaultSession: {
+          cookies: { get: vi.fn(async () => []), remove: vi.fn(async () => {}) },
           setPermissionRequestHandler: vi.fn(),
           setPermissionCheckHandler: vi.fn(),
           webRequest: { onHeadersReceived: vi.fn() },

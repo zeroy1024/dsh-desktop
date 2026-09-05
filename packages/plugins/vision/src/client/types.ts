@@ -1,3 +1,4 @@
+import type { CredentialRemote } from './credentials.ts'
 /**
  * Local structural mirrors for the public client seams used by this plugin.
  * The desktop boundary forbids importing upstream source; these declarations
@@ -54,7 +55,7 @@ export interface ConnectionHandle {
   api: { credentials?: CredentialsApi }
 }
 
-export interface RemoteHandle {
+export interface RemoteHandle extends CredentialRemote {
   $on?: (event: string, listener: (value: string) => void) => () => void
 }
 

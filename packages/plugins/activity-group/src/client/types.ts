@@ -2,11 +2,8 @@
  * 本地结构化类型契约（desktop-frame 的 types.ts 先例）。
  *
  * 本插件消费的「缝」由 patches/0005-conversation-chat-group-seam.patch 引入
- * 上游 ui-conversation（权威定义在
- * upstream/packages/client/ui-conversation/src/client/contract/slots.ts 与
- * runtime/src/client/sessions/conversation.ts）。按边界铁律我们不 import 上游
- * src，vendor tarball 又是 gitignore 的（devDep 指进去会让新克隆装不了依赖），
- * 因此这里按结构逐字镜像插件实际触碰的类型面：
+ * 上游 ui-chat（权威定义在 ui-chat/client 导出的 contract/slots）。
+ * 按边界铁律不 import 上游 src；此文件只镜像插件消费的最小结构。
  *
  * - 运行时值导入（ui-primitives 的 DisclosureRow/图标）走 ui-primitives.d.ts
  *   的 ambient 声明——bundle 时它们是 external，由加载器模块表在浏览器里解析；
@@ -16,7 +13,7 @@
  */
 import type { ReactNode } from 'react'
 
-/* ===== 1. Chat 业务节点（镜像 chat-nodes.ts + runtime conversation.ts）===== */
+/* ===== 1. Chat 业务节点（镜像 ui-chat 的 chat-nodes 契约）===== */
 
 /** Assistant 内容块：本插件只区分 text/image（断组信号）与 reasoning（可折叠）。 */
 export type AssistantBlock =
@@ -108,10 +105,11 @@ export type ChatNode<Kind extends ChatNodeKind = ChatNodeKind> = {
 /** 会话视图快照中本插件读取的切片（useSession 选择器的输入面）。 */
 export interface ChatSessionSnapshot {
   running: boolean
-  chat: {
-    order: readonly string[]
-    nodes: ReadonlyMap<string, ChatNode | undefined>
-  }
+}
+
+export interface ChatSnapshot {
+  order: readonly string[]
+  nodes: ReadonlyMap<string, ChatNode | undefined>
 }
 
 /** 会话作用域快照选择器（槽位运行时座位注入的 useSession）。 */
@@ -147,12 +145,15 @@ export interface ChatFlowGroupOwnerProps {
 /** 注册座位的完整 props：owner 货币 + 运行时快照座位 + 翻译座位。 */
 export type ActivityGroupRowProps = ChatFlowGroupOwnerProps & {
   useSession: UseSession
+  useChat: <T>(selector: (snapshot: ChatSnapshot) => T) => T
   t: Translate
 }
 
 /* ===== 3. 客户端 Context（插件 apply 收到的服务面切片）===== */
 
 export interface ClientContext {
+  effect: (factory: () => (() => void) | void, name: string) => unknown
+  locale: { register(namespace: string, dictionaries: Record<string, Record<string, string>>): () => void }
   /** 提供命名服务（chatFlowGrouping），供 ui-conversation 经 ctx.get 惰性读取。 */
   provide: (key: string, value: unknown) => void
   get: (key: string) => unknown

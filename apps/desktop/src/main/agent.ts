@@ -5,6 +5,8 @@
  * 启动前物化 desktop profile（ADR-0004），并以 `--profile desktop` 拉起。
  */
 import { AgentSupervisor, materializeDesktopProfile } from '@dsh-desktop/agent-host'
+import { join } from 'node:path'
+import { app } from 'electron'
 import { appVersion, resolveBundledPlugins } from './bundled-plugins'
 import { dshHomeDir, logsDir, resolveCliEntry } from './paths'
 
@@ -21,6 +23,9 @@ export function createSupervisor(): AgentSupervisor {
     logDir: logsDir(),
     // web profile 的 patchReload: live 会加载 cordis-plugin-hmr，要求 Node --expose-internals
     nodeArgs: ['--expose-internals'],
+    windowsJobBootstrap: app.isPackaged
+      ? join(process.resourcesPath, 'windows-job-bootstrap.cjs')
+      : join(import.meta.dirname, 'windows-job-bootstrap.cjs'),
     profileArgs: ['--profile', 'desktop', '--no-open', '--port', '0'],
     // process.execPath 是 Electron 二进制：必须以纯 Node 模式运行，否则 Chromium
     // 会吞掉 --profile 等开关，CLI 报 "--profile <name> is required"

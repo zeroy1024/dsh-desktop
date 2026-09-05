@@ -14,7 +14,7 @@
 
 ## 决定
 
-选 A。`upstream/` 为 submodule 并 pin 到具体 tag；**pin 策略：跟随 npm 已发布版本对应的 tag**（当前 `dsh-v0.1.1-rc.2`，对应 npm `latest`）。原因：仓库 tag 可能领先 npm 发布（如 `dsh-v0.1.2-alpha.1` 的依赖 `@deepseek-ai/dsh-client-ui-cordis@^0.1.2-alpha.1` 当时并未发布到 registry），而我们的 `vendor/dsh-cli` 安装等价于 `npx @deepseek-ai/dsh`，依赖必须从 registry 可解析。一切源码变更以 `patches/*.patch` 表达并在 `patches/patches.yml` 登记理由；`scripts/sync-upstream.ts` 套用补丁 → install → build → `pnpm pack` 关键包到 `vendor/`；CI 每次演练全链路，保证补丁始终能干净套用。
+选 A。`upstream/` 为 submodule 并 pin 到具体 tag；**pin 策略：跟随 npm 已发布版本对应的 tag**（当前 `dsh-v0.1.2-rc.1`）。原因：仓库 tag 可能领先 npm 发布（如 `dsh-v0.1.2-alpha.1` 的依赖 `@deepseek-ai/dsh-client-ui-cordis@^0.1.2-alpha.1` 当时并未发布到 registry），而我们的 `vendor/dsh-cli` 安装等价于 `npx @deepseek-ai/dsh`，依赖必须从 registry 可解析。一切源码变更以 `patches/*.patch` 表达并在 `patches/patches.yml` 登记理由；`scripts/sync-upstream.ts` 套用补丁 → install → build → `pnpm pack` 关键包到 `vendor/`；CI 每次演练全链路，保证补丁始终能干净套用。
 
 ## 后果
 

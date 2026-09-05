@@ -241,16 +241,16 @@ interface SettingsHost {
 export function apply(ctx: Context, config: Config = {}): void {
   validateConfig(config)
   let current: () => Config = () => config
-  // 0.1.2 迁移：installSettingsSection 模块函数已移除，等价改用
-  // SettingsProvider 实例方法 installSection；settings 为可选服务，
-  // 缺席时保持组合配置（与旧 API 的回退语义一致）。
-  const settings = ctx.get('settings') as SettingsHost | undefined
-  settings?.installSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
-    validate: validateConfig,
-    setSource: source => { current = source },
-    // The provider reads the source at operation entry; no re-registration is
-    // needed when settings hot-reload or the settings service detaches.
-    onChange: () => {},
+  // Bind settings for its full service lifetime, including late activation.
+  ctx.inject(['settings'], (scope) => {
+    const settings = scope.get('settings') as SettingsHost
+    settings.installSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
+      validate: validateConfig,
+      setSource: source => { current = source },
+      // The provider reads the source at operation entry; no re-registration is
+      // needed when settings hot-reload or the settings service detaches.
+      onChange: () => {},
+    })
   })
   const provider: DshWebSearchProvider = new WebSearchProvider(() => resolveOptions(ctx, current()))
   ctx.web.registerSearchProvider(provider)

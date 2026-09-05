@@ -67,8 +67,8 @@
   overflow: hidden;
   flex: 1 1 auto;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -85,13 +85,13 @@
    位置，不参与缩进。退化平铺路径（degenerate）不加 grouped：无组壳不成组。 */
 .members.grouped {
   position: relative;
-  padding-left: 22px;
+  padding-left: calc(22px + var(--dsh-content-font-delta, 0px));
 }
 
 .members.grouped::before {
   content: '';
   position: absolute;
-  left: 10px;
+  left: calc(10px + var(--dsh-content-font-delta, 0px) / 2);
   top: 2px;
   bottom: 2px;
   width: 1px;

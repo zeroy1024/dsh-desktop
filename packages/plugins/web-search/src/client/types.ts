@@ -1,3 +1,4 @@
+import type { CredentialRemote } from './credentials.ts'
 /**
  * Client-local structural mirrors of the public DSH browser contracts.
  *
@@ -73,7 +74,7 @@ export interface ConnectionHandle {
   api: ApiClient
 }
 
-export interface RemoteEvents {
+export interface RemoteEvents extends CredentialRemote {
   $on(event: 'credentials/reference-updated', listener: (ref: string) => void): () => void
 }
 

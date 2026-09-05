@@ -159,3 +159,11 @@ describe('createAggregator', () => {
     expect(aggregator.result()).toBe(first)
   })
 })
+
+it('recovers new-file content from the 0.1.2 durable tool call without a computed view', () => {
+  const input = call(1, 'new', 'write')
+  ;(input.event.data as Record<string, unknown>).arguments = JSON.stringify({ file_path: 'new.ts', content: 'hello\n' })
+  const output = result(2, 'new', { meta: { diffs: [] } })
+  const review = aggregateEntries([input, output])
+  expect(review.files[0]).toMatchObject({ path: 'new.ts', added: 1, removed: 0 })
+})

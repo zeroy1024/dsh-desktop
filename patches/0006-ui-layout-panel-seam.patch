@@ -1,5 +1,5 @@
 diff --git a/packages/client/ui-layout/src/client/AppFrame.module.css b/packages/client/ui-layout/src/client/AppFrame.module.css
-index 9ba4e82be6..aafd09db99 100644
+index 9ba4e82..aafd09d 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
 @@ -4,6 +4,15 @@
@@ -101,7 +101,7 @@ index 9ba4e82be6..aafd09db99 100644
     centered on the column border via inline left, above column content. Details
     adds a visible 12x32 pill at vertical center; sidebar keeps only the hit strip. */
 diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
-index cbef893aed..b4e57e1d10 100644
+index cbef893..b4e57e1 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.tsx
 +++ b/packages/client/ui-layout/src/client/AppFrame.tsx
 @@ -1,16 +1,19 @@
@@ -350,7 +350,7 @@ index cbef893aed..b4e57e1d10 100644
    )
  }
 diff --git a/packages/client/ui-layout/src/client/columns.ts b/packages/client/ui-layout/src/client/columns.ts
-index 374ce64703..6a2fedf12c 100644
+index 374ce64..6a2fedf 100644
 --- a/packages/client/ui-layout/src/client/columns.ts
 +++ b/packages/client/ui-layout/src/client/columns.ts
 @@ -1,30 +1,31 @@
@@ -475,7 +475,7 @@ index 374ce64703..6a2fedf12c 100644
 +  return { sidebar: s, center: Math.max(0, viewport - s), details: 0, panel: 0 }
  }
 diff --git a/packages/client/ui-layout/src/client/index.ts b/packages/client/ui-layout/src/client/index.ts
-index 56afec15e3..3eb4521f09 100644
+index 56afec1..3eb4521 100644
 --- a/packages/client/ui-layout/src/client/index.ts
 +++ b/packages/client/ui-layout/src/client/index.ts
 @@ -1,7 +1,7 @@
@@ -541,7 +541,7 @@ index 56afec15e3..3eb4521f09 100644
        },
        // Exclusive store: the factory itself — the framework instantiates per
 diff --git a/packages/client/ui-layout/src/client/service.ts b/packages/client/ui-layout/src/client/service.ts
-index 2b2e50e5d5..310c0fe44e 100644
+index 2b2e50e..310c0fe 100644
 --- a/packages/client/ui-layout/src/client/service.ts
 +++ b/packages/client/ui-layout/src/client/service.ts
 @@ -27,6 +27,17 @@ export interface ILayout {
@@ -593,7 +593,7 @@ index 2b2e50e5d5..310c0fe44e 100644
      // Callers are UI gestures, which cannot fire before the root entry
      // rendered (the inject hook runs in its first render) — reaching this
 diff --git a/packages/client/ui-layout/src/client/stores.ts b/packages/client/ui-layout/src/client/stores.ts
-index 7b6e2807ee..5cc65646dd 100644
+index 7b6e280..5cc6564 100644
 --- a/packages/client/ui-layout/src/client/stores.ts
 +++ b/packages/client/ui-layout/src/client/stores.ts
 @@ -10,17 +10,27 @@
@@ -679,10 +679,18 @@ index 7b6e2807ee..5cc65646dd 100644
    })
    return handle
 diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-index a640480360..94fd7c8555 100644
+index a640480..4f8a88a 100644
 --- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
 +++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
-@@ -109,9 +109,9 @@ function mountFrame() {
+@@ -63,6 +63,7 @@ function mountFrame() {
+     if (key === 'sidebar') return <div data-testid="sidebar-content" />
+     if (key === 'conversation') return <div data-testid="center-content" />
+     if (key === 'details') return <div data-testid="details-content" />
++    if (key === 'panel') return <div data-testid="panel-content" />
+     if (key === 'conversation.empty') return <div data-testid="empty-content" />
+     return <div data-testid="other-content" />
+   }) as AppFrameProps['renderSlot']
+@@ -109,9 +110,9 @@ function mountFrame() {
  }
  
  function tracks(frame: HTMLElement): number[] {
@@ -694,7 +702,7 @@ index a640480360..94fd7c8555 100644
  }
  
  function drag(handle: Element, fromX: number, toX: number): void {
-@@ -175,7 +175,7 @@ describe('AppFrame', () => {
+@@ -175,7 +176,7 @@ describe('AppFrame', () => {
  
    it('renders three tracks from store state', () => {
      const { frame } = mountFrame()
@@ -703,7 +711,7 @@ index a640480360..94fd7c8555 100644
    })
  
    it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
-@@ -212,56 +212,56 @@ describe('AppFrame', () => {
+@@ -212,56 +213,56 @@ describe('AppFrame', () => {
  
    it('ignores unselected states and closes only when the Session id changes', () => {
      const { frame, instance, rerenderFrame } = mountFrame()
@@ -772,7 +780,7 @@ index a640480360..94fd7c8555 100644
    })
  
    it('details drag widens leftward (negative dx grows the panel)', () => {
-@@ -273,18 +273,18 @@ describe('AppFrame', () => {
+@@ -273,18 +274,18 @@ describe('AppFrame', () => {
    })
  
    it('drag base is the rendered (concession-clamped) width, not the preference', () => {
@@ -795,7 +803,7 @@ index a640480360..94fd7c8555 100644
      expect(getByTestId('details-content')).toBeTruthy()
      expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
    })
-@@ -292,7 +292,7 @@ describe('AppFrame', () => {
+@@ -292,7 +293,7 @@ describe('AppFrame', () => {
    it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
      const { frame, instance, slotCalls, getByTestId } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -804,7 +812,7 @@ index a640480360..94fd7c8555 100644
      expect(getByTestId('sidebar-content')).toBeTruthy()
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
-@@ -302,12 +302,12 @@ describe('AppFrame', () => {
+@@ -302,12 +303,12 @@ describe('AppFrame', () => {
    it('viewport shrink triggers the concession chain via ResizeObserver', () => {
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
@@ -820,7 +828,7 @@ index a640480360..94fd7c8555 100644
    })
  
    it('drag handles disappear for collapsed columns', () => {
-@@ -326,7 +326,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -326,7 +327,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
    it('mounts collapsed below the breakpoint with no sidebar handle', () => {
      frameWidth = 980
      const { frame, slotCalls } = mountFrame()
@@ -829,7 +837,7 @@ index a640480360..94fd7c8555 100644
      expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
      expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
      expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
-@@ -336,11 +336,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -336,11 +337,11 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.toggleSidebar() })
@@ -843,7 +851,7 @@ index a640480360..94fd7c8555 100644
    })
  
    it('a wide-closed preference re-expands at the contract default while narrow', () => {
-@@ -350,7 +350,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -350,7 +351,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      act(() => { instance.actions.toggleSidebar() })
@@ -852,7 +860,7 @@ index a640480360..94fd7c8555 100644
      expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
    })
  
-@@ -359,10 +359,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
+@@ -359,10 +360,10 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
      act(() => { instance.actions.setSidebar(400) })
      frameWidth = 980
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
@@ -865,7 +873,7 @@ index a640480360..94fd7c8555 100644
    })
  })
  
-@@ -383,28 +383,28 @@ describe('AppFrame — guard branches', () => {
+@@ -383,28 +384,28 @@ describe('AppFrame — guard branches', () => {
    it('two moves inside one frame coalesce through the pending rAF', () => {
      const { frame, instance } = mountFrame()
      const handle = frame.querySelectorAll('[class*="handle"]')[0]!
@@ -903,7 +911,7 @@ index a640480360..94fd7c8555 100644
    })
  
    it('zero-width resize reports are ignored (display:none window)', () => {
-@@ -412,7 +412,7 @@ describe('AppFrame — guard branches', () => {
+@@ -412,7 +413,7 @@ describe('AppFrame — guard branches', () => {
      frameWidth = 0
      act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
      // Track template still reflects the last non-zero viewport.
@@ -912,7 +920,7 @@ index a640480360..94fd7c8555 100644
    })
  })
  
-@@ -429,8 +429,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
+@@ -429,8 +430,107 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
    it('double resize inside one frame rides the pending rAF (??= guard)', () => {
      const { frame, instance } = mountFrame()
      act(() => { instance.actions.openDetails() })
@@ -921,10 +929,109 @@ index a640480360..94fd7c8555 100644
      act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
 -    expect(tracks(frame)).toEqual([280, 330])
 +    expect(tracks(frame)).toEqual([320, 350, 0])
++  })
++  it('does not redispatch static slot subtrees on layout-only store ticks', () => {
++    const { instance, slotCalls } = mountFrame()
++    const staticKeys = ['conversation', 'panel', 'shell.overlay']
++    const before = new Map(staticKeys.map(key => [key, slotCalls.filter(call => call.key === key).length]))
++
++    act(() => { instance.actions.openPanel() })
++    act(() => { instance.actions.setPanel(520) })
++
++    for (const key of staticKeys) {
++      expect(slotCalls.filter(call => call.key === key)).toHaveLength(before.get(key) ?? 0)
++    }
++    expect(slotCalls.filter(call => call.key === 'sidebar').length).toBeGreaterThan(1)
++  })
++
++  it('panel drag widens leftward through its own handle', () => {
++    const { frame, instance } = mountFrame()
++    act(() => { instance.actions.togglePanel() })
++    const handles = frame.querySelectorAll('[class*="handle"]')
++    expect(handles).toHaveLength(2)
++    drag(handles[1]!, 1440, 1380)
++    expect(tracks(frame)[2]).toBe(540)
++  })
++
++  it('details handle yields to the open panel column', () => {
++    const { frame, instance } = mountFrame()
++    act(() => { instance.actions.openDetails() })
++    act(() => { instance.actions.togglePanel() })
++    const handles = frame.querySelectorAll<HTMLElement>('[class*="handle"]')
++    expect(handles).toHaveLength(3)
++    // 1920 frame: sidebar 320 | center | details 360 | panel 480. The panel
++    // opens to the RIGHT of details, so the center|details seam sits at
++    // viewport - details - panel; the panel seam stays at viewport - panel.
++    expect(handles[1]!.style.left).toBe('1080px')
++    expect(handles[2]!.style.left).toBe('1440px')
    })
++
++  it('togglePanel opens the panel at the contract default with mounted content', () => {
++    const { frame, instance, getByTestId } = mountFrame()
++    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
++    act(() => { instance.actions.togglePanel() })
++    expect(tracks(frame)).toEqual([320, 0, 480])
++    expect(frame.hasAttribute('data-panel-collapsed')).toBe(false)
++    expect(getByTestId('panel-content')).toBeTruthy()
++    act(() => { instance.actions.togglePanel() })
++    expect(tracks(frame)).toEqual([320, 0, 0])
++    // The subtree stays mounted at zero width (never unmount on close).
++    expect(getByTestId('panel-content')).toBeTruthy()
++    expect(frame.hasAttribute('data-panel-collapsed')).toBe(true)
++  })
++
++  it('panel fullscreen is an overlay: tracks untouched, eased exact restore', () => {
++    const { frame, instance } = mountFrame()
++    act(() => { instance.actions.togglePanelExpanded() })
++    // No-op while the panel is closed.
++    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
++    act(() => { instance.actions.togglePanel() })
++    act(() => { instance.actions.togglePanelExpanded() })
++    expect(frame.hasAttribute('data-panel-expanded')).toBe(true)
++    // Overlay presentation: the grid tracks are untouched (the center gets
++    // covered, never re-wrapped) and the column leaves the flow at the
++    // content-area width.
++    expect(tracks(frame)).toEqual([320, 0, 480])
++    // The presentation flag rides the frame root (same anchor family as the
++    // collapsed/expanded markers); the column is found via its CSS-module
++    // class — the established [class*=…] anchor for hashed names.
++    expect(frame.hasAttribute('data-panel-overlay')).toBe(true)
++    const col = frame.querySelector<HTMLElement>('[class*="panelCol"]')
++    expect(col).toBeTruthy()
++    expect(col!.style.width).toBe('calc(100% - 320px)')
++    // The interior pin resolves against the FRAME, not the column: its
++    // containing block is panelCol, so a `100%` here would subtract the
++    // sidebar twice (blank strip at the right edge) and re-wrap the content
++    // on every eased frame. `100cqi` keeps the clip-box design exact.
++    const pin = frame.querySelector<HTMLElement>('[class*="panelColPin"]')
++    expect(pin).toBeTruthy()
++    // (cssstyle reorders calc terms; assert the semantics, not the spelling.)
++    expect(pin!.style.width).toContain('100cqi')
++    expect(pin!.style.width).not.toContain('%')
++    // The overlay covers the details handle and the panel handle; the
++    // sidebar handle survives at the overlay's left edge.
++    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
++    act(() => { instance.actions.togglePanelExpanded() })
++    // The presentation outlives the intent so the width can ease back down.
++    expect(frame.hasAttribute('data-panel-expanded')).toBe(false)
++    expect(col!.style.width).toBe('480px')
++    // Mid-restore the pin is already at the track width: the interior rides
++    // the column's left edge (translation), never its animated width.
++    expect(pin!.style.width).toBe('480px')
++    const end = new Event('transitionend', { bubbles: true })
++    Object.assign(end, { propertyName: 'width' })
++    act(() => { col!.dispatchEvent(end) })
++    // Released back into the flow at the track width — a seamless switch.
++    expect(frame.hasAttribute('data-panel-overlay')).toBe(false)
++    expect(tracks(frame)).toEqual([320, 0, 480])
++    // Closing the panel resets the flag in the store.
++    act(() => { instance.actions.closePanel() })
++    expect(instance.getSnapshot().panelExpanded).toBe(false)
++  })
++
  })
 diff --git a/packages/client/ui-layout/tests/columns.client.spec.ts b/packages/client/ui-layout/tests/columns.client.spec.ts
-index ae8c39a117..131d85d84d 100644
+index ae8c39a..131d85d 100644
 --- a/packages/client/ui-layout/tests/columns.client.spec.ts
 +++ b/packages/client/ui-layout/tests/columns.client.spec.ts
 @@ -1,7 +1,8 @@
@@ -1096,7 +1203,7 @@ index ae8c39a117..131d85d84d 100644
    })
  })
 diff --git a/packages/client/ui-layout/tests/layout-store.client.spec.ts b/packages/client/ui-layout/tests/layout-store.client.spec.ts
-index c6f0069197..61cc3f6fc0 100644
+index c6f0069..61cc3f6 100644
 --- a/packages/client/ui-layout/tests/layout-store.client.spec.ts
 +++ b/packages/client/ui-layout/tests/layout-store.client.spec.ts
 @@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
@@ -1209,7 +1316,7 @@ index c6f0069197..61cc3f6fc0 100644
        narrowExpanded: false,
      })
 diff --git a/packages/client/ui-layout/tests/service.client.spec.ts b/packages/client/ui-layout/tests/service.client.spec.ts
-index ea4118927c..3a60eabc68 100644
+index ea41189..3a60eab 100644
 --- a/packages/client/ui-layout/tests/service.client.spec.ts
 +++ b/packages/client/ui-layout/tests/service.client.spec.ts
 @@ -6,10 +6,15 @@ function fakePanels(): PanelActions {
