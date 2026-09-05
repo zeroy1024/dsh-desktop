@@ -214,7 +214,14 @@ pnpm dev
 - [CI 与可复现构建](docs/ci.md)
 - [Review 插件说明](packages/plugins/review/README.md) / [Rewind 插件说明](packages/plugins/rewind/README.md)
 
+## 许可证
+
+本项目以 [MIT](LICENSE) 许可证开源。
+
+文件浏览器内置的图标来自 [JetBrains intellij-community](https://github.com/JetBrains/intellij-community)（Apache-2.0，pin 到固定 commit 原样引用；完整许可文本见 [THIRD_PARTY_NOTICES](packages/plugins/file-browser/THIRD_PARTY_NOTICES)）。JetBrains 名称与产品商标不随图标许可授予。
+
 ## 致谢
 
 - [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) —— 本项目所封装的 agent harness 核心
 - [Cordis](https://github.com/cordisjs/cordis) —— dsh 背后的插件化运行时
+- [JetBrains intellij-community](https://github.com/JetBrains/intellij-community) —— 文件浏览器内置图标来源
