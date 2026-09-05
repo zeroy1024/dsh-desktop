@@ -94,6 +94,13 @@ export function apply(ctx: ClientContext): void {
     // patches/0007 反转控制：消费 trajectory 的面板页注册服务（cordis 元素=
     // trajectory 包 id，见 inject）。服务缺席（上游 web）时轮询空转无害。
     let pageRegistered = false
+    let pollTimer: ReturnType<typeof setInterval> | undefined
+    const stopPolling = (): void => {
+      if (pollTimer !== undefined) {
+        clearInterval(pollTimer)
+        pollTimer = undefined
+      }
+    }
     const trySeat = (): void => {
       if (pageRegistered) return
       const pageFactory = ctx.get('trajectoryPanelPage') as
@@ -101,15 +108,17 @@ export function apply(ctx: ClientContext): void {
         | undefined
       if (pageFactory === undefined) return
       pageRegistered = true
+      stopPolling()
       const disposePage = pageFactory.register({
         registerPage: (meta) => registry.registerPage(meta),
       })
       ctx.effect(() => disposePage, 'panel-shell: trajectory page')
     }
     trySeat()
-    const pollTimer = setInterval(trySeat, 200)
+    if (!pageRegistered) pollTimer = setInterval(trySeat, 200)
 
     return () => {
+      stopPolling()
       disposeSlotWatch()
       disposeRegistryWatch()
       void disposeService()
