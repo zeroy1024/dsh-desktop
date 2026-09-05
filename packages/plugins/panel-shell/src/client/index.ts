@@ -38,7 +38,7 @@ export { useHorizontalTabScroll } from './horizontal-tab-scroll.ts'
  * reflect.provide 该服务；声明它让 cordis 拓扑保证 trajectory 先行，
  * 本插件 apply 时服务必已就位。
  */
-export const inject = ['slots', 'locale', 'layout']
+export const inject = ['slots', 'locale', 'layout', 'trajectoryPanelPage']
 
 /**
  * Client plugin body: provide `ctx.panelShell`, occupy the `panel` column
@@ -93,32 +93,17 @@ export function apply(ctx: ClientContext): void {
 
     // patches/0007 反转控制：消费 trajectory 的面板页注册服务（cordis 元素=
     // trajectory 包 id，见 inject）。服务缺席（上游 web）时轮询空转无害。
-    let pageRegistered = false
-    let pollTimer: ReturnType<typeof setInterval> | undefined
-    const stopPolling = (): void => {
-      if (pollTimer !== undefined) {
-        clearInterval(pollTimer)
-        pollTimer = undefined
-      }
+    // patches/0007 反转控制：消费 trajectory 的面板页注册服务。inject 声明
+    // 'trajectoryPanelPage' 后 cordis 拓扑保证 trajectory 先行，服务必已就位。
+    const pageFactory = ctx.get('trajectoryPanelPage') as {
+      register(host: { registerPage(meta: PanelPageMeta): () => void }): () => void
     }
-    const trySeat = (): void => {
-      if (pageRegistered) return
-      const pageFactory = ctx.get('trajectoryPanelPage') as
-        | { register(host: { registerPage(meta: PanelPageMeta): () => void }): () => void }
-        | undefined
-      if (pageFactory === undefined) return
-      pageRegistered = true
-      stopPolling()
-      const disposePage = pageFactory.register({
-        registerPage: (meta) => registry.registerPage(meta),
-      })
-      ctx.effect(() => disposePage, 'panel-shell: trajectory page')
-    }
-    trySeat()
-    if (!pageRegistered) pollTimer = setInterval(trySeat, 200)
+    const disposePage = pageFactory.register({
+      registerPage: (meta) => registry.registerPage(meta),
+    })
 
     return () => {
-      stopPolling()
+      disposePage?.()
       disposeSlotWatch()
       disposeRegistryWatch()
       void disposeService()

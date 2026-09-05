@@ -16,9 +16,9 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-ui-renderer",
+        "slots",
         "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation",
+        "uiConversation",
         "@deepseek-ai/dsh-client-ui-model-selection",
         "@deepseek-ai/dsh-client-ui-primitives"
       ],
