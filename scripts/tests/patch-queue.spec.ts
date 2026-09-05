@@ -33,8 +33,12 @@ function fixture(): { upstream: string; old: string; next: string } {
   git(upstream, 'init', '-q')
   git(upstream, 'config', 'user.email', 'fixture@example.invalid')
   git(upstream, 'config', 'user.name', 'Fixture')
+  // Mirror upstream's .gitattributes contract (* text=auto eol=lf): attribute
+  // rules beat core.autocrlf at git apply write-out, so fixture worktrees stay
+  // LF even on hosts with system-level autocrlf=true (Windows CI runners).
+  writeFileSync(join(upstream, '.gitattributes'), '* text=auto eol=lf\n')
   writeFileSync(join(upstream, 'base.txt'), 'base\n')
-  git(upstream, 'add', 'base.txt')
+  git(upstream, 'add', '--all')
   git(upstream, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture')
   const old = queue('old', 'old-added')
   const next = queue('next', 'next-added')
@@ -100,7 +104,10 @@ it.each([
   const asset = join(upstream, 'asset.bin')
   const base = Buffer.from(baseBytes)
   writeFileSync(asset, base)
-  writeFileSync(join(upstream, '.gitattributes'), '*.bin diff=fixture\n')
+  // The leading rule mirrors upstream's checkout contract so apply write-out
+  // keeps NUL-free text bytes LF regardless of host autocrlf; NUL-bearing
+  // blobs still take the binary path.
+  writeFileSync(join(upstream, '.gitattributes'), '* text=auto eol=lf\n*.bin diff=fixture\n')
   git(upstream, 'add', '--all')
   git(upstream, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'binary fixture')
   const binaryQueue = (bytes: Buffer): string => {
