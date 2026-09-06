@@ -10,6 +10,7 @@
 [![Release](https://img.shields.io/github/v/release/zeroy1024/dsh-desktop?include_prereleases&style=flat-square)](https://github.com/zeroy1024/dsh-desktop/releases)
 ![Node](https://img.shields.io/badge/node-%3E%3D%2024-339933?logo=node.js&logoColor=white&style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%E2%80%A2%20Windows%20%E2%80%A2%20Linux-lightgrey?style=flat-square)
+[![LINUX DO](https://img.shields.io/badge/community-LINUX.DO-f5b96e?style=flat-square&labelColor=172a32)](https://linux.do/)
 
 如果这个项目对你有帮助，欢迎点一个 Star，这对独立项目很重要。
 
@@ -225,3 +226,5 @@ pnpm dev
 - [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) —— 本项目所封装的 agent harness 核心
 - [Cordis](https://github.com/cordisjs/cordis) —— dsh 背后的插件化运行时
 - [JetBrains intellij-community](https://github.com/JetBrains/intellij-community) —— 文件浏览器内置图标来源
+
+感谢 [LINUX DO](https://linux.do/) 社区的支持，欢迎在[讨论帖](https://linux.do/t/topic/1776670)交流使用体验和建议。
