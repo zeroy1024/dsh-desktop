@@ -227,4 +227,4 @@ pnpm dev
 - [Cordis](https://github.com/cordisjs/cordis) —— dsh 背后的插件化运行时
 - [JetBrains intellij-community](https://github.com/JetBrains/intellij-community) —— 文件浏览器内置图标来源
 
-感谢 [LINUX DO](https://linux.do/) 社区的支持，欢迎在[讨论帖](https://linux.do/t/topic/1776670)交流使用体验和建议。
+感谢 [LINUX DO](https://linux.do/) 社区的支持，也欢迎社区的朋友交流使用体验和建议。
