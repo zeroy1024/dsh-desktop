@@ -197,8 +197,10 @@ export function ArchiveManagerSection(props: ArchiveManagerSectionProps) {
 
   return (
     <div className={styles.section}>
-      <h2 className={styles.title}>{t('title')}</h2>
-      <p className={styles.description}>{t('description')}</p>
+      <div className={styles.head}>
+        <h2 className={styles.title}>{t('title')}</h2>
+        <p className={styles.description}>{t('description')}</p>
+      </div>
       {unsupported && <p className={styles.notice} role="alert">{t('errorUnsupported')}</p>}
       {failedId !== undefined && (
         <p className={styles.error} role="alert">{t('errorRestore', { message: failureMessage })}</p>
