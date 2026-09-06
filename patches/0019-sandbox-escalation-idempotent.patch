@@ -1,0 +1,268 @@
+diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
+--- a/packages/fs/tool-fs/tests/tools.spec.ts
++++ b/packages/fs/tool-fs/tests/tools.spec.ts
+@@ -892,6 +892,44 @@ describe('sandbox escalation API (write/edit)', () => {
+     }])
+   })
+ 
++  it('treats an already-satisfied escalation as a no-op without approval', async () => {
++    const { ctx, fs } = await setupConfining({ approval: true })
++    const prompted = vi.fn()
++    ctx.on('approval/request', () => { prompted(); return Promise.resolve('allowed-once' as const) })
++    const result = await call(ctx, 'write', {
++      file_path: 'a.txt',
++      content: 'x',
++      sandbox_permissions: 'workspace-write',
++      justification: 'the current mode already permits this write',
++    }, escalationAgent())
++    expect(result.isError).toBe(false)
++    expect(prompted).not.toHaveBeenCalled()
++    expect(fs.stamped).toEqual([{
++      mode: 'workspace-write',
++      workspaceRoot: resolve('/session-project'),
++      sessionId: SessionId('sess-fs-esc'),
++    }])
++  })
++
++  it('treats a narrower escalation as a no-op under the standing mode without approval', async () => {
++    const { ctx, fs } = await setupConfining({ approval: true })
++    const prompted = vi.fn()
++    ctx.on('approval/request', () => { prompted(); return Promise.resolve('allowed-once' as const) })
++    const result = await call(ctx, 'write', {
++      file_path: 'a.txt',
++      content: 'x',
++      sandbox_permissions: 'workspace-write',
++      justification: 'the session already runs wider than this write needs',
++    }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }]))
++    expect(result.isError).toBe(false)
++    expect(prompted).not.toHaveBeenCalled()
++    expect(fs.stamped).toEqual([{
++      mode: 'danger-full-access',
++      workspaceRoot: resolve('/session-project'),
++      sessionId: SessionId('sess-fs-esc'),
++    }])
++  })
++
+   it('a standing session override folds onto the stamp', async () => {
+     const { ctx, fs } = await setupConfining()
+     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
+diff --git a/packages/sandbox/sandbox/README.md b/packages/sandbox/sandbox/README.md
+--- a/packages/sandbox/sandbox/README.md
++++ b/packages/sandbox/sandbox/README.md
+@@ -97,7 +97,7 @@ This section explains the design decisions behind the contract and points at the
+ 
+ ### Escalation choreography
+ 
+-The ladder is a closed table — `read-only` may escalate to `workspace-write` or `danger-full-access`, `workspace-write` only to `danger-full-access` — checked at execution, never baked into a tool schema, whose enum stays the closed target vocabulary. [`approveEscalation`](src/escalation.ts) validates the `sandbox_permissions`/`justification` pairing, rejects non-widening requests without prompting a human, and maps every approval outcome to its own error before anything executes.
++The ladder is a closed table — `read-only` may escalate to `workspace-write` or `danger-full-access`, `workspace-write` only to `danger-full-access` — checked at execution, never baked into a tool schema, whose enum stays the closed target vocabulary. [`approveEscalation`](src/escalation.ts) validates the `sandbox_permissions`/`justification` pairing, treats a request the call's effective mode already satisfies (equal or narrower) as no escalation — it runs under the standing mode without prompting a human — fails closed on an unknown target or effective mode, and maps every approval outcome to its own error before anything executes.
+ 
+ ### Writable roots
+ 
+diff --git a/packages/sandbox/sandbox/README.zh.md b/packages/sandbox/sandbox/README.zh.md
+--- a/packages/sandbox/sandbox/README.zh.md
++++ b/packages/sandbox/sandbox/README.zh.md
+@@ -97,7 +97,7 @@ kind: "package-reference"
+ 
+ ### 升权编排
+ 
+-阶梯是封闭表——`read-only` 可升权到 `workspace-write` 或 `danger-full-access`，`workspace-write` 只能升权到 `danger-full-access`——在执行时检查，绝不写入工具 schema，schema 的枚举保持封闭的目标词汇。[`approveEscalation`](src/escalation.ts) 校验 `sandbox_permissions`/`justification` 配对、不提示人类就拒绝非加宽请求，并在任何执行前把每个审批结果映射到各自的错误。
++阶梯是封闭表——`read-only` 可升权到 `workspace-write` 或 `danger-full-access`，`workspace-write` 只能升权到 `danger-full-access`——在执行时检查，绝不写入工具 schema，schema 的枚举保持封闭的目标词汇。[`approveEscalation`](src/escalation.ts) 校验 `sandbox_permissions`/`justification` 配对；调用生效模式本已满足的请求（等宽或更窄）不视为升权——按生效模式运行且不提示人类；未知目标或未知生效模式仍失败关闭；并在任何执行前把每个审批结果映射到各自的错误。
+ 
+ ### 可写根目录
+ 
+diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
+--- a/packages/sandbox/sandbox/src/escalation.ts
++++ b/packages/sandbox/sandbox/src/escalation.ts
+@@ -40,6 +40,14 @@ export const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
+  */
+ export const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
+ 
++/**
++ * The complete mode ladder, narrowest first — the membership test separating a
++ * known target the call already satisfies from an unknown target (or a call
++ * whose effective mode is itself unknown) that must still fail closed. Unlike
++ * {@link ESCALATION_TARGETS} it includes the `read-only` floor.
++ */
++const MODE_LADDER: readonly SandboxMode[] = ['read-only', ...ESCALATION_TARGETS]
++
+ /**
+  * Validate the escalation argument pairing a tool schema cannot express:
+  * `sandbox_permissions` and `justification` travel together — an approval
+@@ -134,7 +142,7 @@ export interface EscalationRequest {
+   requestedMode: string
+   /** The model's one-sentence reason, shown verbatim to the user inside the audit reason. */
+   justification: string
+-  /** The call's effective mode (session override ?? composition default) the request must strictly widen. */
++  /** The call's effective mode (session override ?? composition default); a request it already satisfies resolves without approval. */
+   effectiveMode: SandboxMode
+   /** The family's noun for the escalated action in user-facing texts (`command` for bash, `operation` for fs). */
+   subject: string
+@@ -142,17 +150,20 @@ export interface EscalationRequest {
+ 
+ /**
+  * Resolve a sandbox-escalation request BEFORE anything executes: check strict
+- * widening against the call's effective mode, then resolve the approval
+- * channel, then map every outcome — the ordered fail-closed sequence both
+- * enforcing families share. Returns the granted mode to stamp onto exactly
+- * this call; throws the distinct verbatim text for every other path (a
+- * non-widening request, a missing approval service, an agent-less execution,
+- * a rejection, a cancellation, an unanswerable ask) — the tool registry turns
+- * the throw into the call's isError result, and nothing has run. A
+- * non-widening request never prompts a human.
++ * widening against the call's effective mode — a request the effective mode
++ * already satisfies (an equal or narrower known target) is no escalation and
++ * resolves to the standing mode without asking — then resolve the approval
++ * channel, then map every outcome: the ordered fail-closed sequence both
++ * enforcing families share. Returns the mode to stamp onto exactly this call;
++ * throws the distinct verbatim text for every other path (an unknown target or
++ * an unknown effective mode, a missing approval service, an agent-less
++ * execution, a rejection, a cancellation, an unanswerable ask) — the tool
++ * registry turns the throw into the call's isError result, and nothing has
++ * run. A non-widening request never prompts a human.
+  * @param request - the escalation to judge (see {@link EscalationRequest}).
+  * @param approval - the approval ingredients the tool holds (see {@link EscalationApproval}).
+- * @returns the granted mode, consumed by the one call that asked.
++ * @returns the effective mode for an already-satisfied request, or the granted
++ * mode, consumed by the one call that asked.
+  */
+ export async function approveEscalation<A, C>(request: EscalationRequest, approval: EscalationApproval<A, C>): Promise<SandboxMode> {
+   const { requestedMode: mode, effectiveMode, justification, subject } = request
+@@ -160,6 +171,13 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
+   // deliberately not a schema constraint (the enum is the closed target
+   // vocabulary; the effective mode is per-call truth).
+   if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
++    // A known target the call already satisfies — equal or narrower — is not an
++    // escalation: stamp the standing mode without asking anyone. An unknown
++    // target, or a call whose effective mode is itself unknown (a rogue session
++    // override), still fails closed before anything runs.
++    if ((MODE_LADDER as readonly string[]).includes(mode) && MODE_LADDER.includes(effectiveMode)) {
++      return effectiveMode
++    }
+     throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
+   }
+   if (approval.approver === undefined) {
+diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
+--- a/packages/sandbox/sandbox/tests/escalation.spec.ts
++++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
+@@ -81,12 +81,36 @@ describe('approveEscalation', () => {
+     expect(seen[0]?.reason).toBe('escalate sandbox to workspace-write: the user asked to write in the workspace')
+   })
+ 
+-  it('a non-widening request fails closed with its own text and never asks', async () => {
++  it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)(
++    'treats an equal-mode request for %s as already satisfied without asking',
++    async mode => {
++      const seen: unknown[] = []
++      const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
++      await expect(approveEscalation(req({ requestedMode: mode, effectiveMode: mode }), spy)).resolves.toBe(mode)
++      expect(seen).toEqual([])
++    },
++  )
++
++  it.each([
++    ['read-only', 'workspace-write'],
++    ['read-only', 'danger-full-access'],
++    ['workspace-write', 'danger-full-access'],
++  ] as const)(
++    'treats a narrower %s request under %s as already satisfied without asking',
++    async (requestedMode, effectiveMode) => {
++      const seen: unknown[] = []
++      const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
++      await expect(approveEscalation(req({ requestedMode, effectiveMode }), spy)).resolves.toBe(effectiveMode)
++      expect(seen).toEqual([])
++    },
++  )
++
++  it('an unknown target or an unknown effective mode fails closed and never asks', async () => {
+     const seen: unknown[] = []
+     const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
+-    await expect(approveEscalation(req({ requestedMode: 'read-only' }), spy))
++    await expect(approveEscalation(req({ requestedMode: 'super-user' }), spy))
+       .rejects.toThrow(/not strictly wider than this call's current "read-only" mode/)
+-    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' as never }), spy))
++    await expect(approveEscalation(req({ effectiveMode: 'unknown-mode' as never }), spy))
+       .rejects.toThrow(/not strictly wider/)
+     expect(seen).toEqual([])
+   })
+diff --git a/packages/shell/tool-bash/README.md b/packages/shell/tool-bash/README.md
+--- a/packages/shell/tool-bash/README.md
++++ b/packages/shell/tool-bash/README.md
+@@ -59,7 +59,7 @@ Passing `run_in_background: true` returns a job id immediately and no timeout ap
+ 
+ ### Sandboxed execution and escalation
+ 
+-When the mounted executor confines commands (for example `dsh-bash-sandbox`), a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a command failure. The model may then retry the exact same command once in the same turn with `sandbox_permissions` (the narrowest wider mode that suffices) and a one-sentence `justification`; the approval prompt raised by that retry is how the user consents. Escalation is never speculative: a request with no real prior denial, or one that is not strictly wider than the current mode, fails closed without running anything, and a rejected escalation is final for that command.
++When the mounted executor confines commands (for example `dsh-bash-sandbox`), a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a command failure. The model may then retry the exact same command once in the same turn with `sandbox_permissions` (the narrowest wider mode that suffices) and a one-sentence `justification`; the approval prompt raised by that retry is how the user consents. Escalation is never speculative: a request the current mode already satisfies (equal or narrower) runs under the standing mode without prompting, only a strictly wider request asks for approval, and a rejected escalation is final for that command.
+ 
+ ### What can go wrong
+ 
+diff --git a/packages/shell/tool-bash/README.zh.md b/packages/shell/tool-bash/README.zh.md
+--- a/packages/shell/tool-bash/README.zh.md
++++ b/packages/shell/tool-bash/README.zh.md
+@@ -59,7 +59,7 @@ kind: "package-reference"
+ 
+ ### 沙箱执行与升权
+ 
+-当已挂载的执行器约束命令（例如 `dsh-bash-sandbox`）时，被阻止的文件操作会报告为 `[sandbox: file access denied under <mode> mode]`——这是策略拒绝，不是命令失败。模型随后可以在同一轮次中用 `sandbox_permissions`（满足需要的最窄更宽模式）与一句 `justification` 重试完全相同的命令一次；该重试引发的审批提示就是用户同意的方式。升权绝不能预先推测：没有真实拒绝依据的请求，或没有严格宽于当前模式的请求，会在不运行任何东西的情况下失败关闭，被拒绝的升权对该命令即为最终结果。
++当已挂载的执行器约束命令（例如 `dsh-bash-sandbox`）时，被阻止的文件操作会报告为 `[sandbox: file access denied under <mode> mode]`——这是策略拒绝，不是命令失败。模型随后可以在同一轮次中用 `sandbox_permissions`（满足需要的最窄更宽模式）与一句 `justification` 重试完全相同的命令一次；该重试引发的审批提示就是用户同意的方式。升权绝不能预先推测：当前模式本已满足的请求（等宽或更窄）按当前模式照常运行、不触发审批，只有严格更宽的请求才会请求审批；被拒绝的升权对该命令即为最终结果。
+ 
+ ### 可能出什么问题
+ 
+diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
+--- a/packages/shell/tool-bash/tests/tools.spec.ts
++++ b/packages/shell/tool-bash/tests/tools.spec.ts
+@@ -632,16 +632,22 @@ describe('sandbox escalation through the generic task producer', () => {
+     }
+   })
+ 
+-  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
++  it('treats an already-satisfied or narrower escalation as a no-op, but rejects unknown modes', async () => {
+     const plain = await setup()
+     expect(text(await call(plain, 'bash', escalate))).toContain('not available in this composition')
+ 
+-    const { ctx } = await setupSandboxed(true)
++    const { ctx, bash } = await setupSandboxed(true)
+     const prompted = vi.fn()
+     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+     const result = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+-    expect(text(result)).toContain('not strictly wider')
++    expect(result.isError).toBe(false)
+     expect(prompted).not.toHaveBeenCalled()
++    expect(bash.modes).toEqual(['workspace-write'])
++
++    const narrower = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
++    expect(narrower.isError).toBe(false)
++    expect(prompted).not.toHaveBeenCalled()
++    expect(bash.modes).toEqual(['workspace-write', 'danger-full-access'])
+ 
+     const malformed = sandboxAgent()
+     ;(malformed.session.append as unknown as (
+diff --git a/packages/shell/tool-pwsh/tests/tools.spec.ts b/packages/shell/tool-pwsh/tests/tools.spec.ts
+--- a/packages/shell/tool-pwsh/tests/tools.spec.ts
++++ b/packages/shell/tool-pwsh/tests/tools.spec.ts
+@@ -617,16 +617,22 @@ describe('sandbox escalation through ctx.approval', () => {
+     expect(schema.parameters.properties).not.toHaveProperty('sandbox_permissions')
+   })
+ 
+-  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
++  it('treats an already-satisfied or narrower escalation as a no-op, but rejects unknown modes', async () => {
+     const plain = await setup()
+     expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available in this composition')
+ 
+-    const { ctx } = await setupSandboxed(true)
++    const { ctx, bash } = await setupSandboxed(true)
+     const prompted = vi.fn()
+     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+     const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+-    expect(text(result)).toContain('not strictly wider')
++    expect(result.isError).toBe(false)
+     expect(prompted).not.toHaveBeenCalled()
++    expect(bash.modes).toEqual(['workspace-write'])
++
++    const narrower = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
++    expect(narrower.isError).toBe(false)
++    expect(prompted).not.toHaveBeenCalled()
++    expect(bash.modes).toEqual(['workspace-write', 'danger-full-access'])
+ 
+     const malformed = sandboxAgent()
+     ;(malformed.session.append as unknown as (

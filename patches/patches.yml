@@ -115,3 +115,14 @@ patches:
       rewind 插件通过公开 Session.readAttachment 读取图片，先准备完整草稿，再执行
       撤回与回填；失败、取消和跨会话回调的资源管理均由插件负责。
       上游公开等价草稿附件注册接口后撤。
+  - file: 0019-sandbox-escalation-idempotent.patch
+    reason: |
+      approveEscalation 原本把非严格更宽的升权请求在执行前直接 fail closed，
+      但等宽或更窄的目标并不需要发生权限升级；GPT/Codex 系模型受 Codex CLI
+      同名参数先验驱动会投机填写 sandbox_permissions，在 danger-full-access
+      会话里必然误报（schema 枚举只有 workspace-write / danger-full-access
+      两个目标，对该会话均为非更宽）。将已知但非更宽的目标视为已满足，按
+      本次调用的生效模式直接执行、不提示审批；未知目标或生效模式本身未知
+      （损坏的 session override）仍 fail closed，严格更宽目标仍走原审批流程。
+      补充共享单测与 bash、pwsh、fs 回归覆盖，同步 sandbox 与 tool-bash 双语
+      README。上游提供等价幂等语义后撤。
