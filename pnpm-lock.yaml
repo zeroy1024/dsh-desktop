@@ -644,9 +644,6 @@ importers:
       '@deepseek-ai/dsh-storage-domain':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain
-      '@deepseek-ai/dsh-token-meter':
-        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-token-meter
-        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-token-meter
       zod:
         specifier: link:../../../vendor/dsh-cli/node_modules/zod
         version: link:../../../vendor/dsh-cli/node_modules/zod
@@ -657,6 +654,9 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-host-webserver
+      '@deepseek-ai/dsh-llm-retry':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm-retry
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm-retry
       '@deepseek-ai/dsh-session':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session

@@ -4,7 +4,7 @@ export const NS = 'usage-stats'
 export const zh = {
   nav: '用量统计',
   title: '用量统计',
-  description: '按模型聚合本机全部会话的 token 用量。数据来自本地会话日志，仅存本机。',
+  description: '按模型聚合本机全部会话的 token 用量，与会话底栏同一套计费口径。数据来自本地会话日志，仅存本机。',
   loading: '正在统计会话用量…',
   empty: '暂无会话用量数据',
   retry: '重试',
@@ -48,16 +48,17 @@ export const zh = {
   sortAsc: '升序',
   sortDesc: '降序',
   unattributed: '未归因',
-  unattributedHint: '重试失败的尝试、turn 内切换模型等无法证明归属单一模型的用量',
+  unattributedHint: '没有模型来源的用量，例如失败重试尚未形成助手消息的尝试。turn 内切换模型会按每次请求拆到对应模型。',
+  footnoteBilling: '总量与会话底栏一致：每次请求的未缓存输入 + 缓存读 + 缓存写 + 输出，含进行中的对话。',
   footnoteCacheWrite: 'DeepSeek 等部分协议不上报缓存写入，此类供应商的「缓存写」恒为 0。',
   footnoteReasoning: '推理 token 为输出的子集，不计入总量。',
-  footnoteRequests: '请求数按带用量的助手消息计，不含被重试替换的中间尝试。',
+  footnoteRequests: '请求数按最终助手消息结算的计费尝试计；同一步的流式用量与最终消息只计一次，重试后的新尝试另计。',
 } as const satisfies Record<string, string>
 
 export const en = {
   nav: 'Usage',
   title: 'Token usage',
-  description: 'Per-model token usage across all local sessions, aggregated from on-disk session logs. Stays on this machine.',
+  description: 'Per-model token usage across all local sessions, using the same billing fold as the session stats bar. Aggregated from on-disk session logs. Stays on this machine.',
   loading: 'Aggregating session usage…',
   empty: 'No usage data yet',
   retry: 'Retry',
@@ -101,10 +102,11 @@ export const en = {
   sortAsc: 'ascending',
   sortDesc: 'descending',
   unattributed: 'Unattributed',
-  unattributedHint: 'Usage that cannot be proven to belong to a single model: failed retry attempts, model switches within a turn, etc.',
+  unattributedHint: 'Usage with no model source, such as a failed retry that never produced an assistant message. Switching models within a turn splits each request onto its own model.',
+  footnoteBilling: 'Totals match the session stats bar: uncached input + cache read + cache write + output per request, including in-progress turns.',
   footnoteCacheWrite: 'Some protocols (e.g. DeepSeek) never report cache writes; those providers always show 0 here.',
   footnoteReasoning: 'Reasoning tokens are a subset of output and are not added into totals.',
-  footnoteRequests: 'Requests count usage-bearing assistant messages; intermediate attempts replaced by retries are not counted.',
+  footnoteRequests: 'Requests count billed attempts settled by an assistant message; a streaming sample and its final message count once, and a retry starts a new attempt.',
 } as const satisfies Record<string, string>
 
 export type DictionaryKey = keyof typeof zh

@@ -473,32 +473,28 @@
 .th {
   padding: 6px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  text-align: right;
+  text-align: center;
   font-weight: 400;
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
 }
 
-.th:first-child {
-  text-align: left;
-}
-
 .thActive {
   padding: 6px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  text-align: right;
+  text-align: center;
   font-weight: 500;
   font-size: 11px;
   color: var(--dsw-alias-label-primary);
   white-space: nowrap;
 }
 
-.thActive:first-child {
-  text-align: left;
-}
-
 .thBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   padding: 0;
   border: none;
   background: transparent;
@@ -514,7 +510,7 @@
 .tdModel {
   padding: 6px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
-  text-align: left;
+  text-align: center;
 }
 
 .modelName {
@@ -537,7 +533,7 @@
 .tdNum {
   padding: 6px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -545,38 +541,10 @@
 .tdNumDim {
   padding: 6px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--dsw-alias-label-tertiary);
-}
-
-.tdShare {
-  padding: 6px 10px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
-  text-align: right;
-  white-space: nowrap;
-}
-
-.shareTrack {
-  display: inline-block;
-  vertical-align: middle;
-  width: 72px;
-  height: 4px;
-  margin-right: 8px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-1);
-  overflow: hidden;
-}
-
-.shareFill {
-  display: block;
-  height: 100%;
-  background: var(--dsw-alias-brand-primary);
-}
-
-.shareLabel {
-  font-variant-numeric: tabular-nums;
 }
 
 .footnote {

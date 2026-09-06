@@ -1,25 +1,23 @@
 /**
  * 用量聚合的纯函数核心：会话事件流 → 单会话账目 → 跨会话汇总。
  *
- * 单 turn 折算完全委托上游 token-meter 的 deriveTurnTokenUsage（exact-or-
- * nothing：重试 attempt 替换而非重复计数、账目不可证明时整体拒绝），本文件
- * 只负责三件事：按 turn 边界切片、按 (provider, model) 归因、按本地日期落桶，
- * 以及把缓存行折叠成展示用汇总（streak/峰值等派生指标）。
+ * 计费折算与上游 token-meter 的 `tokenUsage` 投影（会话底栏 StatsLine）同一套
+ * 语义，而不是 `deriveTurnTokenUsage` 的 exact-or-nothing：
+ * - 每条 provider 上报的 usage（`assistant/chunk` usage 或 `assistant/message`）
+ *   都进账；同 (turn, step) 的后到样本替换先到的，避免流式双计；
+ * - `llm/retry-started` 关掉替换槽，重试后的新尝试另计（失败尝试的用量保留）；
+ * - 不要求 turn 闭合、不要求 totalTokens、不要求每个 attempt 都报缓存桶；
+ * - 空 step（start 后立刻 end、没有任何 usage）不影响其他请求。
  *
- * 归因哲学与上游一致——宁缺毋猜：
- * - turn 折算失败（缺生命周期边界/账目矛盾）→ 该 turn 只有 turns/requests
- *   计数进账，token 量丢弃（上游无法证明，我们不猜）；
- * - routes 缺失（存在无归因 attempt，如中断的失败尝试）或路由多于一个
- *   （turn 内换模型）→ 账目本身精确但无法归属单一模型，整 turn 记
- *   unattributed。因此恒有：byModel 各行桶和 + unattributed === byDay 各日
- *   桶和。
+ * 归因按 attempt，不按 turn：有 message.source 的进对应 (provider, model)，
+ * 没有来源的（典型是失败重试尚未形成助手消息）进 unattributed。turn 内换模型
+ * 会拆到各模型行。恒有：byModel 各行桶和 + unattributed === byDay 各日桶和。
  *
- * 已知口径边界（UI 需标注）：requests 只数带 usage 报告的 assistant/message，
- * 不含被重试替换掉的中间尝试；reasoning 是 output 子集，只展示不计入总量；
- * 总量恒用四桶和（上游 totalTokens 允许 ≥ 四桶和，不采用）。
+ * 展示口径：requests 只数以 assistant/message 结算的计费尝试；reasoning 是
+ * output 子集，只展示不计入总量；总量恒用四桶和。
  */
-import { deriveTurnTokenUsage } from '@deepseek-ai/dsh-token-meter/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { LlmRetryStartedEventData } from '@deepseek-ai/dsh-llm-retry/types'
 
 /** 单模型 token 账目（四桶互不重叠；reasoning ⊆ output 仅展示）。 */
 export interface UsageBuckets {
@@ -28,7 +26,7 @@ export interface UsageBuckets {
   cacheWrite: number
   output: number
   reasoning: number
-  /** 带 usage 报告的 assistant/message 数（不含被重试替换的中间尝试）。 */
+  /** 以 assistant/message 结算的计费尝试数（同 step 流式替换不计两次）。 */
   requests: number
 }
 
@@ -53,9 +51,9 @@ export interface SessionUsageAggregate {
   byModel: Record<string, ModelBuckets>
   /** key = 本地时区 `YYYY-MM-DD`（含 unattributed 的量，保证按日总量完整）。 */
   byDay: Record<string, DayBuckets>
-  /** 无法归因到单一 (provider, model) 的量。 */
+  /** 无法归因到 (provider, model) 的量（无 message.source 的计费尝试）。 */
   unattributed: UsageBuckets
-  /** 计入 unattributed 的 turn 数（诊断用）。 */
+  /** 当前仍挂在 unattributed 下的 distinct turn 数（诊断用）。 */
   unattributedTurns: number
 }
 
@@ -147,73 +145,89 @@ export function addBuckets(target: UsageBuckets, source: UsageBuckets): UsageBuc
   return target
 }
 
-/** 事件流里带 usage 报告的 assistant/message 数（展示口径的「请求数」）。 */
-function countRequests(turnEvents: readonly SessionEvent[]): number {
-  let count = 0
-  for (const event of turnEvents) {
-    if (event.type === 'assistant/message' && event.data.usage !== undefined) count++
-  }
-  return count
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }
 
-/** 把一个完整 turn（turn/start…turn/end）折进会话聚合。 */
-function foldTurn(aggregate: SessionUsageAggregate, turnEvents: readonly SessionEvent[]): void {
-  const end = turnEvents[turnEvents.length - 1]
-  if (end === undefined || end.type !== 'turn/end') return
-  const day = localDateKey(end.time)
-  aggregate.turns++
+function nonNegative(value: unknown): number | undefined {
+  return isFiniteNumber(value) && value >= 0 ? value : undefined
+}
 
-  const dayBucket = aggregate.byDay[day] ?? { ...emptyBuckets(), turns: 0 }
-  dayBucket.turns++
-
-  const usage = deriveTurnTokenUsage(turnEvents)
-  const requests = countRequests(turnEvents)
-  const routes = usage?.routes
-  // 精确且单一归因才进 byModel；否则账目（若可得）整体记 unattributed。
-  if (usage !== undefined && routes !== undefined && routes.length === 1) {
-    const route = routes[0]
-    const key = modelKey(route.provider, route.model)
-    const bucket = aggregate.byModel[key] ?? { ...emptyBuckets(), perDay: {} }
-    bucket.uncachedInput += usage.uncachedInputTokens
-    bucket.cacheRead += usage.cacheReadTokens ?? 0
-    bucket.cacheWrite += usage.cacheWriteTokens ?? 0
-    bucket.output += usage.outputTokens
-    bucket.reasoning += usage.reasoningTokens ?? 0
-    bucket.requests += requests
-    bucket.perDay[day] = (bucket.perDay[day] ?? 0)
-      + usage.uncachedInputTokens + (usage.cacheReadTokens ?? 0)
-      + (usage.cacheWriteTokens ?? 0) + usage.outputTokens
-    aggregate.byModel[key] = bucket
-
-    dayBucket.uncachedInput += usage.uncachedInputTokens
-    dayBucket.cacheRead += usage.cacheReadTokens ?? 0
-    dayBucket.cacheWrite += usage.cacheWriteTokens ?? 0
-    dayBucket.output += usage.outputTokens
-    dayBucket.reasoning += usage.reasoningTokens ?? 0
-    dayBucket.requests += requests
-  } else {
-    const unattributed = aggregate.unattributed
-    unattributed.uncachedInput += usage?.uncachedInputTokens ?? 0
-    unattributed.cacheRead += usage?.cacheReadTokens ?? 0
-    unattributed.cacheWrite += usage?.cacheWriteTokens ?? 0
-    unattributed.output += usage?.outputTokens ?? 0
-    unattributed.reasoning += usage?.reasoningTokens ?? 0
-    unattributed.requests += requests
-    aggregate.unattributedTurns++
-
-    dayBucket.uncachedInput += usage?.uncachedInputTokens ?? 0
-    dayBucket.cacheRead += usage?.cacheReadTokens ?? 0
-    dayBucket.cacheWrite += usage?.cacheWriteTokens ?? 0
-    dayBucket.output += usage?.outputTokens ?? 0
-    dayBucket.reasoning += usage?.reasoningTokens ?? 0
-    dayBucket.requests += requests
-  }
-  aggregate.byDay[day] = dayBucket
+/** 事件时间可用时取本地日；否则沿用上一次见过的日（保证 byDay 与模型桶守恒）。 */
+function eventDay(event: SessionEvent, fallback: string | undefined): string | undefined {
+  return isFiniteNumber(event.time) ? localDateKey(event.time) : fallback
 }
 
 /**
- * 折算一个会话的完整事件日志。未闭合的末尾 turn（进行中/崩溃残留）不折算，
- * 留给下次 revision 变化后的重扫。
+ * 把一条 usage 样本收成四桶。input/output 缺一不可（无法计费则跳过该样本）；
+ * 缓存桶缺省当 0——与投影 `bucketsFrom` 一致，绝不以「整 turn 缺一桶」抹掉其他 attempt。
+ */
+function bucketsFrom(usage: unknown, fromMessage: boolean): UsageBuckets | undefined {
+  if (usage === null || typeof usage !== 'object') return undefined
+  const record = usage as Record<string, unknown>
+  const uncachedInput = nonNegative(record.inputTokens)
+  const output = nonNegative(record.outputTokens)
+  if (uncachedInput === undefined || output === undefined) return undefined
+  const reasoningRaw = nonNegative(record.reasoningTokens) ?? 0
+  return {
+    uncachedInput,
+    cacheRead: nonNegative(record.cacheReadTokens) ?? 0,
+    cacheWrite: nonNegative(record.cacheWriteTokens) ?? 0,
+    output,
+    reasoning: reasoningRaw > output ? 0 : reasoningRaw,
+    requests: fromMessage ? 1 : 0,
+  }
+}
+
+function messageRoute(message: unknown): { provider: string; model: string } | undefined {
+  if (message === null || typeof message !== 'object') return undefined
+  const source = (message as { source?: unknown }).source
+  if (source === null || typeof source !== 'object') return undefined
+  const provider = (source as { provider?: unknown }).provider
+  const model = (source as { model?: unknown }).model
+  return typeof provider === 'string' && provider.length > 0
+    && typeof model === 'string' && model.length > 0
+    ? { provider, model }
+    : undefined
+}
+
+/** 投影替换槽：同 (turn, step) 的最新样本，retry-started 后清空以便新尝试另计。 */
+interface OpenSlot {
+  turn: number
+  step: number
+  buckets: UsageBuckets
+  day: string
+  key: string | undefined
+}
+
+function applySigned(target: UsageBuckets, source: UsageBuckets, sign: 1 | -1): void {
+  target.uncachedInput += sign * source.uncachedInput
+  target.cacheRead += sign * source.cacheRead
+  target.cacheWrite += sign * source.cacheWrite
+  target.output += sign * source.output
+  target.reasoning += sign * source.reasoning
+  target.requests += sign * source.requests
+}
+
+function ensureDay(aggregate: SessionUsageAggregate, day: string): DayBuckets {
+  const existing = aggregate.byDay[day]
+  if (existing !== undefined) return existing
+  const created: DayBuckets = { ...emptyBuckets(), turns: 0 }
+  aggregate.byDay[day] = created
+  return created
+}
+
+function ensureModel(aggregate: SessionUsageAggregate, key: string): ModelBuckets {
+  const existing = aggregate.byModel[key]
+  if (existing !== undefined) return existing
+  const created: ModelBuckets = { ...emptyBuckets(), perDay: {} }
+  aggregate.byModel[key] = created
+  return created
+}
+
+/**
+ * 折算一个会话的完整事件日志。进行中的末尾 turn、空 step、缺 totalTokens、
+ * 某次请求没报缓存读，都按投影语义计费，不再整 turn 丢弃。
  */
 export function aggregateSessionEvents(events: readonly SessionEvent[]): SessionUsageAggregate {
   const aggregate: SessionUsageAggregate = {
@@ -225,24 +239,96 @@ export function aggregateSessionEvents(events: readonly SessionEvent[]): Session
     unattributed: emptyBuckets(),
     unattributedTurns: 0,
   }
-  let open: SessionEvent[] | undefined
+
+  let last: OpenSlot | undefined
+  let lastDay: string | undefined
+  let openTurnDay: string | undefined
+  const unattributedByTurn = new Map<number, number>()
+
+  const touchUnattributedTurn = (turn: number, sign: 1 | -1): void => {
+    const next = (unattributedByTurn.get(turn) ?? 0) + sign
+    if (next <= 0) unattributedByTurn.delete(turn)
+    else unattributedByTurn.set(turn, next)
+  }
+
+  const applySlot = (slot: OpenSlot, sign: 1 | -1): void => {
+    const day = ensureDay(aggregate, slot.day)
+    applySigned(day, slot.buckets, sign)
+    if (slot.key === undefined) {
+      applySigned(aggregate.unattributed, slot.buckets, sign)
+      touchUnattributedTurn(slot.turn, sign)
+      return
+    }
+    const model = ensureModel(aggregate, slot.key)
+    applySigned(model, slot.buckets, sign)
+    const delta = sign * bucketTotal(slot.buckets)
+    const next = (model.perDay[slot.day] ?? 0) + delta
+    if (next === 0) delete model.perDay[slot.day]
+    else model.perDay[slot.day] = next
+  }
+
+  const closeOpenTurn = (day: string | undefined): void => {
+    if (day === undefined) return
+    ensureDay(aggregate, day).turns++
+  }
+
   for (const event of events) {
-    if (typeof event.time === 'number' && Number.isFinite(event.time)) {
+    if (isFiniteNumber(event.time)) {
       if (aggregate.firstActive === undefined || event.time < aggregate.firstActive) aggregate.firstActive = event.time
       if (aggregate.lastActive === undefined || event.time > aggregate.lastActive) aggregate.lastActive = event.time
+      lastDay = localDateKey(event.time)
     }
+    const day = eventDay(event, lastDay)
+
     if (event.type === 'turn/start') {
-      open = [event]
+      if (openTurnDay !== undefined) closeOpenTurn(openTurnDay)
+      aggregate.turns++
+      openTurnDay = day
+    } else if (event.type === 'turn/end') {
+      closeOpenTurn(day ?? openTurnDay)
+      openTurnDay = undefined
+    } else if (event.type === 'llm/retry-started') {
+      const data: LlmRetryStartedEventData = event.data
+      if (last !== undefined && last.turn === data.turn && last.step === data.step) {
+        last = undefined
+      }
+    }
+
+    let usage: unknown
+    let turn: number | undefined
+    let step: number | undefined
+    let fromMessage = false
+    let route: { provider: string; model: string } | undefined
+    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
+      ;({ turn, step } = event.data)
+      usage = event.data.chunk.usage
+    } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
+      ;({ turn, step, usage } = event.data)
+      fromMessage = true
+      route = messageRoute(event.data.message)
+    } else {
       continue
     }
-    // turn 边界之外的事件（header、compaction 等）不参与账目。
-    if (open === undefined) continue
-    open.push(event)
-    if (event.type === 'turn/end') {
-      foldTurn(aggregate, open)
-      open = undefined
+    if (typeof turn !== 'number' || typeof step !== 'number') continue
+    const buckets = bucketsFrom(usage, fromMessage)
+    if (buckets === undefined || day === undefined) continue
+
+    const slot: OpenSlot = {
+      turn,
+      step,
+      buckets,
+      day,
+      key: route === undefined ? undefined : modelKey(route.provider, route.model),
     }
+    if (last !== undefined && last.turn === turn && last.step === step) {
+      applySlot(last, -1)
+    }
+    applySlot(slot, 1)
+    last = slot
   }
+
+  closeOpenTurn(openTurnDay)
+  aggregate.unattributedTurns = unattributedByTurn.size
   return aggregate
 }
 

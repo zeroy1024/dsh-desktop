@@ -4,10 +4,10 @@
  * 职责：把跨会话用量汇总挂进 dsh 自带 webServer 的同源只读路由（desktop
  * profile 必含 dsh-web-app，服务必然可用）。数据面读 sessionPersistence 的
  * 落盘事件日志——listSnapshots() 轻量枚举（header + stat 派生 revision，不
- * 加载日志字节），revision 与缓存行不一致才 readRaw() 全文重折；折算用
- * token-meter 的官方 deriveTurnTokenUsage（见 aggregator.ts）。聚合结果缓
- * 存进自有 storage domain（usage_stats，per-record 可丢弃派生数据）；域打
- * 开失败只降级为「每次全量重算」，不影响路由。
+ * 加载日志字节），revision 与缓存行不一致才 readRaw() 全文重折；折算与会话
+ * 底栏 tokenUsage 投影同一套计费语义（见 aggregator.ts）。聚合结果缓存进
+ * 自有 storage domain（usage_stats，per-record 可丢弃派生数据）；域打开
+ * 失败只降级为「每次全量重算」，不影响路由。
  *
  * 路由刻意 POST 而非 GET：浏览器对同源 GET fetch 不附带 Origin 头，
  * isSameOrigin 会一律 403（archive-manager 同款注释与威胁模型）。
@@ -26,11 +26,11 @@ import {
   type SessionUsageRowView, type UsageSummary,
 } from './aggregator.ts'
 import { USAGE_SUMMARY_PATH } from './shared.ts'
-import { toCachedRow, toRowView, usageStatsDomainSpec, type CachedUsageRow, type UsageTablePort } from './usage-cache.ts'
+import { toCachedRow, toRowView, usageStatsDomainSpec, USAGE_FOLD_VERSION, type CachedUsageRow, type UsageTablePort } from './usage-cache.ts'
 
 export { USAGE_SUMMARY_PATH } from './shared.ts'
 export { aggregateSessionEvents, foldSessionRows } from './aggregator.ts'
-export { toCachedRow, toRowView, usageStatsDomainSpec } from './usage-cache.ts'
+export { toCachedRow, toRowView, usageStatsDomainSpec, USAGE_FOLD_VERSION } from './usage-cache.ts'
 export type { CachedUsageRow, UsageTablePort } from './usage-cache.ts'
 export type { SessionUsageAggregate, SessionUsageRowView, UsageSummary } from './aggregator.ts'
 
@@ -109,7 +109,7 @@ export async function computeSummary(
   for (const snapshot of snapshots) {
     const id = snapshot.header.id
     const hit: CachedUsageRow | undefined = port?.get(id)
-    if (hit !== undefined && hit.revision === snapshot.revision) {
+    if (hit !== undefined && hit.revision === snapshot.revision && hit.algoVersion === USAGE_FOLD_VERSION) {
       views.push(toRowView(id, hit))
       cached++
       continue

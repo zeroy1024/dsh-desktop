@@ -141,12 +141,7 @@ export function ModelTable({ summary, t }: { summary: UsageSummary; t: Translate
                 <td className={styles.tdNum}>{formatTokensFull(row.buckets.output)}</td>
                 <td className={styles.tdNumDim}>{formatTokensFull(row.buckets.reasoning)}</td>
                 <td className={styles.tdNum}>{formatPercent(row.hitRate)}</td>
-                <td className={styles.tdShare}>
-                  <span className={styles.shareTrack} aria-hidden="true">
-                    <span className={styles.shareFill} style={{ width: `${Math.min(100, row.share * 100).toFixed(1)}%` }} />
-                  </span>
-                  <span className={styles.shareLabel}>{formatPercent(row.share)}</span>
-                </td>
+                <td className={styles.tdNum}>{formatPercent(row.share)}</td>
                 <td className={styles.tdNum}>{row.buckets.requests}</td>
                 <td className={styles.tdNum}>{row.sessions}</td>
               </tr>
@@ -163,10 +158,8 @@ export function ModelTable({ summary, t }: { summary: UsageSummary; t: Translate
                 <td className={styles.tdNum}>{formatTokensFull(summary.unattributed.output)}</td>
                 <td className={styles.tdNumDim}>{formatTokensFull(summary.unattributed.reasoning)}</td>
                 <td className={styles.tdNum}>—</td>
-                <td className={styles.tdShare}>
-                  <span className={styles.shareLabel}>
-                    {formatPercent(grandTotal > 0 ? unattributedTotal / grandTotal : undefined)}
-                  </span>
+                <td className={styles.tdNum}>
+                  {formatPercent(grandTotal > 0 ? unattributedTotal / grandTotal : undefined)}
                 </td>
                 <td className={styles.tdNum}>{summary.unattributed.requests}</td>
                 <td className={styles.tdNum}>—</td>
@@ -176,7 +169,7 @@ export function ModelTable({ summary, t }: { summary: UsageSummary; t: Translate
         </table>
       </div>
       <p className={styles.footnote}>
-        {t('footnoteCacheWrite')} {t('footnoteReasoning')} {t('footnoteRequests')}
+        {t('footnoteBilling')} {t('footnoteCacheWrite')} {t('footnoteReasoning')} {t('footnoteRequests')}
       </p>
     </section>
   )

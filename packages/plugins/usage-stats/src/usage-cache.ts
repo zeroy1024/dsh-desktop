@@ -40,8 +40,16 @@ const aggregateSchema = z.object({
   unattributedTurns: z.number().int().nonnegative(),
 })
 
+/**
+ * 折算算法世代。从 exact-or-nothing（deriveTurnTokenUsage）切到与会话底栏
+ * 同一套 tokenUsage 投影语义时 bump；旧行缺此字段，schema 失败后被
+ * backup-and-skip，下次请求全量重折。
+ */
+export const USAGE_FOLD_VERSION = 1 as const
+
 /** 缓存行：revision 是持久化层的新鲜度令牌（stat 派生，文件一变即变）。 */
 export const cachedUsageRowSchema = z.object({
+  algoVersion: z.literal(USAGE_FOLD_VERSION),
   revision: z.string().min(1),
   createdAt: z.number().int().nonnegative(),
   isSubagent: z.boolean(),
@@ -77,6 +85,7 @@ export function toCachedRow(input: {
   aggregate: SessionUsageAggregate
 }): CachedUsageRow {
   return {
+    algoVersion: USAGE_FOLD_VERSION,
     revision: input.revision,
     createdAt: input.createdAt,
     isSubagent: input.isSubagent,

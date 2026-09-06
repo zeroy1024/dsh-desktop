@@ -6,7 +6,7 @@ import { createServer, type Server } from 'node:http'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { computeSummary, handleSummaryRequest, parseSessionLog, type UsagePersistence } from '../src/index.ts'
-import { usageStatsDomainSpec, type CachedUsageRow, type UsageTablePort } from '../src/usage-cache.ts'
+import { USAGE_FOLD_VERSION, usageStatsDomainSpec, type CachedUsageRow, type UsageTablePort } from '../src/usage-cache.ts'
 
 /** 确认域声明本身通过上游 UNIT_NAME_RE 校验（defineDomain 在构造期校验）。 */
 expect(usageStatsDomainSpec.name).toBe('usage_stats')
@@ -113,6 +113,7 @@ describe('computeSummary', () => {
     expect(first.meta).toEqual({ total: 1, scanned: 1, cached: 0 })
     expect(first.summary.byModel[0]).toMatchObject({ provider: 'self', model: 'deepseek-v4-flash' })
     expect(table.map.size).toBe(1)
+    expect([...table.map.values()][0]?.algoVersion).toBe(USAGE_FOLD_VERSION)
 
     const second = await computeSummary(persistence, table, NOW)
     expect(second.meta).toEqual({ total: 1, scanned: 0, cached: 1 })
@@ -146,6 +147,36 @@ describe('computeSummary', () => {
     const { summary, meta } = await computeSummary(persistence, fakeTable(), NOW)
     expect(meta).toEqual({ total: 2, scanned: 2, cached: 0 })
     expect(summary.overall.sessions).toBe(1)
+    expect(summary.overall.turns).toBe(1)
+  })
+
+  it('缺 totalTokens 的旧日志与空 trailing step 仍计入四桶', async () => {
+    const time = 1_788_000_000_000
+    const { persistence } = fakePersistence({
+      'session-old': {
+        events: [
+          { type: 'turn/start', seq: 1, time, data: { turn: 1 } },
+          { type: 'step/start', seq: 2, time, data: { turn: 1, step: 1 } },
+          {
+            type: 'assistant/message', seq: 3, time,
+            data: {
+              turn: 1, step: 1,
+              message: { source: { kind: 'model', provider: 'self', model: 'qwen' } },
+              usage: { inputTokens: 100, outputTokens: 2, cacheReadTokens: 900 },
+            },
+          },
+          { type: 'step/end', seq: 4, time, data: { turn: 1, step: 1 } },
+          { type: 'step/start', seq: 5, time, data: { turn: 1, step: 2 } },
+          { type: 'step/end', seq: 6, time, data: { turn: 1, step: 2 } },
+          { type: 'turn/end', seq: 7, time, data: { turn: 1, reason: { kind: 'completed' } } },
+        ],
+      },
+    })
+    const { summary } = await computeSummary(persistence, fakeTable(), NOW)
+    expect(summary.byModel[0]).toMatchObject({ provider: 'self', model: 'qwen' })
+    expect(summary.byModel[0]?.buckets).toMatchObject({
+      uncachedInput: 100, cacheRead: 900, cacheWrite: 0, output: 2, requests: 1,
+    })
     expect(summary.overall.turns).toBe(1)
   })
 

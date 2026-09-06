@@ -1,7 +1,7 @@
 /**
- * 聚合器单测：手工构造 SessionEvent fixture（形状对照上游 deriveTurnTokenUsage
- * 的 attempt 状态机），覆盖正常折算、retry、多路由、跨天、未闭合 turn、
- * 汇总折叠（streak/峰值/守恒）。
+ * 聚合器单测：手工构造 SessionEvent fixture，覆盖与会话底栏 tokenUsage
+ * 投影一致的计费语义（替换、重试另计、未闭合 turn、空 step、缺 totalTokens、
+ * 缺 cacheRead 不抹同 turn 其他 attempt），以及按 attempt 归因、跨天、汇总折叠。
  */
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -137,7 +137,7 @@ describe('aggregateSessionEvents', () => {
     expect(aggregate.lastActive).toBe(T0 + 60_000)
   })
 
-  it('多 step 同模型累加；requests 按 message 数计', () => {
+  it('多 step 同模型累加；同 step 的 chunk 被 message 替换不双计', () => {
     const events = completedTurn({
       turn: 1, start: T0, end: T0 + 60_000,
       attempts: [
@@ -147,13 +147,55 @@ describe('aggregateSessionEvents', () => {
     })
     const aggregate = aggregateSessionEvents(events)
     expect(aggregate.turns).toBe(1)
-    // turn 级缓存桶只在全部 attempt 都上报时才披露（上游 every 语义）。
     expect(aggregate.byModel[modelKey('self', 'deepseek-v4-flash')]).toMatchObject({
       uncachedInput: 30, cacheRead: 35, cacheWrite: 0, output: 13, requests: 2,
     })
   })
 
-  it('turn 内换模型（routes>1）：账目精确但整体记 unattributed', () => {
+  it('缺 totalTokens 仍然计费（旧日志常见形状）', () => {
+    const events = completedTurn({
+      turn: 1, start: T0, end: T0 + 60_000,
+      attempts: [{ usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100 } }],
+    })
+    const aggregate = aggregateSessionEvents(events)
+    expect(aggregate.byModel[modelKey('self', 'deepseek-v4-flash')]).toMatchObject({
+      uncachedInput: 10, cacheRead: 100, output: 5, requests: 1,
+    })
+    expect(bucketTotal(aggregate.byDay[DAY]!)).toBe(115)
+  })
+
+  it('同 turn 里一次没报 cacheRead 不抹掉其他 attempt 的缓存读', () => {
+    const events = completedTurn({
+      turn: 1, start: T0, end: T0 + 60_000,
+      attempts: [
+        { usage: { inputTokens: 10, outputTokens: 1 } },
+        { usage: { inputTokens: 5, outputTokens: 1, cacheReadTokens: 1000 } },
+      ],
+    })
+    const aggregate = aggregateSessionEvents(events)
+    expect(aggregate.byModel[modelKey('self', 'deepseek-v4-flash')]).toMatchObject({
+      uncachedInput: 15, cacheRead: 1000, output: 2, requests: 2,
+    })
+  })
+
+  it('空 trailing step 不丢前面已结算的账目', () => {
+    const events = [
+      ...completedTurn({
+        turn: 1, start: T0, end: T0 + 60_000,
+        attempts: [{ usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 20_000 } }],
+      }).slice(0, -1),
+      ev('step/start', T0 + 61_000, { turn: 1, step: 2 }),
+      ev('step/end', T0 + 61_000, { turn: 1, step: 2 }),
+      ev('turn/end', T0 + 62_000, { turn: 1, reason: { kind: 'completed' } }),
+    ]
+    const aggregate = aggregateSessionEvents(events)
+    expect(aggregate.byModel[modelKey('self', 'deepseek-v4-flash')]).toMatchObject({
+      uncachedInput: 10, cacheRead: 20_000, output: 2, requests: 1,
+    })
+    expect(aggregate.turns).toBe(1)
+  })
+
+  it('turn 内换模型：按 attempt 拆到各模型，不进 unattributed', () => {
     const events = completedTurn({
       turn: 1, start: T0, end: T0 + 60_000,
       attempts: [
@@ -162,14 +204,14 @@ describe('aggregateSessionEvents', () => {
       ],
     })
     const aggregate = aggregateSessionEvents(events)
-    expect(Object.keys(aggregate.byModel)).toHaveLength(0)
-    expect(aggregate.unattributed).toMatchObject({ uncachedInput: 30, output: 13, requests: 2 })
-    expect(aggregate.unattributedTurns).toBe(1)
-    // 守恒：byDay 各桶 = byModel 各行 + unattributed
+    expect(aggregate.byModel[modelKey('self', 'model-a')]).toMatchObject({ uncachedInput: 10, output: 5, requests: 1 })
+    expect(aggregate.byModel[modelKey('self', 'model-b')]).toMatchObject({ uncachedInput: 20, output: 8, requests: 1 })
+    expect(aggregate.unattributed).toMatchObject({ uncachedInput: 0, output: 0, requests: 0 })
+    expect(aggregate.unattributedTurns).toBe(0)
     expect(aggregate.byDay[DAY]).toMatchObject({ uncachedInput: 30, output: 13, requests: 2, turns: 1 })
   })
 
-  it('retry：失败尝试无归因，整 turn（含成功账目）进 unattributed', () => {
+  it('retry：失败 chunk 进 unattributed，成功 message 进对应模型；两者都计费', () => {
     const events = retryTurn({
       turn: 1, start: T0, end: T0 + 60_000,
       failedUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
@@ -178,52 +220,71 @@ describe('aggregateSessionEvents', () => {
     })
     const aggregate = aggregateSessionEvents(events)
     expect(aggregate.turns).toBe(1)
-    expect(Object.keys(aggregate.byModel)).toHaveLength(0)
-    // 失败 attempt 未报缓存桶 → turn 级缓存桶整体不披露（上游 every 语义）。
-    expect(aggregate.unattributed).toMatchObject({ uncachedInput: 110, cacheRead: 0, output: 55, requests: 1 })
+    expect(aggregate.unattributed).toMatchObject({ uncachedInput: 10, cacheRead: 0, output: 5, requests: 0 })
     expect(aggregate.unattributedTurns).toBe(1)
+    expect(aggregate.byModel[modelKey('self', 'deepseek-v4-flash')]).toMatchObject({
+      uncachedInput: 100, cacheRead: 900, output: 50, requests: 1,
+    })
+    expect(aggregate.byDay[DAY]).toMatchObject({ uncachedInput: 110, cacheRead: 900, output: 55, requests: 1, turns: 1 })
   })
 
-  it('usage 为空对象的 message：量不猜，消息计数照记', () => {
+  it('usage 为空对象的 message：量不猜，也不虚增请求', () => {
     const events = completedTurn({
       turn: 1, start: T0, end: T0 + 60_000,
       attempts: [{ usage: {} }],
     })
     const aggregate = aggregateSessionEvents(events)
     expect(aggregate.turns).toBe(1)
-    expect(aggregate.unattributed.requests).toBe(1)
+    expect(aggregate.unattributed.requests).toBe(0)
     expect(aggregate.byDay[DAY]?.turns).toBe(1)
+    expect(bucketTotal(aggregate.byDay[DAY]!)).toBe(0)
   })
 
-  it('跨天归属按 turn/end 的本地日期', () => {
+  it('跨天归属按该次 usage 的事件时间，不按 turn/end', () => {
     const nextDay = localMs(2026, 9, 6, 0, 30)
-    const events = [
-      ...completedTurn({ turn: 1, start: T0, end: T0 + 60_000, attempts: [{ usage: { inputTokens: 1, outputTokens: 1 } }] }),
-      ...completedTurn({ turn: 2, start: nextDay - 60_000, end: nextDay, attempts: [{ usage: { inputTokens: 2, outputTokens: 2 } }] }),
-    ]
-    const aggregate = aggregateSessionEvents(events)
-    expect(Object.keys(aggregate.byDay).toSorted()).toEqual(['2026-09-05', '2026-09-06'])
-    expect(aggregate.byDay['2026-09-05']?.turns).toBe(1)
-    expect(aggregate.byDay['2026-09-06']?.turns).toBe(1)
-  })
-
-  it('未闭合 turn（无 turn/end）不折算', () => {
     const events = [
       ev('turn/start', T0, { turn: 1 }),
       ev('step/start', T0, { turn: 1, step: 1 }),
       ev('assistant/message', T0, {
         turn: 1, step: 1,
         message: { source: { kind: 'model', provider: 'self', model: 'm' } },
-        usage: { inputTokens: 10, outputTokens: 5 },
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+      ev('step/end', T0 + 1000, { turn: 1, step: 1 }),
+      ev('step/start', nextDay, { turn: 1, step: 2 }),
+      ev('assistant/message', nextDay, {
+        turn: 1, step: 2,
+        message: { source: { kind: 'model', provider: 'self', model: 'm' } },
+        usage: { inputTokens: 2, outputTokens: 2 },
+      }),
+      ev('step/end', nextDay + 1000, { turn: 1, step: 2 }),
+      ev('turn/end', nextDay + 2000, { turn: 1, reason: { kind: 'completed' } }),
+    ]
+    const aggregate = aggregateSessionEvents(events)
+    expect(Object.keys(aggregate.byDay).toSorted()).toEqual(['2026-09-05', '2026-09-06'])
+    expect(aggregate.byDay['2026-09-05']).toMatchObject({ uncachedInput: 1, output: 1, turns: 0 })
+    expect(aggregate.byDay['2026-09-06']).toMatchObject({ uncachedInput: 2, output: 2, turns: 1 })
+  })
+
+  it('未闭合 turn（无 turn/end）仍然计费，与会话底栏一致', () => {
+    const events = [
+      ev('turn/start', T0, { turn: 1 }),
+      ev('step/start', T0, { turn: 1, step: 1 }),
+      ev('assistant/message', T0, {
+        turn: 1, step: 1,
+        message: { source: { kind: 'model', provider: 'self', model: 'm' } },
+        usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 },
       }),
     ]
     const aggregate = aggregateSessionEvents(events)
-    expect(aggregate.turns).toBe(0)
-    expect(Object.keys(aggregate.byDay)).toHaveLength(0)
-    expect(Object.keys(aggregate.byModel)).toHaveLength(0)
+    expect(aggregate.turns).toBe(1)
+    expect(aggregate.byModel[modelKey('self', 'm')]).toMatchObject({
+      uncachedInput: 10, cacheRead: 90, output: 5, requests: 1,
+    })
+    expect(aggregate.byDay[DAY]).toMatchObject({ uncachedInput: 10, cacheRead: 90, output: 5, turns: 1 })
   })
 
-  it('turn 边界外事件忽略；空日志零聚合', () => {
+  it('turn 边界外仍带 usage 的 message 计费（投影不看 turn 边界）', () => {
     expect(aggregateSessionEvents([]).turns).toBe(0)
     const stray = aggregateSessionEvents([
       ev('assistant/message', T0, {
@@ -233,6 +294,7 @@ describe('aggregateSessionEvents', () => {
       }),
     ])
     expect(stray.turns).toBe(0)
+    expect(stray.byModel[modelKey('self', 'm')]).toMatchObject({ uncachedInput: 10, output: 5, requests: 1 })
     expect(stray.firstActive).toBe(T0)
   })
 })
@@ -329,15 +391,29 @@ describe('foldSessionRows', () => {
   })
 
   it('unattributed 跨行累加，且与 byDay 总量守恒', () => {
-    const aggregate = aggregateSessionEvents(completedTurn({
-      turn: 1, start: T0, end: T0 + 60_000,
-      attempts: [
-        { provider: 'a', model: 'm1', usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } },
-        { provider: 'a', model: 'm2', usage: { inputTokens: 20, outputTokens: 8, totalTokens: 28 } },
-      ],
-    }))
+    const aggregate = aggregateSessionEvents([
+      ev('turn/start', T0, { turn: 1 }),
+      ev('step/start', T0, { turn: 1, step: 1 }),
+      ev('assistant/chunk', T0, {
+        turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+      }),
+      ev('assistant/chunk', T0, {
+        turn: 1, step: 1,
+        chunk: { type: 'finish', reason: { kind: 'error', error: { name: 'LlmError', code: 'X' } } },
+      }),
+      ev('llm/retry', T0, { turn: 1, step: 1, retryId: 'r1', provider: 'a', mode: 'normal', policyKey: 'p' }),
+      ev('llm/retry-started', T0, { turn: 1, step: 1, retryId: 'r1' }),
+      ev('assistant/message', T0, {
+        turn: 1, step: 1,
+        message: { source: { kind: 'model', provider: 'a', model: 'm1' } },
+        usage: { inputTokens: 20, outputTokens: 8 },
+      }),
+      ev('step/end', T0 + 1000, { turn: 1, step: 1 }),
+      ev('turn/end', T0 + 1000, { turn: 1, reason: { kind: 'completed' } }),
+    ])
     const summary = foldSessionRows([rowOf('a', aggregate)], localMs(2026, 9, 6))
-    expect(summary.unattributed).toMatchObject({ uncachedInput: 30, output: 13 })
+    expect(summary.unattributed).toMatchObject({ uncachedInput: 10, output: 5 })
+    expect(summary.byModel[0]).toMatchObject({ model: 'm1' })
     const dayTotal = summary.byDay.reduce((sum, row) => sum + bucketTotal(row), 0)
     const modelTotal = summary.byModel.reduce((sum, row) => sum + bucketTotal(row.buckets), 0)
     expect(modelTotal + bucketTotal(summary.unattributed)).toBe(dayTotal)
