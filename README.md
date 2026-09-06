@@ -48,6 +48,7 @@ DeepSeek Harness Desktop 是基于 [DeepSeek Harness](https://github.com/deepsee
 
 - **撤回编辑（Rewind）**：在原会话中撤回某条用户消息之前的上下文，原文与图片放回输入框。
 - **归档管理**：查看、排序、按工作区分组并恢复归档会话。
+- **用量统计**：按 provider 与模型聚合本机全部会话的 token 账目，附活动热力图与趋势图。
 - **Vision**：为不支持图片输入的文本模型提供可配置的图片证据桥接。
 - **Web Search**：通过辅助模型和原生搜索工具，为 dsh 的 `web_search` 补充结构化来源。
 
@@ -127,7 +128,7 @@ pnpm dev
 
 ## 内置插件
 
-以下 12 个内置插件由应用管理（详见 [`packages/plugins/`](packages/plugins/)）：
+安装包中默认生效的 **12 个**内置插件由应用管理（完整包名册见 [`packages/plugins/`](packages/plugins/)）：
 
 | 插件 | 作用 |
 | --- | --- |
@@ -140,12 +141,20 @@ pnpm dev
 | `archive-manager` | 查看、排序、分组和恢复归档会话 |
 | `session-actions` | 会话行快速归档与含后代的 ZIP 日志导出 |
 | `rewind` | 撤回用户消息之前的会话上下文并回填原文与图片 |
+| `usage-stats` | 按 provider/模型聚合的 token 用量、活动热力图与趋势图 |
 | `vision` | 为文本模型桥接图片理解能力 |
 | `web-search` | 为现有 `web_search` 工具提供结构化搜索来源 |
-| `fps-overlay` | 开发态 FPS HUD（仅 unpackaged 开发模式显示） |
+
+`packages/plugins/` 下另有 3 个包在发行版中不产生可见功能，用于开发验证与通道回归：
+
+| 插件 | 装配 | 不生效的机制 |
+| --- | --- | --- |
+| `fps-overlay` | 随包装配，运行时自关 | 渲染进程 `window.dshDesktop.dev` 不为 `true` 时不注册徽章（主进程仅在 `!app.isPackaged` 时注入 `--dsh-dev`） |
+| `panel-page-stub` | 不装配 | manifest `dshDesktop.developmentOnly: true`，打包态被 `resolveBundledPlugins` 跳过 |
+| `hello-panel` | 不装配 | manifest `dshDesktop.enabled: false`，保留为 P2 通道验收件 |
 
 > [!NOTE]
-> Vision 需单独配置视觉 API，Web Search 需配置辅助 endpoint/key；`hello-panel` 默认禁用，`panel-page-stub` 仅在开发模式装配。
+> 上表区分的是插件**是否随 app 装配/生效**，与是否需要配置无关：Vision 需单独配置视觉 API，Web Search 需配置辅助 endpoint/key，未配置时两者不参与请求路径。
 
 ## 架构
 
@@ -175,20 +184,6 @@ pnpm dev
 
 > [!CAUTION]
 > 以上不是"完全隔离"的承诺：为兼容上游 WebUI 的动态模块加载，CSP 仍保留 `unsafe-eval`/`unsafe-inline`，数据面仍是 loopback HTTP 而非 IPC 级隔离。
-
-## 当前限制与路线图
-
-以下内容**不是**已完成的产品能力：
-
-- fetch-over-IPC / `file://` 传输：等待上游 webserver 提供正式实现；
-- 独立捆绑的 Node runtime（当前打包态用 Electron 的 `ELECTRON_RUN_AS_NODE` 启动 dsh）；
-- 安装包签名、公证和自动更新；
-- AI 自动代码审查、GitHub PR bot、Review 的 base branch / 指定 commit / PR 评论；
-- 归档会话删除（上游暂未提供所需能力）；
-- Rewind 仅支持 live 且 agent 空闲的会话，不跨压缩替换边界；未打补丁的官方 CLI 会拒读含撤回墓碑的会话（见 [Rewind 说明](packages/plugins/rewind/README.md)）；
-- Vision 的视频理解；Web Search 的内置免费搜索。
-
-下一阶段重点：跟随上游正式扩展点减少本地 patch → 完善 Review 体验 → 评估独立 Node runtime → 完成签名公证与正式发行 → 上游支持后评估真 IPC。
 
 ## 常见问题
 

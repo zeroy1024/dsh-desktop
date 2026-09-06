@@ -21,6 +21,7 @@
 | [Rewind](../packages/plugins/rewind/README.md) | 原会话撤回、文字与图片恢复、互操作限制 |
 | [归档管理](../packages/plugins/archive-manager/README.md) | 归档列表、时间、分组与恢复 |
 | [会话行操作](../packages/plugins/session-actions/README.md) | 快速归档与 ZIP 导出 |
+| [用量统计](../packages/plugins/usage-stats/README.md) | token 账目聚合、口径备忘与缓存取舍 |
 | [Vision](../packages/plugins/vision/README.md) | 图片证据桥接、视觉 API 与凭据配置 |
 | [Web Search](../packages/plugins/web-search/README.md) | 辅助模型搜索、结构化来源与凭据配置 |
 | [FPS HUD](../packages/plugins/fps-overlay/README.md) | 开发态帧率显示与测量范围 |
