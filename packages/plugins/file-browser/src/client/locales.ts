@@ -37,6 +37,7 @@ export type FileBrowserKey =
   | 'status.large'
   | 'status.binary'
   | 'status.plain'
+  | 'status.renderFailed'
   | 'error.session-not-found'
   | 'error.not-found'
   | 'error.bad-path'
@@ -78,6 +79,7 @@ export const zh: Record<FileBrowserKey, string> = {
   'status.large': '文件过大，无法预览',
   'status.binary': '二进制文件，无法预览',
   'status.plain': '为保持流畅，大文件以纯文本显示',
+  'status.renderFailed': '文档渲染失败，可切换到源代码查看',
   'error.session-not-found': '会话不存在或没有工作目录',
   'error.not-found': '文件不存在（可能已被删除）',
   'error.bad-path': '非法路径',
@@ -120,6 +122,7 @@ export const en: Record<FileBrowserKey, string> = {
   'status.large': 'File is too large to preview',
   'status.binary': 'Binary file — no preview',
   'status.plain': 'Shown as plain text to keep large files responsive',
+  'status.renderFailed': 'Failed to render this document — switch to source view',
   'error.session-not-found': 'Session not found or has no working directory',
   'error.not-found': 'File not found (it may have been deleted)',
   'error.bad-path': 'Invalid path',

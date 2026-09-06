@@ -627,11 +627,13 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
       <FilePreview
         tabs={sessionTabs}
         view={sessionTabs.activePath === null ? undefined : views.get(sessionTabs.activePath)}
+        sessionId={sessionId}
         root={root}
         canOpenPath={canOpenPath}
         onActivate={handleActivateFile}
         onClose={handleCloseFile}
         onOpenSystem={handleOpenSystem}
+        onOpenDocument={handleOpenFile}
         treeHidden={treeHidden}
         onToggleTree={toggleTree}
         t={t}

@@ -39,6 +39,14 @@ beforeAll(async () => {
   await writeFile(join(root, 'README.md'), '# hello\n')
   await writeFile(join(root, 'apps', 'desktop', 'main.ts'), 'const x = 1\n')
   await writeFile(join(outside, 'secret.txt'), 'top secret')
+  // raw 路由夹具放独立子目录，避免扰动 list 根目录的精确条目断言；
+  // 扩展名决定 MIME，内容字节不校验（PNG 用任意字节即可）。
+  await mkdir(join(root, 'assets'))
+  await writeFile(join(root, 'assets', 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]))
+  await writeFile(join(root, 'assets', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
+  await writeFile(join(root, 'assets', 'notes.txt'), 'not an image')
+  await writeFile(join(root, 'assets', 'page.html'), '<h1>hi</h1>')
+  await writeFile(join(outside, 'badge.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
   // root 内的 symlink 指到 root 外：list 跟随分类可见，但 read 必须被 realpath 拦下。
   await symlink(join(outside, 'secret.txt'), join(root, 'link-out'))
   await symlink(outside, join(root, 'dir-out'))
@@ -87,6 +95,26 @@ function readAbs(abs: string, sessionId = 's1'): ReturnType<typeof get> {
   return get(`/read?sessionId=${sessionId}&abs=${encodeURIComponent(abs)}`)
 }
 
+/** raw 投送字节：需要断言状态/响应头/原始字节，不能走 JSON 解析的 get。 */
+function getRaw(
+  path: string,
+  headers: Record<string, string> = trustedHeaders,
+): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; bytes: Buffer }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const req = httpRequest({ host: '127.0.0.1', port, method: 'GET', path: `${FS_ROUTE_PREFIX}${path}`, headers }, res => {
+      const chunks: Buffer[] = []
+      res.on('data', chunk => chunks.push(chunk))
+      res.on('end', () => resolvePromise({
+        status: res.statusCode ?? 0,
+        headers: res.headers,
+        bytes: Buffer.concat(chunks),
+      }))
+    })
+    req.on('error', rejectPromise)
+    req.end()
+  })
+}
+
 describe('栅栏', () => {
   it('拒绝非 loopback Host 与异源 Origin', async () => {
     expect((await get('/list?sessionId=s1', { host: 'evil.example' })).status).toBe(403)
@@ -125,9 +153,9 @@ describe('list op', () => {
     const { status, body } = await get('/list?sessionId=s1&path=')
     expect(status).toBe(200)
     const names = (body as { entries: Array<{ name: string }> }).entries.map(e => e.name)
-    expect(names).toEqual(['apps', 'dir-out', 'src', 'link-out', 'README.md'])
+    expect(names).toEqual(['apps', 'assets', 'dir-out', 'src', 'link-out', 'README.md'])
     const kinds = (body as { entries: Array<{ kind: string }> }).entries.map(e => e.kind)
-    expect(kinds).toEqual(['dir', 'dir', 'dir', 'file', 'file'])
+    expect(kinds).toEqual(['dir', 'dir', 'dir', 'dir', 'file', 'file'])
     expect((body as { truncated: boolean }).truncated).toBe(false)
   })
 
@@ -166,6 +194,93 @@ describe('read op', () => {
   it('symlink 指向 root 外 → 403 symlink-escape（文件与目录两种）', async () => {
     expect((await get('/read?sessionId=s1&path=link-out')).body).toEqual({ ok: false, error: 'symlink-escape' })
     expect((await get('/list?sessionId=s1&path=dir-out')).body).toEqual({ ok: false, error: 'symlink-escape' })
+  })
+})
+
+describe('raw op（图片字节供给）', () => {
+  it('工作区图片：投送字节 + 固定 MIME + nosniff + no-store', async () => {
+    const { status, headers, bytes } = await getRaw('/raw?sessionId=s1&path=assets/logo.png')
+    expect(status).toBe(200)
+    expect(headers['content-type']).toBe('image/png')
+    expect(headers['x-content-type-options']).toBe('nosniff')
+    expect(headers['cache-control']).toBe('no-store')
+    expect([...bytes]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01])
+  })
+
+  it('SVG：额外钉响应级 CSP（default-src none 的纵深防御）', async () => {
+    const { status, headers } = await getRaw('/raw?sessionId=s1&path=assets/icon.svg')
+    expect(status).toBe(200)
+    expect(headers['content-type']).toBe('image/svg+xml')
+    expect(headers['content-security-policy']).toBe("default-src 'none'")
+  })
+
+  it('非白名单扩展名 → 404 bad-path（不 sniff、不投送任意字节）', async () => {
+    expect((await getRaw('/raw?sessionId=s1&path=assets/notes.txt')).status).toBe(404)
+    expect((await getRaw('/raw?sessionId=s1&path=assets/page.html')).status).toBe(404)
+  })
+
+  it('目录（图片扩展名）→ 400 is-directory；缺失 → 404 not-found', async () => {
+    // 扩展名白名单先于 stat：无图片扩展名的目录（assets）归 404 bad-path，
+    // 只有名字像图片的目录才走到 is-directory 分支。
+    await mkdir(join(root, 'fake.png'))
+    expect((await getRaw('/raw?sessionId=s1&path=fake.png')).status).toBe(400)
+    expect((await getRaw('/raw?sessionId=s1&path=assets')).status).toBe(404)
+    expect((await getRaw('/raw?sessionId=s1&path=assets/nope.png')).status).toBe(404)
+  })
+
+  it('信任栅栏与 read 同构：非 loopback Host → 403', async () => {
+    expect((await getRaw('/raw?sessionId=s1&path=assets/logo.png', { host: 'evil.example' })).status).toBe(403)
+  })
+
+  it('路径沙箱与 symlink：绝对/穿越 → 400；指向 root 外 → 403', async () => {
+    expect((await getRaw('/raw?sessionId=s1&path=/etc/passwd')).status).toBe(400)
+    expect((await getRaw('/raw?sessionId=s1&path=../outside/badge.png')).status).toBe(400)
+    // link-out 是指向 root 外 secret.txt 的 symlink：realpath 后越界 → 403。
+    expect((await getRaw('/raw?sessionId=s1&path=link-out')).status).toBe(403)
+  })
+
+  it('abs 通道：工作区外图片可读（README 引系统截图）', async () => {
+    const { status, headers, bytes } = await getRaw(`/raw?sessionId=s1&abs=${encodeURIComponent(join(outside, 'badge.png'))}`)
+    expect(status).toBe(200)
+    expect(headers['content-type']).toBe('image/png')
+    expect([...bytes]).toEqual([0x89, 0x50, 0x4e, 0x47])
+  })
+
+  it('abs 通道仍锚定凭据 denylist：realpath 进 .ssh 的 png 链 → 403', async () => {
+    // 复用 denylist 布局：把 .ssh 内一个 .png 经绕道链投给 abs raw。
+    const credRoot = await realpath(await mkdtemp(join(tmpdir(), 'dsh-fs-raw-deny-')))
+    const sshDir = join(credRoot, 'home', '.ssh')
+    const bypass = join(credRoot, 'bypass')
+    await mkdir(sshDir, { recursive: true })
+    await mkdir(bypass)
+    await writeFile(join(sshDir, 'key.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    await symlink(sshDir, join(bypass, 'ssh-alias'))
+    homeControl.value = join(credRoot, 'home')
+    try {
+      const { status } = await getRaw(`/raw?sessionId=s1&abs=${encodeURIComponent(join(bypass, 'ssh-alias', 'key.png'))}`)
+      expect(status).toBe(403)
+    } finally {
+      homeControl.value = undefined
+      await rm(credRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('超过 maxRawBytes → 413（img 自然裂图，不投送巨量字节）', async () => {
+    // 独立 handler：把上限压到 4 字节，logo.png 有 6 字节。
+    const small = createServer(createFsHandler({ resolveRoot: () => root, maxRawBytes: 4 }))
+    await new Promise<void>(resolve => small.listen(0, '127.0.0.1', resolve))
+    const addr = small.address()
+    const p = typeof addr === 'object' && addr !== null ? addr.port : port
+    const { status } = await new Promise<{ status: number }>((res, rej) => {
+      const req = httpRequest({ host: '127.0.0.1', port: p, path: `${FS_ROUTE_PREFIX}/raw?sessionId=s1&path=assets/logo.png`, headers: trustedHeaders }, r => {
+        r.resume()
+        r.on('end', () => res({ status: r.statusCode ?? 0 }))
+      })
+      req.on('error', rej)
+      req.end()
+    })
+    small.close()
+    expect(status).toBe(413)
   })
 })
 

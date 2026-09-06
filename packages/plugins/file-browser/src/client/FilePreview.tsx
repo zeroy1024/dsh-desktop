@@ -1,11 +1,16 @@
 /**
  * 预览列：文件 tab 条 + 面包屑 + 动作（打开 ▾ 系统默认应用 / 复制路径）+
- * 主体（markdown 渲染 / 源码高亮切换 / 大文件与二进制降级 / 错误态）。
+ * 主体（markdown 文档渲染 / 源码高亮切换 / 大文件与二进制降级 / 错误态）。
  * 所有数据态由页面层拉取后经 props 下发（本组件零异步）。
+ *
+ * Markdown 渲染用本插件的 MarkdownDocument（README 语义：消毒后的 HTML、
+ * 相对图片经 raw 路由、锚点滚动、仓内链接经 onOpenDocument 在 tab 内打开），
+ * 不再用聊天侧的 MarkdownText——后者为不可信 assistant 输出把 HTML 与相对
+ * URL 一律字面化，是成文契约而非缺陷。
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, IconCloseFill14, MarkdownText, Menu,
+  Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, IconCloseFill14, Menu,
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useHorizontalTabScroll } from '@dsh-desktop/panel-shell/client'
@@ -15,6 +20,9 @@ import type { FsFileContent } from './api.ts'
 import type { Translate } from './types.ts'
 import { langFromName } from './lang.ts'
 import { shouldUseRichPreview } from './preview-policy.ts'
+import { MarkdownDocument } from './MarkdownDocument.tsx'
+import type { DocumentRenderContext } from './markdown-document.ts'
+import { rawImageUrl } from '../fs-route.ts'
 import { FileIcon } from './FileIcon.tsx'
 import css from './FileBrowser.module.css'
 
@@ -29,13 +37,17 @@ export interface FilePreviewProps {
   tabs: FileTabsState
   /** 当前激活文件的视图态；无表项时视为 loading。 */
   view: FileViewModel | undefined
-  /** 会话根（canonical）；拼绝对路径给 host.openPath。 */
+  /** 会话 id（raw 图片路由的锚点参数）。 */
+  sessionId: string
+  /** 当前会话的 canonical root（外部绝对 key 的 baseDir 换算用）。 */
   root: string | null
   canOpenPath: boolean
   onActivate: (relPath: string) => void
   onClose: (relPath: string) => void
   /** 「打开 ▾ → 用系统默认应用打开」：页面层拼 root 调 host.openPath。 */
   onOpenSystem: (relPath: string) => void
+  /** 文档内相对链接点击：页面层在 tab 内打开（key 域与工作区/外部一致）。 */
+  onOpenDocument: (relKey: string) => void
   /** 文件树隐藏时，预览列提供稳定的恢复入口。 */
   treeHidden: boolean
   onToggleTree: () => void
@@ -95,14 +107,10 @@ const PlainTextPreview = memo(function PlainTextPreview({ text, t }: { text: str
  * @param props - 见 {@link FilePreviewProps}。
  */
 export const FilePreview = memo(function FilePreview({
-  tabs, view, root, canOpenPath, onActivate, onClose, onOpenSystem,
+  tabs, view, sessionId, root, canOpenPath, onActivate, onClose, onOpenSystem, onOpenDocument,
   treeHidden, onToggleTree, t,
 }: FilePreviewProps) {
   // 渲染/源码切换的会话内偏好（仅对 md 生效；不持久化——视频未演示跨重启）。
-  const markdownLabels = useMemo(() => ({
-    code: { copyLabel: t('preview.copy'), copiedLabel: t('preview.copied') },
-    footnotes: t('preview.footnotes'),
-  }), [t])
   const [showSource, setShowSource] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const active = tabs.activePath
@@ -125,13 +133,32 @@ export const FilePreview = memo(function FilePreview({
     : false
   // Only the source CodeBlock has the sticky language banner. Its wrapper gets
   // a top-padding/margin reset so the scrolled pre cannot appear in a clear
-  // strip above that banner; MarkdownText and the plain fallback keep their
+  // strip above that banner; MarkdownDocument and the plain fallback keep their
   // normal preview spacing.
   const codePreview = active !== null
     && view?.content?.kind === 'text'
     && richPreview
     && (!isMarkdown(name) || showSource)
   const tabsRef = useHorizontalTabScroll<HTMLDivElement>(active, tabs.openPaths.length)
+
+  /**
+   * 文档渲染上下文：当前文件所在目录决定相对 URL 的基准与边界语义。
+   * 工作区 key → root 相对 baseDir + 允许 GitHub 式根相对（`/img.png` = 仓库根）；
+   * 外部绝对 key → 绝对 baseDir + 拒绝根相对（脱离工作区没有"根"可言）。
+   * 引用稳定（仅随文件/会话/根变化），MarkdownDocument 的重解析 memo 依赖它。
+   */
+  const documentContext = useMemo<DocumentRenderContext>(() => {
+    const key = active ?? ''
+    const slash = key.lastIndexOf('/')
+    const baseDir = external
+      ? (slash <= 0 ? '/' : key.slice(0, slash))
+      : (slash < 0 ? '' : key.slice(0, slash))
+    return {
+      baseDir,
+      allowRootRelative: !external,
+      imageSrcFor: (src, via) => rawImageUrl(sessionId, src, via),
+    }
+  }, [active, external, sessionId])
 
   return (
     <div className={css.previewCol}>
@@ -277,9 +304,12 @@ export const FilePreview = memo(function FilePreview({
           if (!richPreview) return <PlainTextPreview text={content.text} t={t} />
           if (isMarkdown(name) && !showSource && richPreview) {
             return (
-              <div className={css.markdownWrap}>
-                <MarkdownText text={content.text} labels={markdownLabels} />
-              </div>
+              <MarkdownDocument
+                text={content.text}
+                context={documentContext}
+                t={t}
+                onOpen={onOpenDocument}
+              />
             )
           }
           return (

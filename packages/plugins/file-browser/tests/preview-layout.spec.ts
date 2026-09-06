@@ -18,7 +18,9 @@ describe('file preview scroll layering', () => {
   it('keeps scrolling CSS-owned and leaves markdown/plain branches separate', () => {
     expect(css).toMatch(/\.previewBody\s*\{[^}]*min-width:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*auto;/su)
     expect(source).toContain('<PlainTextPreview text={content.text} t={t} />')
-    expect(source).toContain('<div className={css.markdownWrap}>')
+    // markdown 分支独立于 plain：走本插件的文档渲染器（README 语义）。
+    expect(source).toContain('<MarkdownDocument')
+    // 锚点滚动归 MarkdownDocument 内部；FilePreview 不做命令式滚动。
     expect(source).not.toMatch(/\b(?:scrollTop|scrollTo|scrollIntoView)\b/u)
   })
 })

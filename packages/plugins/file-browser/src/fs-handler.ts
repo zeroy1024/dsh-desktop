@@ -1,10 +1,11 @@
 /**
- * file-browser 数据面 handler：两条只读路由的共享实现（node 半）。
+ * file-browser 数据面 handler：三条只读路由的共享实现（node 半）。
  *
  * 路由挂在 agent webserver 的 prefix `/dsh-file-browser` 下（exact/prefix 表
  * 先于 SPA fallback，命名空间避开上游未来路径）：
  *   GET /dsh-file-browser/list?sessionId=&path=  → {ok, entries, truncated}
  *   GET /dsh-file-browser/read?sessionId=&path=  → {ok, text} | {ok, tooLarge|binary}
+ *   GET /dsh-file-browser/raw?sessionId=&path=   → 图片字节 + 白名单 MIME（文档预览的 img src）
  *
  * 三道栅栏（顺序即优先级）：
  *   1. Host/Origin 信任栅栏（bridge `isTrustedFsRequest`）→ 403；
@@ -12,6 +13,12 @@
  *      绝对路径），客户端传的 path 一律视为 root 相对 → `resolveWithinRoot`
  *      字符串层沙箱 → 400；
  *   3. symlink 逃逸：realpath(root) 与 realpath(target) 再前缀比较 → 403。
+ *
+ * raw 路由（Markdown 文档预览的相对图片供给面）：只投送图片扩展名白名单内
+ * 的字节（扩展名 → 固定 MIME，无 sniff），大小短路（maxRawBytes），恒带
+ * `X-Content-Type-Options: nosniff`；SVG 额外钉 `Content-Security-Policy:
+ * default-src 'none'`（img 上下文本身不执行脚本，响应级 CSP 为纵深防御）。
+ * 信任锚与 read 完全同构：有效会话 + 信任栅栏 + root 沙箱 + symlink 校验。
  *
  * 工作区外单文件预览（read 专属）：`abs=<绝对路径>` 参数承载工作区外的
  * 规范化绝对路径（POSIX / Windows 盘符 / UNC），跳过栅栏 2/3 的 root 边界
@@ -29,15 +36,47 @@ import { opendir, readFile, realpath, stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { homedir } from 'node:os'
 import { isTrustedFsRequest, resolveWithinRoot } from '@dsh-desktop/bridge/fs-guard'
+import { FS_ROUTE_PREFIX } from './fs-route.ts'
 
-/** 路由前缀；与 `index.ts` 的注册共用。 */
-export const FS_ROUTE_PREFIX = '/dsh-file-browser'
+/** 路由前缀；与 client 半共享（fs-route.ts），此处 re-export 保持既有引用路径。 */
+export { FS_ROUTE_PREFIX }
 
 /** 单次列目录返回上限（超出置 truncated；对齐上游 directory-picker 的有界窗口思想）。 */
 export const DEFAULT_MAX_ENTRIES = 2000
 
 /** 预览读取的字节上限（超限只回元信息，不吐内容）。 */
 export const DEFAULT_MAX_READ_BYTES = 2 * 1024 * 1024
+
+/** raw 投送的字节上限（图片；超限 413，img 元素自然裂开显示 alt）。 */
+export const DEFAULT_MAX_RAW_BYTES = 5 * 1024 * 1024
+
+/**
+ * raw 路由的扩展名 → 固定 MIME 白名单。无 sniff：不在表内的扩展名一律
+ * 404 bad-path（宁可让预览图裂开，也不投送任何可被浏览器当作
+ * HTML/脚本解释的字节流）。SVG 是唯一可携带脚本语义的条目，响应级 CSP
+ * 兜底（img 上下文不执行 SVG 内脚本，独立导航/嵌入时 CSP 生效）。
+ */
+export const RAW_IMAGE_MIME = new Map<string, string>([
+  ['png', 'image/png'],
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['gif', 'image/gif'],
+  ['webp', 'image/webp'],
+  ['avif', 'image/avif'],
+  ['svg', 'image/svg+xml'],
+  ['ico', 'image/x-icon'],
+  ['bmp', 'image/bmp'],
+])
+
+/** 取白名单内的扩展名与其固定 MIME；不在表内返回 undefined。 */
+function imageMimeOf(path: string): { ext: string; mime: string } | undefined {
+  const base = path.slice(path.lastIndexOf('/') + 1)
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0 || dot === base.length - 1) return undefined
+  const ext = base.slice(dot + 1).toLowerCase()
+  const mime = RAW_IMAGE_MIME.get(ext)
+  return mime === undefined ? undefined : { ext, mime }
+}
 
 /** NUL 采样窗口：前 8 KiB 含 0 字节即判二进制（上游 fs-local BINARY_SAMPLE_BYTES 同值）。 */
 const BINARY_SAMPLE_BYTES = 8192
@@ -61,12 +100,14 @@ export interface FsHandlerDeps {
   resolveRoot: (sessionId: string) => string | undefined | Promise<string | undefined>
   maxEntries?: number
   maxReadBytes?: number
+  maxRawBytes?: number
 }
 
 /** fs 错误信封的码表：client 半按 code 出文案。 */
 type FsErrorCode =
   | 'forbidden' | 'bad-request' | 'bad-path' | 'session-not-found'
   | 'not-found' | 'is-directory' | 'symlink-escape' | 'denied' | 'unreadable'
+  | 'too-large'
 
 /** 统一 JSON 发送：no-store（本地文件随时可改），charset 显式。 */
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -447,6 +488,109 @@ async function handleRead(
 }
 
 /**
+ * raw op 的共享主体：扩展名白名单 + 大小短路 + 字节投送。
+ * 调用方已完成信任栅栏 / root 沙箱 / symlink / denylist 校验；这里只做
+ * 内容侧约束。MIME 由扩展名查表（无 sniff），恒 nosniff。
+ */
+async function sendRawPayload(
+  res: ServerResponse,
+  deps: FsHandlerDeps,
+  requestPath: string,
+  absReal: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const image = imageMimeOf(requestPath)
+  if (image === undefined) {
+    // 非白名单扩展名：404 而非 403——对预览语义而言"没有这张图"与"文件不存在"
+    // 等价，且不给探测白名单内容的信号差。
+    sendJson(res, 404, { ok: false, error: 'bad-path' satisfies FsErrorCode })
+    return
+  }
+  const maxBytes = deps.maxRawBytes ?? DEFAULT_MAX_RAW_BYTES
+  let info
+  try {
+    info = await raceAbort(stat(absReal), signal)
+  } catch (err) {
+    if (err instanceof AbortedError) return
+    sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  if (info.isDirectory()) {
+    sendJson(res, 400, { ok: false, error: 'is-directory' satisfies FsErrorCode })
+    return
+  }
+  if (info.size > maxBytes) {
+    sendJson(res, 413, { ok: false, error: 'too-large' satisfies FsErrorCode })
+    return
+  }
+  let buffer: Buffer
+  try {
+    buffer = await raceAbort(readFile(absReal), signal)
+  } catch (err) {
+    if (err instanceof AbortedError) return
+    sendJson(res, 500, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  const headers: Record<string, string> = {
+    'content-type': image.mime,
+    'content-length': String(buffer.length),
+    'x-content-type-options': 'nosniff',
+    // 本地文件随时可改，与 JSON 信封同策。
+    'cache-control': 'no-store',
+  }
+  if (image.ext === 'svg') headers['content-security-policy'] = "default-src 'none'"
+  res.writeHead(200, headers)
+  res.end(buffer)
+}
+
+/** raw op（root 内）：与 read 同构的沙箱校验后投送图片字节。 */
+async function handleRaw(
+  res: ServerResponse,
+  deps: FsHandlerDeps,
+  root: string,
+  rel: string,
+  abs: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const rootReal = await raceAbort(realpath(root), signal)
+  let absReal: string
+  try {
+    absReal = await raceAbort(realpath(abs), signal)
+  } catch (err) {
+    if (err instanceof AbortedError) return
+    sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  if (!withinReal(rootReal, absReal)) {
+    sendJson(res, 403, { ok: false, error: 'symlink-escape' satisfies FsErrorCode })
+    return
+  }
+  await sendRawPayload(res, deps, rel, absReal, signal)
+}
+
+/** raw op（工作区外）：abs 形态与 read 同锚（realpath 后过凭据 denylist）。 */
+async function handleRawAbsolute(
+  res: ServerResponse,
+  deps: FsHandlerDeps,
+  abs: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  let absReal: string
+  try {
+    absReal = await raceAbort(realpath(abs), signal)
+  } catch (err) {
+    if (err instanceof AbortedError) return
+    sendJson(res, 404, { ok: false, error: fsErrorCode(err) })
+    return
+  }
+  if (await isDeniedResolvedPath(absReal)) {
+    sendJson(res, 403, { ok: false, error: 'denied' satisfies FsErrorCode })
+    return
+  }
+  await sendRawPayload(res, deps, abs, absReal, signal)
+}
+
+/**
  * read op（工作区外单文件）：`abs` 参数承载规范化绝对路径。无 root 边界
  * 可言（特性本身），symlink 逃逸校验不适用——realpath 解析后的最终目标
  * 就是读取对象；信任锚降为：有效会话 + 信任栅栏 + 大小/二进制限量。
@@ -492,7 +636,7 @@ export function createFsHandler(deps: FsHandlerDeps): (req: IncomingMessage, res
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       const op = url.pathname.slice(FS_ROUTE_PREFIX.length + 1)
-      if (op !== 'list' && op !== 'read') {
+      if (op !== 'list' && op !== 'read' && op !== 'raw') {
         sendJson(res, 404, { ok: false, error: 'bad-request' satisfies FsErrorCode })
         return
       }
@@ -510,8 +654,8 @@ export function createFsHandler(deps: FsHandlerDeps): (req: IncomingMessage, res
       }
       const signal = responseSignal(res)
       if (absParam !== null) {
-        // 工作区外单文件预览：仅 read；list 的 abs 一律拒绝（树仍锚定工作区）。
-        if (op !== 'read') {
+        // 工作区外预览：read/raw 接受 abs；list 一律拒绝（树仍锚定工作区）。
+        if (op === 'list') {
           sendJson(res, 400, { ok: false, error: 'bad-request' satisfies FsErrorCode })
           return
         }
@@ -520,7 +664,8 @@ export function createFsHandler(deps: FsHandlerDeps): (req: IncomingMessage, res
           sendJson(res, 400, { ok: false, error: 'bad-path' satisfies FsErrorCode })
           return
         }
-        await handleReadAbsolute(res, deps, target, signal)
+        if (op === 'raw') await handleRawAbsolute(res, deps, target, signal)
+        else await handleReadAbsolute(res, deps, target, signal)
         return
       }
       const abs = resolveWithinRoot(root, rel)
@@ -529,6 +674,7 @@ export function createFsHandler(deps: FsHandlerDeps): (req: IncomingMessage, res
         return
       }
       if (op === 'list') await handleList(res, deps, root, rel, abs, signal)
+      else if (op === 'raw') await handleRaw(res, deps, root, rel, abs, signal)
       else await handleRead(res, deps, root, abs, signal)
     } catch (err) {
       if (err instanceof AbortedError) return // 客户端断连：静默。

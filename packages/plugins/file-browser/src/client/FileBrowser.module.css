@@ -463,10 +463,6 @@
   margin-top: 0;
 }
 
-.markdownWrap {
-  max-width: 860px;
-}
-
 .empty {
   height: 100%;
   display: flex;

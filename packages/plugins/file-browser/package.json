@@ -43,17 +43,26 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller",
     "@dsh-desktop/bridge": "workspace:*",
     "@dsh-desktop/panel-shell": "workspace:*",
     "@dsh-desktop/plugin-kit": "workspace:*",
     "@tanstack/react-virtual": "^3.14.9",
+    "@types/hast": "^3.0.5",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^24.0.0",
     "@types/react": "~18.3.1",
     "esbuild": "^0.28.2",
+    "github-slugger": "^2.0.0",
+    "hast-util-raw": "^9.1.0",
+    "hast-util-sanitize": "^5.0.2",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm": "^3.1.0",
+    "mdast-util-to-hast": "^13.2.1",
+    "micromark-extension-gfm": "^3.0.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
-    "@deepseek-ai/dsh-api-session-controller": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-api-session-controller",
-    "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis"
+    "vitest": "^4.1.8"
   }
 }
