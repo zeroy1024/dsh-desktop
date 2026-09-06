@@ -6,6 +6,7 @@ import * as FileBrowser from '../../plugins/file-browser/src/index'
 import * as Review from '../../plugins/review/src/index'
 import * as ArchiveManager from '../../plugins/archive-manager/src/index'
 import * as Rewind from '../../plugins/rewind/src/index'
+import * as UsageStats from '../../plugins/usage-stats/src/index'
 
 const contexts: Context[] = []
 afterEach(async () => {
@@ -25,7 +26,7 @@ async function host() {
     },
   } as never)
   ctx.provide('sessions', { get: () => undefined } as never)
-  ctx.provide('sessionPersistence', { list: async () => [] } as never)
+  ctx.provide('sessionPersistence', { list: async () => [], listSnapshots: async () => [] } as never)
   ctx.provide('agents', { get: () => undefined } as never)
   ctx.provide('sessionProjections', { register: () => () => {} } as never)
   const rows = new Map<string, { archivedAt: number }>()
@@ -92,6 +93,10 @@ const plugins = [
   {
     plugin: Rewind,
     routes: [{ path: '/dsh-desktop/rewind/execute', method: 'POST', authenticatedStatus: 400 }],
+  },
+  {
+    plugin: UsageStats,
+    routes: [{ path: '/dsh-desktop/usage/summary', method: 'POST', authenticatedStatus: 200 }],
   },
 ] satisfies Array<{ plugin: { name: string; inject: string[]; apply: unknown }; routes: RouteCase[] }>
 

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
@@ -8,6 +8,8 @@ const root = fileURLToPath(new URL('../../', import.meta.url))
 it('keeps package metadata separate from Cordis service inject declarations', () => {
   const plugins = resolve(root, 'packages/plugins')
   for (const name of readdirSync(plugins)) {
+    // 只遍历插件目录：macOS 可能在工作树里留下 .DS_Store 之类的杂项文件。
+    if (!statSync(resolve(plugins, name)).isDirectory()) continue
     const manifest = JSON.parse(readFileSync(resolve(plugins, name, 'package.json'), 'utf8')) as {
       dsh?: { client?: { inject?: string[] } }
     }

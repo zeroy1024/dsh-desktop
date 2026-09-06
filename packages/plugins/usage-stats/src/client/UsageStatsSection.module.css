@@ -1,0 +1,587 @@
+/* 全部走宿主语义主题 token（--dsw-alias-*）；图表色阶由静态色板/brand
+   color-mix 派生，跟随明暗主题。对齐内置设置页规范：0.5px 发丝边框、
+   卡/面板 20px 圆角、胶囊 999px、次级文字用 label-secondary/tertiary/caption。 */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+/* ---------- 页面标题块 ---------- */
+
+.pageHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.pageIntro {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.headSide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pageMeta {
+  margin: 0;
+  max-width: 260px;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: right;
+  color: var(--dsw-alias-label-caption);
+}
+
+.refreshBtn {
+  height: 28px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.refreshBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.refreshBtn:focus-visible,
+.rangePill:focus-visible,
+.thBtn:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+/* ---------- 数据状态 ---------- */
+
+.hint {
+  margin: 24px 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.empty {
+  margin: 40px 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+.emptySmall {
+  margin: 24px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-caption);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
+  border-radius: 10px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+}
+
+/* ---------- 概览区：hero 卡 + 紧凑指标卡 ---------- */
+
+.overviewGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.heroCard {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 20px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.heroLabel {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.heroValue {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 四桶堆叠构成条：段宽 = 桶占比，整条胶囊圆角由 overflow 裁出。 */
+.heroBar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.heroSeg {
+  display: block;
+  height: 100%;
+}
+
+/* 桶配色：固定静态板，明暗主题均可读；构成条段与图例点共用。 */
+.bucketC0 { background: var(--dsw-static-blue-400); }
+.bucketC1 { background: var(--dsw-static-green-400); }
+.bucketC2 { background: var(--dsw-static-amber-500); }
+.bucketC3 { background: var(--dsw-static-deepseek-400); }
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 20px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.statLabel {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.statValue {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+.statCaption {
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* ---------- 面板（热力图/趋势/明细共用） ---------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 20px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rangePills {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.rangePill,
+.rangePillActive {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rangePill:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rangePillActive {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ---------- 热力图 ---------- */
+
+/* viewBox 等比缩放铺满面板：格子随容器宽度收放，最新列（最右）恒可见。 */
+.heatWrap {
+  position: relative;
+}
+
+.heatSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.heatCell {
+  stroke: none;
+}
+
+/* hover 有数据格子的描边高亮（受控 class，随浮层同步出现）。 */
+.heatCellActive {
+  stroke: var(--dsw-alias-label-primary);
+  stroke-width: 0.8;
+}
+
+/* 空格保持中性灰，与蓝色系数据档天然区分。 */
+.heatL0 {
+  fill: var(--dsw-alias-border-l2);
+}
+
+/* 数据档用 DeepSeek 静态蓝阶（品牌鲸鱼蓝为中心），不随明暗主题反转。 */
+.heatL1 {
+  fill: var(--dsw-static-deepseek-100);
+}
+
+.heatL2 {
+  fill: var(--dsw-static-deepseek-300);
+}
+
+.heatL3 {
+  fill: var(--dsw-static-deepseek-450);
+}
+
+.heatL4 {
+  fill: var(--dsw-static-deepseek-600);
+}
+
+/* 图例（标题下方）：少 → 四档色块 → 多。色块是 HTML 元素，
+   颜色必须用 background（heatL* 的 fill 只对 SVG 生效）。 */
+.heatHead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.heatLegend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.heatLegendSwatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.heatLegendL1 {
+  background: var(--dsw-static-deepseek-100);
+}
+
+.heatLegendL2 {
+  background: var(--dsw-static-deepseek-300);
+}
+
+.heatLegendL3 {
+  background: var(--dsw-static-deepseek-450);
+}
+
+.heatLegendL4 {
+  background: var(--dsw-static-deepseek-600);
+}
+
+.heatMonth {
+  fill: var(--dsw-alias-label-caption);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* ---------- 趋势折线 ---------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.legendDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legendValue {
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-caption);
+}
+
+.trendSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* 图表容器：浮动 tooltip 的定位基准。 */
+.chartWrap {
+  position: relative;
+}
+
+/* 详情浮层：固定图表顶部居中（趋势图）；热力图内联覆盖 left/top/transform。 */
+.tooltip {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-3));
+  box-shadow: var(--dsw-elevation-prominent, 0 4px 16px rgba(0, 0, 0, 0.18));
+  pointer-events: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-primary);
+  z-index: 2;
+}
+
+.tooltipDay {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.tooltipSub {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.tooltipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltipName {
+  color: var(--dsw-alias-label-secondary);
+  margin-right: auto;
+}
+
+.tooltipValue {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.trendGrid {
+  stroke: var(--dsw-alias-border-l1);
+  stroke-dasharray: 3 4;
+}
+
+.trendCursor {
+  stroke: var(--dsw-alias-border-l3);
+}
+
+.trendDot {
+  fill: var(--dsw-alias-label-tertiary);
+  stroke: none;
+}
+
+.trendLine {
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.trendAxis {
+  fill: var(--dsw-alias-label-caption);
+  font-size: 10px;
+  font-family: inherit;
+}
+
+/* 序列色：固定六色静态板，明暗主题均可读；折线用 stroke，图例点用 background。 */
+.seriesC0 { stroke: var(--dsw-static-blue-400); }
+.seriesC1 { stroke: var(--dsw-static-green-400); }
+.seriesC2 { stroke: var(--dsw-static-amber-500); }
+.seriesC3 { stroke: var(--dsw-static-red-400); }
+.seriesC4 { stroke: var(--dsw-static-deepseek-400); }
+.seriesC5 { stroke: var(--dsw-alias-state-business-primary); }
+
+.legendDot.seriesC0 { background: var(--dsw-static-blue-400); }
+.legendDot.seriesC1 { background: var(--dsw-static-green-400); }
+.legendDot.seriesC2 { background: var(--dsw-static-amber-500); }
+.legendDot.seriesC3 { background: var(--dsw-static-red-400); }
+.legendDot.seriesC4 { background: var(--dsw-static-deepseek-400); }
+.legendDot.seriesC5 { background: var(--dsw-alias-state-business-primary); }
+
+/* ---------- 明细表 ---------- */
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.th {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  text-align: right;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.th:first-child {
+  text-align: left;
+}
+
+.thActive {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  text-align: right;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+
+.thActive:first-child {
+  text-align: left;
+}
+
+.thBtn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tr:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tdModel {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  text-align: left;
+}
+
+.modelName {
+  display: block;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.modelNameDim {
+  display: block;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.modelProvider {
+  display: block;
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.tdNum {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tdNumDim {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.tdShare {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.shareTrack {
+  display: inline-block;
+  vertical-align: middle;
+  width: 72px;
+  height: 4px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.shareFill {
+  display: block;
+  height: 100%;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.shareLabel {
+  font-variant-numeric: tabular-nums;
+}
+
+.footnote {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-caption);
+}
