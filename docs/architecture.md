@@ -2,20 +2,16 @@
 
 DeepSeek Harness Desktop = Electron 壳 + 上游 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）。上游「万物皆插件」（Cordis 插件 + YAML patch 叠层），本项目的一切二次开发都优先落在插件层，见[边界铁律](../AGENTS.md#边界铁律)。窗框实现与平台分流的来龙去脉见 [overlay-titlebar.md](overlay-titlebar.md)。
 
-## 三层结构
+## 分层结构
 
-```
-┌──────────────────────────────────────────────────────────┐
-│ Electron 层（apps/desktop）                                │
-│  主进程：窗口/生命周期/安全策略/AgentSupervisor/IPC          │
-├──────────────────────────────────────────────────────────┤
-│ dsh WebUI 层（upstream/apps/web 静态 SPA + 我们的客户端插件） │
-│  React 18 + Vite 产物；UI 定制走 dsh.client 插件，不改源码   │
-├──────────────────────────────────────────────────────────┤
-│ dsh Agent 层（upstream dsh CLI 子进程）                     │
-│  Cordis 插件树按 profile 组合；扩展走 dsh 插件/cordis.patch  │
-└──────────────────────────────────────────────────────────┘
-```
+产品按四层阅读（进程边界是 Electron ↔ CLI 两进程；插件横切 Web 与 Cordis）：
+
+![架构：Electron App 监管独立 dsh Agent CLI；官方 Web 与 Cordis 核心之上叠我们的双面插件](assets/architecture.svg)
+
+1. **Electron App**（`apps/desktop`）：主进程管窗口、安全、IPC 与 `AgentSupervisor`；渲染进程只承载页面，无 Node、无 agent。
+2. **dsh Agent CLI**：独立子进程 `dsh --profile desktop --no-open --port 0`。`desktop` profile 的 bundles 为 `dsh-base` + `dsh-web-app` + 我们的 `@dsh-desktop/*`。
+3. **dsh Web**（`upstream/apps/web`）：官方 React/Vite SPA，由 CLI `webServer` 提供给渲染进程。UI 定制不改这份源码。
+4. **我们的插件**（`packages/plugins`）：双面包。浏览器半（`dsh.client` / `lib/client.js`）叠进 WebUI；Node 半（`lib/index.js`）进 Cordis 树。随 app stage，不走 `dsh plugin add`。
 
 ## 窗口宿主：Windows 与 macOS/Linux 平台分流
 

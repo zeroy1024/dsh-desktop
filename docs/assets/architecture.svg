@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="520" viewBox="0 0 820 520" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeek Harness Desktop 分层架构</title>
+  <desc id="desc">Electron App 监管并承载页面；dsh Agent CLI 作为独立子进程提供 Web 与 Cordis 核心；我们的插件分成浏览器半和 Node 半，分别叠在这两层上，不改上游源码。</desc>
+  <style>
+    .bg { fill: #f6f8fa; }
+    .shell { fill: #ffffff; stroke: #d0d7de; stroke-width: 1; }
+    .card { fill: #ffffff; stroke: #d0d7de; stroke-width: 1; }
+    .plugin { fill: #fbefff; stroke: #e6c9f0; stroke-width: 1; }
+    .muted { fill: #656d76; }
+    .title { fill: #1f2328; }
+    .chip { fill: #f6f8fa; stroke: #d0d7de; }
+    .chip-text { fill: #424a53; }
+    .arrow { stroke: #656d76; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    .arrow-label { fill: #656d76; }
+    .badge { fill: #0969da; }
+    .badge-text { fill: #ffffff; }
+    .accent-app { fill: #0969da; }
+    .accent-web { fill: #1a7f37; }
+    .accent-cli { fill: #9a6700; }
+    .accent-plug { fill: #8250df; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .shell { fill: #161b22; stroke: #30363d; }
+      .card { fill: #0d1117; stroke: #30363d; }
+      .plugin { fill: #21172d; stroke: #5a3e7a; }
+      .muted { fill: #8b949e; }
+      .title { fill: #e6edf3; }
+      .chip { fill: #21262d; stroke: #30363d; }
+      .chip-text { fill: #c9d1d9; }
+      .arrow { stroke: #8b949e; marker-end: url(#arrow-dark); }
+      .arrow-label { fill: #8b949e; }
+      .badge { fill: #4493f8; }
+      .accent-app { fill: #4493f8; }
+      .accent-web { fill: #3fb950; }
+      .accent-cli { fill: #d29922; }
+      .accent-plug { fill: #bc8cff; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#656d76"/>
+    </marker>
+    <marker id="arrow-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="820" height="520" rx="16"/>
+
+  <!-- ① Electron App -->
+  <rect class="shell" x="20" y="16" width="780" height="168" rx="16"/>
+  <rect class="accent-app" x="20" y="16" width="6" height="168" rx="3"/>
+  <circle class="badge" cx="48" cy="40" r="11"/>
+  <text class="badge-text" x="48" y="44" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="700">1</text>
+  <text class="title" x="66" y="45" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" font-weight="600">Electron App</text>
+  <text class="muted" x="200" y="45" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">apps/desktop</text>
+  <text class="muted" x="66" y="64" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">桌面宿主：窗口、生命周期、安全策略。不内嵌 dsh 运行时。</text>
+
+  <rect class="card" x="40" y="78" width="360" height="90" rx="12"/>
+  <text class="title" x="56" y="104" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" font-weight="600">主进程</text>
+  <text class="muted" x="56" y="124" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">窗口 · 安全 · IPC 控制面</text>
+  <rect class="chip" x="56" y="134" width="148" height="22" rx="11"/>
+  <text class="chip-text" x="130" y="149" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11">AgentSupervisor</text>
+
+  <rect class="card" x="420" y="78" width="360" height="90" rx="12"/>
+  <text class="title" x="436" y="104" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" font-weight="600">渲染进程</text>
+  <text class="muted" x="436" y="124" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">只承载页面，无 Node、无 agent</text>
+  <rect class="chip" x="436" y="134" width="200" height="22" rx="11"/>
+  <text class="chip-text" x="536" y="149" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">loadURL 127.0.0.1</text>
+
+  <!-- connectors -->
+  <path class="arrow" d="M 220 184 V 214"/>
+  <text class="arrow-label" x="220" y="206" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">spawn</text>
+  <path class="arrow" d="M 600 184 V 214"/>
+  <text class="arrow-label" x="608" y="206" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">HTTP / SSE / WS</text>
+
+  <!-- ② Agent CLI shell -->
+  <rect class="shell" x="20" y="214" width="780" height="290" rx="16"/>
+  <rect class="accent-cli" x="20" y="214" width="6" height="290" rx="3"/>
+  <circle class="badge" cx="48" cy="238" r="11"/>
+  <text class="badge-text" x="48" y="242" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="700">2</text>
+  <text class="title" x="66" y="243" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" font-weight="600">dsh Agent CLI</text>
+  <text class="muted" x="214" y="243" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">独立子进程 · --profile desktop</text>
+  <text class="muted" x="66" y="262" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">官方闭包 + 我们的插件。bundles = dsh-base + dsh-web-app + @dsh-desktop/*</text>
+
+  <!-- ③ dsh Web -->
+  <rect class="card" x="40" y="276" width="360" height="118" rx="12"/>
+  <rect class="accent-web" x="40" y="276" width="6" height="118" rx="3"/>
+  <circle class="badge" cx="64" cy="300" r="11"/>
+  <text class="badge-text" x="64" y="304" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="700">3</text>
+  <text class="title" x="82" y="305" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" font-weight="600">dsh Web</text>
+  <text class="muted" x="56" y="328" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">upstream/apps/web</text>
+  <text class="muted" x="56" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">官方 React/Vite SPA，由 CLI webServer 提供</text>
+  <text class="muted" x="56" y="368" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">在渲染进程里跑，源码不改</text>
+
+  <!-- official core -->
+  <rect class="card" x="420" y="276" width="360" height="118" rx="12"/>
+  <rect class="accent-cli" x="420" y="276" width="6" height="118" rx="3"/>
+  <text class="title" x="436" y="305" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" font-weight="600">官方 Cordis 核心</text>
+  <text class="muted" x="436" y="328" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">dsh-base · 会话 / 工具 / 模型</text>
+  <text class="muted" x="436" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">跑在 CLI 进程内，与 Electron 隔离</text>
+  <text class="muted" x="436" y="368" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">崩溃可独立重启</text>
+
+  <!-- ④ our plugins spanning both -->
+  <rect class="plugin" x="40" y="408" width="740" height="78" rx="12"/>
+  <rect class="accent-plug" x="40" y="408" width="6" height="78" rx="3"/>
+  <circle class="badge" cx="64" cy="432" r="11"/>
+  <text class="badge-text" x="64" y="436" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="700">4</text>
+  <text class="title" x="82" y="437" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" font-weight="600">我们的插件</text>
+  <text class="muted" x="178" y="437" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">packages/plugins · 双面</text>
+
+  <text class="muted" x="56" y="458" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">浏览器半 dsh.client → 叠在 WebUI</text>
+  <text class="muted" x="56" y="476" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">file-browser · review · usage-stats …</text>
+
+  <text class="muted" x="436" y="458" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">Node 半 → 进 Cordis 树</text>
+  <text class="muted" x="436" y="476" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12">Host 路由 · 聚合 · Vision / Search</text>
+</svg>

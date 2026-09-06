@@ -13,7 +13,7 @@
 
 ## 插件说明
 
-插件的用法、配置、当前能力和限制放在各包 README，避免在 docs 重复维护功能清单。完整插件名册见[项目 README](../README.md#内置插件)。
+插件的用法、配置、当前能力和限制放在各包 README，避免在 docs 重复维护功能清单。完整插件名册见 [`packages/plugins/`](../packages/plugins/)。
 
 | 插件 | 说明 |
 | --- | --- |

@@ -12,9 +12,7 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20%E2%80%A2%20Windows%20%E2%80%A2%20Linux-lightgrey?style=flat-square)
 [![LINUX DO](https://img.shields.io/badge/community-LINUX.DO-f5b96e?style=flat-square&labelColor=172a32)](https://linux.do/)
 
-如果这个项目对你有帮助，欢迎点一个 Star，这对独立项目很重要。
-
-[快速开始](#快速开始) · [功能特性](#功能特性) · [与官方 dsh 的关系](#与官方-dsh-的关系) · [架构](#架构) · [文档](#文档) · [常见问题](#常见问题)
+[快速开始](#快速开始) · [功能特性](#功能特性) · [与官方 dsh 的关系](#与官方-dsh-的关系) · [架构](#架构) · [常见问题](#常见问题) · [文档](#文档)
 
 <img src="docs/assets/screenshot-workbench.png" width="820" alt="DeepSeek Harness Desktop 工作台：对话流 + 右侧工作面板（文件浏览与代码预览）">
 
@@ -22,204 +20,127 @@
 
 ## 简介
 
-DeepSeek Harness Desktop 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）构建的 Electron 桌面宿主与产品化插件集合。它保留官方 dsh 的 Cordis 插件化 agent 核心，同时补齐桌面窗口、进程监管、右侧工作面板、文件浏览、改动审查和会话管理等能力。
+DeepSeek Harness Desktop 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）的 Electron 桌面宿主与产品插件集合。官方 dsh 的会话、工具和模型协议不变；本项目补齐原生窗口、进程监管、右侧工作面板、文件浏览、改动审查和会话管理。
 
-它不是把上游 WebUI 复制一份，也不是把 dsh 运行时塞进 Electron 主进程：**Electron 负责桌面宿主，dsh 作为独立 agent 子进程运行，产品功能优先通过插件实现，上游必要改动通过可审计的最小补丁维护。**
+**Electron 管桌面宿主，dsh 作为独立 agent 子进程运行。** 产品功能优先做插件，上游必要改动通过可审计的最小补丁维护。
 
 > [!IMPORTANT]
-> 项目与上游 dsh 均处于 **Developer Preview** 阶段，接口、数据格式和插件契约可能发生破坏性变化。当前版本适合体验、研究和二次开发，不建议用于生产环境。
-
-## 功能特性
-
-### 桌面化 agent 工作台
-
-- **原生窗口体验**：Windows 标题栏、Window Controls Overlay、Mica 回退；macOS hidden inset 与 vibrancy；Linux hidden titlebar。
-- **进程监管**：dsh agent 独立子进程运行，桌面宿主负责生命周期、日志脱敏轮转、崩溃发现与恢复。
-- **轨迹视图**：agent 执行轨迹从主对话流迁移到独立面板页，保持对话流清爽。
-
-### 面向长任务的工作面板
-
-- **活动分组**：连续思考步骤和工具调用折叠成摘要，展开仍可查看完整过程。
-- **文件浏览器**：只读查看当前会话工作区的目录、源码和 Markdown。
-- **改动审查（Review）**：聚合会话内 write/edit 改动与 Git 未提交改动，按文件查看 diff，支持标记、行级评论并回灌给 agent。
-- **模型选择器**：在会话中直接切换 provider、model 和 reasoning effort。
-
-### 会话管理与能力补全
-
-- **撤回编辑（Rewind）**：在原会话中撤回某条用户消息之前的上下文，原文与图片放回输入框。
-- **归档管理**：查看、排序、按工作区分组并恢复归档会话。
-- **用量统计**：按 provider 与模型聚合本机全部会话的 token 账目，附活动热力图与趋势图。
-- **Vision**：为不支持图片输入的文本模型提供可配置的图片证据桥接。
-- **Web Search**：通过辅助模型和原生搜索工具，为 dsh 的 `web_search` 补充结构化来源。
-
-> [!NOTE]
-> Review 是"**人审 agent 改动**"的 diff 面板，不是 AI 自动代码审查；Git 模式当前只覆盖未提交改动。AI reviewer 与 PR bot 属于后续方向。
+> 项目与上游 dsh 均处于 **Developer Preview**。接口、数据格式和插件契约可能发生破坏性变化，适合体验和研究，不建议用于生产。
 
 ## 快速开始
 
-### 方式一：下载安装包
+### 下载安装包
 
-前往 [GitHub Releases](https://github.com/zeroy1024/dsh-desktop/releases) 下载对应平台的安装包：
+前往 [GitHub Releases](https://github.com/zeroy1024/dsh-desktop/releases) 下载：
 
 | 平台 | 安装包 |
 | --- | --- |
 | macOS (Apple Silicon) | `.dmg` / `.zip` |
-| Windows (x64) | `.exe`（NSIS 安装器）/ `.zip` |
+| Windows (x64) | `.exe`（NSIS）/ `.zip` |
 | Linux (x64) | `.AppImage` / `.tar.gz` |
 
-安装包内置打过补丁的 dsh CLI 和全部内置插件，首次启动时自动解压运行时，无需单独安装 Node.js 或 dsh。
+当前不提供 Intel Mac 安装包。安装包内置打过补丁的 dsh CLI 和内置插件，首次启动会解压运行时，无需单独安装 Node.js 或 dsh。
 
 > [!WARNING]
-> 当前安装包**未经签名和公证**：macOS 首次打开需在"系统设置 → 隐私与安全性"中放行，Windows SmartScreen 可能提示未知发布者，Linux AppImage 依赖 FUSE 或 user namespaces（Chromium sandbox 会自动回退）。
+> 安装包**未经签名和公证**：macOS 需在「系统设置 → 隐私与安全性」放行；Windows SmartScreen 可能提示未知发布者；Linux AppImage 依赖 FUSE 或 user namespaces（Chromium sandbox 会自动回退）。
 
-### 方式二：从源码运行
+### 首次使用
 
-环境要求：Node.js 24（见 [`.nvmrc`](.nvmrc)）、pnpm 11.24.0（由 [`package.json`](package.json) 固定）、能递归初始化 Git submodule。
+1. 启动应用，打开**设置**，为模型提供商配置 API key。
+2. 若已在用命令行 dsh，桌面版默认读取同一份 `~/.dsh`（key、profiles、sessions 互通），一般不必重配。
+3. 需要图片理解或联网搜索时，在设置的插件配置里分别填写 Vision / Web Search 的 endpoint 与 key；未配置时这两项不参与请求。
+
+隔离测试可覆盖主目录：`DSH_HOME=/tmp/dsh-desktop-test`。
+
+### 从源码运行
+
+需要 Node.js 24（[`.nvmrc`](.nvmrc)）、pnpm 11.24.0（[`package.json`](package.json) 固定），并能递归初始化 submodule。
 
 ```bash
 git clone --recurse-submodules https://github.com/zeroy1024/dsh-desktop.git
 cd dsh-desktop
 
-# 首次生成打过补丁的 dsh vendor 闭包
 pnpm install --filter . --frozen-lockfile --ignore-scripts
 pnpm sync:upstream
 pnpm install --frozen-lockfile
-
-# 构建插件并启动 Electron
 pnpm dev
 ```
 
-`pnpm dev` 会依次检查 vendor 产物、构建内置插件、构建桌面壳并启动 Electron；本地缺少 Electron 二进制时会自动安装（手动执行 `pnpm --filter @dsh-desktop/desktop exec install-electron`）。
+`pnpm dev` 会校验 vendor、构建插件和桌面壳并启动 Electron。本地缺 Electron 二进制时会自动安装。开发命令、测试与打包见 [文档索引](docs/README.md) 和 [CI 说明](docs/ci.md)。
 
-> [!TIP]
-> 桌面版默认与命令行 dsh 共享 `~/.dsh`（API key、profiles、sessions 互通）。需要隔离测试时覆盖 `DSH_HOME`：`DSH_HOME=/tmp/dsh-desktop-test pnpm dev`。
+## 功能特性
 
-常用命令：
+- **原生窗口**：Windows 标题栏 / WCO / Mica 回退；macOS hidden inset 与 vibrancy；Linux hidden titlebar。
+- **进程监管**：dsh 独立子进程运行，宿主负责生命周期、日志脱敏轮转、崩溃发现与恢复。
+- **工作面板**：轨迹视图、活动分组、只读文件浏览（含 Markdown 文档预览）、模型切换。
+- **改动审查（Review）**：聚合会话内 write/edit 与 Git 未提交改动，按文件看 diff，支持标记、行级评论并回灌给 agent。
+- **会话管理**：撤回编辑（Rewind）、归档与恢复、按模型聚合的本机 token 用量。
+- **能力补全**：Vision 为文本模型桥接图片证据；Web Search 为 `web_search` 补充结构化来源。
 
-| 命令 | 用途 |
-| --- | --- |
-| `pnpm dev` | 构建插件和桌面壳并启动 Electron |
-| `pnpm build` | 构建所有 workspace 并执行插件 staging |
-| `pnpm test` / `pnpm lint` / `pnpm typecheck` | 单元测试 / oxlint / TypeScript 检查 |
-| `pnpm sync:upstream` | 套补丁 → 构建上游 → pack → 重建 `vendor/dsh-cli` |
-| `pnpm ci:smoke` | native 探针 + dsh Web runtime + Electron 启动 smoke |
-| `pnpm --filter @dsh-desktop/desktop package:mac` | macOS arm64：DMG + ZIP（`package:win` / `package:linux` 同理） |
+> [!NOTE]
+> Review 是「**人审 agent 改动**」的 diff 面板，不是 AI 自动代码审查；Git 模式只覆盖未提交改动。
+
+内置插件随应用分发、开箱可用，名册与开发桩见 [`packages/plugins/`](packages/plugins/)。
 
 ## 与官方 dsh 的关系
 
-官方 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 是可组合的 agent harness，主要入口是 `npx @deepseek-ai/dsh web`——在本地启动 Web UI 后交给浏览器访问。**本项目不替代这个核心**，而是在它之上增加桌面宿主和应用级插件分发层：
+官方入口是 `npx @deepseek-ai/dsh web`（本地 Web UI + 浏览器）。本项目**不替代这个核心**，只加桌面宿主和产品插件：
 
-| 维度 | 官方 dsh | DeepSeek Harness Desktop |
+| | 官方 dsh | Desktop |
 | --- | --- | --- |
-| 产品定位 | 可组合的 agent harness | Electron 桌面宿主 + dsh agent + 内置产品插件 |
-| 主要入口 | CLI 启动本地 Web UI | 安装包 / `pnpm dev` |
-| UI 宿主 | 浏览器 | Electron 原生窗口 |
-| agent 进程 | dsh CLI/Web 服务 | 仍是独立子进程，由 `AgentSupervisor` 监管 |
-| 插件安装 | 官方插件机制 | 插件随 app 构建、staging 和分发，开箱可用 |
-| 桌面体验 | 由浏览器提供窗口 | titleband、侧栏、右侧 panel、WCO、Mica/vibrancy |
-| 运行时分发 | npm / 源码 | electron-builder 携带 `dsh-cli.tar`，首启解压 |
-| 上游定制 | 官方源码与插件仓库 | 优先插件，其次配置叠层，最后才是登记过的最小 patch |
-| 用户数据 | dsh 存储目录 | 默认共享 `~/.dsh`，只隔离 app 托管的 `desktop` profile |
+| 入口 | CLI 启动 Web UI | 安装包 / `pnpm dev` |
+| 宿主 | 浏览器 | Electron 原生窗口 |
+| Agent | dsh 进程 | 仍是独立子进程，由 `AgentSupervisor` 监管 |
+| 插件 | 官方插件机制 | 随 app staging，不写入用户的 `web` profile |
+| 数据 | dsh 存储目录 | 默认共享 `~/.dsh` |
 
-两点特别说明：
-
-1. **这不是完整 fork。** `upstream/` 是锁定版本的 Git submodule；无法通过插件或配置层实现的改动才进入 `patches/*.patch`，并在 [`patches/patches.yml`](patches/patches.yml) 登记理由。
-2. **这也不是另一个 agent。** 桌面版仍使用 dsh 的会话、工具、模型和 Web 协议；本项目负责的是宿主、分发、UI 扩展和必要的接缝维护。
-
-## 内置插件
-
-安装包中默认生效的 **12 个**内置插件由应用管理（完整包名册见 [`packages/plugins/`](packages/plugins/)）：
-
-| 插件 | 作用 |
-| --- | --- |
-| `desktop-frame` | 桌面 titleband、平台窗口适配、侧栏和菜单体验 |
-| `panel-shell` | 右侧多页签面板容器和页面注册协议 |
-| `activity-group` | 折叠连续思考步骤和工具调用 |
-| `model-selection-direct` | 直接选择 provider、model 和 reasoning effort |
-| `file-browser` | 工作区只读文件树、源码和 Markdown 预览 |
-| `review` | 会话/Git 改动 diff、人审标记、行级评论和单文件撤销 |
-| `archive-manager` | 查看、排序、分组和恢复归档会话 |
-| `session-actions` | 会话行快速归档与含后代的 ZIP 日志导出 |
-| `rewind` | 撤回用户消息之前的会话上下文并回填原文与图片 |
-| `usage-stats` | 按 provider/模型聚合的 token 用量、活动热力图与趋势图 |
-| `vision` | 为文本模型桥接图片理解能力 |
-| `web-search` | 为现有 `web_search` 工具提供结构化搜索来源 |
-
-`packages/plugins/` 下另有 3 个包在发行版中不产生可见功能，用于开发验证与通道回归：
-
-| 插件 | 装配 | 不生效的机制 |
-| --- | --- | --- |
-| `fps-overlay` | 随包装配，运行时自关 | 渲染进程 `window.dshDesktop.dev` 不为 `true` 时不注册徽章（主进程仅在 `!app.isPackaged` 时注入 `--dsh-dev`） |
-| `panel-page-stub` | 不装配 | manifest `dshDesktop.developmentOnly: true`，打包态被 `resolveBundledPlugins` 跳过 |
-| `hello-panel` | 不装配 | manifest `dshDesktop.enabled: false`，保留为 P2 通道验收件 |
-
-> [!NOTE]
-> 上表区分的是插件**是否随 app 装配/生效**，与是否需要配置无关：Vision 需单独配置视觉 API，Web Search 需配置辅助 endpoint/key，未配置时两者不参与请求路径。
+这不是完整 fork：`upstream/` 是锁版 submodule，接缝才进 [`patches/`](patches/patches.yml)。这也不是另一个 agent：会话、工具、模型和 Web 协议仍是 dsh 的。
 
 ## 架构
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ Electron 桌面层（apps/desktop）                              │
-│ 窗口、生命周期、安全策略、AgentSupervisor、IPC 控制面         │
-├─────────────────────────────────────────────────────────────┤
-│ dsh WebUI 层（upstream/apps/web + 我们的 client plugins）    │
-│ React/Vite SPA；UI 定制优先通过 dsh.client 插件              │
-├─────────────────────────────────────────────────────────────┤
-│ dsh Agent 层（独立 dsh CLI 子进程 + Cordis 插件树）          │
-│ profile 组合、服务、工具和会话运行时                          │
-└─────────────────────────────────────────────────────────────┘
-```
+<div align="center">
+<img src="docs/assets/architecture.svg" width="820" alt="四层架构：Electron App 监管独立 dsh Agent CLI；官方 Web 与 Cordis 核心之上叠我们的双面插件">
+</div>
 
-当前采用"**独立子进程 + loopback HTTP**"方案：Electron 主进程 spawn `dsh --profile desktop --no-open --port 0`，`AgentSupervisor` 解析 ready 行并监管重启，渲染进程加载 `http://127.0.0.1:<port>/` 并通过同一 loopback origin 访问 dsh 的 HTTP/SSE/WS 能力。agent 与主进程相互隔离、可独立崩溃重启；agent 日志写入 `userData/logs/dsh-agent.log`。
+四层从上到下、从宿主到核心：
 
-内置插件在构建后 stage 到应用携带的 dsh CLI 闭包中，启动前物化为 app 托管的 `desktop` profile——不通过 `dsh plugin add` 写入用户的命令行 profile。平台窗口适配、数据流与插件分发的完整细节见 [`docs/architecture.md`](docs/architecture.md)。
+1. **Electron App**（`apps/desktop`）：主进程管窗口与 `AgentSupervisor`，渲染进程只承载页面。
+2. **dsh Agent CLI**：独立子进程 `dsh --profile desktop --no-open --port 0`，崩溃与 Electron 隔离。
+3. **dsh Web**（`upstream/apps/web`）：官方 SPA，由 CLI 的 webServer 提供给渲染进程；源码不改。
+4. **我们的插件**（`packages/plugins`）：双面——浏览器半（`dsh.client`）叠在 WebUI 上，Node 半进 Cordis 树。随 app stage，不写入用户的 `web` profile。
 
-### 安全基线
-
-- renderer 启用 `contextIsolation` 与 `sandbox`，禁用 `nodeIntegration`；
-- 导航只放行当前 agent 的精确 scheme/host/port，IPC 只接受主 frame 的当前 agent origin；
-- 非应用内外链交给系统浏览器，权限默认拒绝、按白名单开放，主文档附加 CSP；
-- 文档 URL 不携带 token，日志敏感字段脱敏；文件浏览与 Git 路由有工作区路径约束、同源校验和超时。
+主进程 spawn CLI 并解析 ready 端口；渲染进程经 `http://127.0.0.1:<port>/` 使用同一 loopback 的 HTTP/SSE/WS。细节见 [`docs/architecture.md`](docs/architecture.md)。
 
 > [!CAUTION]
-> 以上不是"完全隔离"的承诺：为兼容上游 WebUI 的动态模块加载，CSP 仍保留 `unsafe-eval`/`unsafe-inline`，数据面仍是 loopback HTTP 而非 IPC 级隔离。
+> 当前不是 IPC 级隔离：数据面仍是 loopback HTTP；为兼容上游动态模块加载，CSP 仍含 `unsafe-eval` / `unsafe-inline`。
 
 ## 常见问题
 
 ### 这是官方 dsh 的 fork 吗？
 
-不是完整 fork。项目通过 submodule 固定上游版本，用插件和配置扩展功能，必要的上游接缝才通过补丁队列维护，保留跟随官方升级的路径。
+不是完整 fork。submodule 固定上游版本，功能走插件和配置，必要接缝才用补丁队列，以便跟随官方升级。
 
-### 桌面版会破坏我的命令行 dsh 配置吗？
+### 会破坏我的命令行 dsh 配置吗？
 
-不会。桌面版与命令行共享 `~/.dsh` 用户数据，但内置插件装配在 app 托管的 `desktop` profile，不写入命令行使用的 `web` profile。需要完全隔离时设置独立的 `DSH_HOME`。
+不会。默认共享 `~/.dsh`，内置插件只装配在 `desktop` profile，不写入命令行的 `web` profile。完全隔离时设置独立 `DSH_HOME`。
 
 ### Review 会自动帮我找 bug 吗？
 
-不会。Review 是帮助**人**检查 agent 改动的 diff 面板，支持标记、评论和回灌；AI reviewer 与 PR bot 属于未来方向。
+不会。它帮**人**检查 agent 改动。AI reviewer 与 PR bot 属于后续方向。
 
-### 可以把插件单独安装到官方 dsh 吗？
+### 可以把插件单独装到官方 dsh 吗？
 
-当前插件是随桌面应用分发的内部产品部件，不做独立安装的兼容承诺；插件源码可作为 dsh 扩展开发的参考。
+当前是随桌面应用分发的内部部件，不做独立安装承诺。源码可作为扩展参考。
 
 ## 文档
 
-- [文档索引](docs/README.md)：开发说明、插件用法、全部 ADR 与历史记录的统一入口
-- [架构总览](docs/architecture.md) / [窗口与标题栏](docs/overlay-titlebar.md)
-- [CI 与可复现构建](docs/ci.md)
-- [Review 插件说明](packages/plugins/review/README.md) / [Rewind 插件说明](packages/plugins/rewind/README.md)
-
-## 许可证
-
-本项目以 [MIT](LICENSE) 许可证开源。
-
-文件浏览器内置的图标来自 [JetBrains intellij-community](https://github.com/JetBrains/intellij-community)（Apache-2.0，pin 到固定 commit 原样引用；完整许可文本见 [THIRD_PARTY_NOTICES](packages/plugins/file-browser/THIRD_PARTY_NOTICES)）。JetBrains 名称与产品商标不随图标许可授予。
+- [文档索引](docs/README.md)
+- [架构总览](docs/architecture.md) · [窗口与标题栏](docs/overlay-titlebar.md) · [CI](docs/ci.md)
 
 ## 致谢
 
-- [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) —— 本项目所封装的 agent harness 核心
-- [Cordis](https://github.com/cordisjs/cordis) —— dsh 背后的插件化运行时
-- [JetBrains intellij-community](https://github.com/JetBrains/intellij-community) —— 文件浏览器内置图标来源
+- [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) — agent harness 核心
+- [Cordis](https://github.com/cordisjs/cordis) — dsh 的插件化运行时
+- [JetBrains intellij-community](https://github.com/JetBrains/intellij-community) — 文件浏览器图标来源（Apache-2.0；完整文本见 [THIRD_PARTY_NOTICES](packages/plugins/file-browser/THIRD_PARTY_NOTICES)）。JetBrains 名称与商标不随图标许可授予。
 
-感谢 [LINUX DO](https://linux.do/) 社区的支持，也欢迎社区的朋友交流使用体验和建议。
+本项目以 [MIT](LICENSE) 开源。感谢 [LINUX DO](https://linux.do/) 社区。喜欢的话欢迎点一个 Star。
