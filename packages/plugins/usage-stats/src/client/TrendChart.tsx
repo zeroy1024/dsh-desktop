@@ -1,5 +1,6 @@
 /**
- * 每日 Token 趋势折线图：按模型多序列（用量前 6 名），时间范围 7/30/90/全部。
+ * 每日 Token 趋势折线图：按模型多序列（用量前 6 名），时间范围近 7 / 近 30 日。
+ * X 轴始终铺满所选日历窗口（缺数据的日子记 0），默认近 7 日。
  * SVG 自绘：Catmull-Rom 平滑折线；hover 显示纵向定位线 + x 轴落点圆点，
  * 详情浮层跟随鼠标（三段水平翻转 + 上/下弹，与热力图同一套定位规则），
  * 标题带当日全模型总量。线色为固定六色静态板（明暗主题均可读）。
@@ -8,16 +9,15 @@ import { useMemo, useState } from 'react'
 import type { SummaryDayRow, SummaryModelRow } from '../aggregator.ts'
 import { bucketTotal } from '../aggregator.ts'
 import { formatDay, formatTokensCompact } from './format.ts'
+import { enumerateTrailingDays, type RangeKey } from './trend-range.ts'
 import type { Translate } from './types.ts'
 import styles from './UsageStatsSection.module.css'
 
-export type RangeKey = 7 | 30 | 90 | 0
+export type { RangeKey }
 
-const RANGE_OPTIONS: ReadonlyArray<{ key: RangeKey; labelKey: 'range7' | 'range30' | 'range90' | 'rangeAll' }> = [
+const RANGE_OPTIONS: ReadonlyArray<{ key: RangeKey; labelKey: 'range7' | 'range30' }> = [
   { key: 7, labelKey: 'range7' },
   { key: 30, labelKey: 'range30' },
-  { key: 90, labelKey: 'range90' },
-  { key: 0, labelKey: 'rangeAll' },
 ]
 
 const MAX_SERIES = 6
@@ -77,50 +77,25 @@ export function TrendChart({ byDay, byModel, t }: {
   byModel: SummaryModelRow[]
   t: Translate
 }) {
-  const [range, setRange] = useState<RangeKey>(30)
+  const [range, setRange] = useState<RangeKey>(7)
   /** hover 状态：命中的日期下标 + 指针在图表容器内的百分比坐标（tooltip 跟随鼠标）。 */
   const [hover, setHover] = useState<{ index: number; xPct: number; yPct: number } | undefined>(undefined)
 
   const chart = useMemo(() => {
-    const days = byDay.map(row => row.day)
-    if (days.length === 0) return undefined
-    const start = range > 0 ? Math.max(0, days.length - range) : 0
-    const rangeRows = byDay.slice(start)
-    if (rangeRows.length === 0) return undefined
-    const rangeDays = rangeRows.map(row => row.day)
+    const byDayMap = new Map(byDay.map(row => [row.day, row]))
+    const rangeDays = enumerateTrailingDays(Date.now(), range)
     const series = byModel.slice(0, MAX_SERIES).map(model => ({
       model,
       points: rangeDays.map(day => model.perDay[day] ?? 0),
     }))
     const peak = Math.max(1, ...series.flatMap(({ points }) => points))
-    const totals = rangeRows.map(row => bucketTotal(row))
+    const totals = rangeDays.map(day => {
+      const row = byDayMap.get(day)
+      return row === undefined ? 0 : bucketTotal(row)
+    })
     const xTicks = rangeDays.length <= 1 ? [0] : [0, Math.floor((rangeDays.length - 1) / 2), rangeDays.length - 1]
     return { days: rangeDays, series, peak, totals, xTicks }
   }, [byDay, byModel, range])
-
-  if (chart === undefined) {
-    return (
-      <section className={styles.panel}>
-        <div className={styles.panelHead}>
-          <h3 className={styles.panelTitle}>{t('trendTitle')}</h3>
-          <div className={styles.rangePills}>
-            {RANGE_OPTIONS.map(option => (
-              <button
-                key={option.key}
-                type="button"
-                className={styles.rangePill}
-                aria-pressed={option.key === range}
-                onClick={() => setRange(option.key)}
-              >
-                {t(option.labelKey)}
-              </button>
-            ))}
-          </div>
-        </div>
-        <p className={styles.emptySmall}>{t('noDataInRange')}</p>
-      </section>
-    )
-  }
 
   const { days, series, peak, totals, xTicks } = chart
   const innerWidth = WIDTH - PAD_X * 2

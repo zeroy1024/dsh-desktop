@@ -26,7 +26,6 @@ export const zh = {
   bucketCacheRead: '缓存读',
   bucketCacheWrite: '缓存写',
   bucketOutput: '输出',
-  bucketReasoning: '推理',
 
   heatmapTitle: '每日活动',
   heatCellTip: '{tokens} tokens · {count} 个会话',
@@ -35,9 +34,6 @@ export const zh = {
   trendTitle: '每日 Token 趋势',
   range7: '近 7 日',
   range30: '近 30 日',
-  range90: '近 90 日',
-  rangeAll: '全部',
-  noDataInRange: '该时间范围内无数据',
 
   tableTitle: '模型明细',
   tableModel: '模型',
@@ -51,7 +47,6 @@ export const zh = {
   unattributedHint: '没有模型来源的用量，例如失败重试尚未形成助手消息的尝试。turn 内切换模型会按每次请求拆到对应模型。',
   footnoteBilling: '总量与会话底栏一致：每次请求的未缓存输入 + 缓存读 + 缓存写 + 输出，含进行中的对话。',
   footnoteCacheWrite: 'DeepSeek 等部分协议不上报缓存写入，此类供应商的「缓存写」恒为 0。',
-  footnoteReasoning: '推理 token 为输出的子集，不计入总量。',
   footnoteRequests: '请求数按最终助手消息结算的计费尝试计；同一步的流式用量与最终消息只计一次，重试后的新尝试另计。',
 } as const satisfies Record<string, string>
 
@@ -80,7 +75,6 @@ export const en = {
   bucketCacheRead: 'Cache read',
   bucketCacheWrite: 'Cache write',
   bucketOutput: 'Output',
-  bucketReasoning: 'Reasoning',
 
   heatmapTitle: 'Daily activity',
   heatCellTip: '{tokens} tokens · {count} sessions',
@@ -89,9 +83,6 @@ export const en = {
   trendTitle: 'Daily token trend',
   range7: '7 days',
   range30: '30 days',
-  range90: '90 days',
-  rangeAll: 'All',
-  noDataInRange: 'No data in this range',
 
   tableTitle: 'Model breakdown',
   tableModel: 'Model',
@@ -105,7 +96,6 @@ export const en = {
   unattributedHint: 'Usage with no model source, such as a failed retry that never produced an assistant message. Switching models within a turn splits each request onto its own model.',
   footnoteBilling: 'Totals match the session stats bar: uncached input + cache read + cache write + output per request, including in-progress turns.',
   footnoteCacheWrite: 'Some protocols (e.g. DeepSeek) never report cache writes; those providers always show 0 here.',
-  footnoteReasoning: 'Reasoning tokens are a subset of output and are not added into totals.',
   footnoteRequests: 'Requests count billed attempts settled by an assistant message; a streaming sample and its final message count once, and a retry starts a new attempt.',
 } as const satisfies Record<string, string>
 

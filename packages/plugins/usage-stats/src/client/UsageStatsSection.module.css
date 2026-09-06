@@ -87,13 +87,6 @@
   text-align: center;
 }
 
-.emptySmall {
-  margin: 24px 0;
-  font-size: 12px;
-  color: var(--dsw-alias-label-caption);
-  text-align: center;
-}
-
 .error {
   margin: 0;
   padding: 10px 12px;
@@ -536,15 +529,6 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.tdNumDim {
-  padding: 6px 10px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary);
 }
 
 .footnote {

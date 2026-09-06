@@ -1,6 +1,6 @@
 /**
- * 模型明细表：每 (provider, model) 一行——四桶 + reasoning + 缓存命中率
- * （= cacheRead / 计费用量，上游 StatsLine 同款口径）+ 用量占比（带比例条）
+ * 模型明细表：每 (provider, model) 一行——四桶 + 缓存命中率
+ * （= cacheRead / 计费用量，上游 StatsLine 同款口径）+ 用量占比
  * + 请求数/会话数。列头点击排序；无法归因的用量单列一行置底。
  */
 import { useMemo, useState } from 'react'
@@ -21,10 +21,10 @@ interface ModelRowView {
   share: number
 }
 
-type SortKey = 'model' | 'total' | 'uncachedInput' | 'cacheRead' | 'cacheWrite' | 'output' | 'reasoning' | 'hitRate' | 'share' | 'requests' | 'sessions'
+type SortKey = 'model' | 'total' | 'uncachedInput' | 'cacheRead' | 'cacheWrite' | 'output' | 'hitRate' | 'share' | 'requests' | 'sessions'
 
 const SORT_KEYS: readonly SortKey[] = [
-  'model', 'total', 'uncachedInput', 'cacheRead', 'cacheWrite', 'output', 'reasoning', 'hitRate', 'share', 'requests', 'sessions',
+  'model', 'total', 'uncachedInput', 'cacheRead', 'cacheWrite', 'output', 'hitRate', 'share', 'requests', 'sessions',
 ]
 
 function headerLabel(key: SortKey, t: Translate): string {
@@ -35,7 +35,6 @@ function headerLabel(key: SortKey, t: Translate): string {
     case 'cacheRead': return t('bucketCacheRead')
     case 'cacheWrite': return t('bucketCacheWrite')
     case 'output': return t('bucketOutput')
-    case 'reasoning': return t('bucketReasoning')
     case 'hitRate': return t('tableHitRate')
     case 'share': return t('tableShare')
     case 'requests': return t('tableRequests')
@@ -139,7 +138,6 @@ export function ModelTable({ summary, t }: { summary: UsageSummary; t: Translate
                 <td className={styles.tdNum}>{formatTokensFull(row.buckets.cacheRead)}</td>
                 <td className={styles.tdNum}>{formatTokensFull(row.buckets.cacheWrite)}</td>
                 <td className={styles.tdNum}>{formatTokensFull(row.buckets.output)}</td>
-                <td className={styles.tdNumDim}>{formatTokensFull(row.buckets.reasoning)}</td>
                 <td className={styles.tdNum}>{formatPercent(row.hitRate)}</td>
                 <td className={styles.tdNum}>{formatPercent(row.share)}</td>
                 <td className={styles.tdNum}>{row.buckets.requests}</td>
@@ -156,7 +154,6 @@ export function ModelTable({ summary, t }: { summary: UsageSummary; t: Translate
                 <td className={styles.tdNum}>{formatTokensFull(summary.unattributed.cacheRead)}</td>
                 <td className={styles.tdNum}>{formatTokensFull(summary.unattributed.cacheWrite)}</td>
                 <td className={styles.tdNum}>{formatTokensFull(summary.unattributed.output)}</td>
-                <td className={styles.tdNumDim}>{formatTokensFull(summary.unattributed.reasoning)}</td>
                 <td className={styles.tdNum}>—</td>
                 <td className={styles.tdNum}>
                   {formatPercent(grandTotal > 0 ? unattributedTotal / grandTotal : undefined)}
@@ -169,7 +166,7 @@ export function ModelTable({ summary, t }: { summary: UsageSummary; t: Translate
         </table>
       </div>
       <p className={styles.footnote}>
-        {t('footnoteBilling')} {t('footnoteCacheWrite')} {t('footnoteReasoning')} {t('footnoteRequests')}
+        {t('footnoteBilling')} {t('footnoteCacheWrite')} {t('footnoteRequests')}
       </p>
     </section>
   )
