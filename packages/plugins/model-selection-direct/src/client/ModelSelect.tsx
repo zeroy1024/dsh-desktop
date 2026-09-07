@@ -360,7 +360,9 @@ export function ModelSelect({
             <div className={css.empty}>{t('empty.models')}</div>
           )}
 
-          {reasoning !== undefined && (
+          {reasoning !== undefined && reasoning.efforts.length === 1 && reasoning.efforts[0]?.id === 'on' ? (
+            <div className={css.empty} role="status">{reasoning.efforts[0].name}</div>
+          ) : reasoning !== undefined && (
             <>
               <div className={css.separator} role="separator" />
               {effortChoices.length === 0

@@ -54,6 +54,8 @@
     "zod": "link:../../../vendor/dsh-cli/node_modules/zod"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-system-prompt": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-system-prompt",
+    "@deepseek-ai/dsh-llm-pi-ai": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm-pi-ai",
     "@dsh-desktop/plugin-kit": "workspace:*",
     "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis",
     "@types/node": "^24.0.0",

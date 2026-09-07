@@ -98,6 +98,25 @@ function openDialog(): HTMLElement {
 }
 
 describe('direct reasoning selection', () => {
+  it('shows always-on as status and offers only on/off for toggle models', async () => {
+    const onSelect = vi.fn().mockResolvedValue(true)
+    render(<Harness initial={state({
+      current: { provider: 'self', model: 'fixed' },
+      groups: [{ id: 'self', name: 'Self', models: [
+        { id: 'fixed', name: 'Fixed', reasoning: { efforts: [{ id: 'on', name: '始终开启' }], defaultEffort: 'on' } },
+        { id: 'toggle', name: 'Toggle', reasoning: { efforts: [{ id: 'off', name: '关闭' }, { id: 'on', name: '开启' }], defaultEffort: 'on' } },
+      ] }],
+    })} onSelect={onSelect} />)
+    openDialog()
+    expect(screen.queryAllByRole('radio')).toHaveLength(0)
+    expect(screen.getByRole('status').textContent).toBe('始终开启')
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Toggle' }))
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith({ provider: 'self', model: 'toggle', reasoningEffort: 'on' }))
+    openDialog()
+    expect(screen.getAllByRole('radio').map(r => r.getAttribute('aria-label'))).toEqual(['关闭', '开启'])
+    fireEvent.click(screen.getByRole('radio', { name: '关闭' }))
+    await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith({ provider: 'self', model: 'toggle', reasoningEffort: 'off' }))
+  })
   it('renders adapter-owned efforts and switches directly without closing the dialog', async () => {
     const onSelect = vi.fn().mockResolvedValue(true)
     render(<Harness onSelect={onSelect} />)
@@ -146,8 +165,8 @@ describe('direct reasoning selection', () => {
 
     openDialog()
     expect(screen.getAllByRole('radio').map(radio => radio.getAttribute('aria-label')))
-      .toEqual(['Default', 'Standard'])
-    fireEvent.click(screen.getByRole('radio', { name: 'Default' }))
+      .toEqual(['跟随服务商', 'Standard'])
+    fireEvent.click(screen.getByRole('radio', { name: '跟随服务商' }))
     await waitFor(() => {
       expect(onSelect).toHaveBeenCalledWith({ provider: 'provider', model: 'model' })
     })

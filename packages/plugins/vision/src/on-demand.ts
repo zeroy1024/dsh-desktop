@@ -1,6 +1,6 @@
 /** Session-aware image projection and a text-returning attachment analysis tool. */
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { EvidenceCache, ImageBlock, Message, VisionOptions, ContentBlock } from './core.ts'
 import { stableDigest, MAX_FOCUS_CHARS } from './core.ts'
 import { cachedEvidence, imageBlockResult, rewriteMessages } from './index.ts'
@@ -98,7 +98,7 @@ export async function projectOnDemand(ctx: ContextPort, opts: VisionOptions, cac
 export function installOnDemand(ctx: ContextPort, getOptions: () => VisionOptions, cache: EvidenceCache): void {
   ctx.inject?.(['tools', 'attachments', 'agents'], scope => {
     const tools = scope.get('tools') as ToolsPort
-    tools.register({
+    tools.register(defineTool({
       name: ANALYZE_IMAGE_TOOL,
       description: 'Analyze an image reference from this conversation and return text. Read historical images when needed; do not infer their content from reference metadata. Supply a question to inspect details missing from an earlier description. In code mode call this through the tools SDK.',
       parameters: {
@@ -106,15 +106,13 @@ export function installOnDemand(ctx: ContextPort, getOptions: () => VisionOption
         question: { type: 'string', description: 'Optional question about this image; omit for a general description.' },
       },
       output: {
-        schema: { type: 'object', additionalProperties: false, required: ['image_ref', 'text', 'cached'], properties: {
-          image_ref: { type: 'string' }, text: { type: 'string' }, cached: { type: 'boolean' },
+        schema: { type: 'object', additionalProperties: false, properties: {
+          image_ref: { type: 'string', required: true }, text: { type: 'string', required: true }, cached: { type: 'boolean', required: true },
         } },
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
       },
       isConcurrencySafe: () => true,
-      async execute(raw: unknown, exec: ToolRunContext) {
-        const args = raw as { image_ref?: unknown; question?: unknown }
-        if (typeof args?.image_ref !== 'string' || (args.question !== undefined && typeof args.question !== 'string')) throw new Error('image_ref must be a string and question must be text')
+      async execute(args, exec) {
         if (typeof args.question === 'string' && args.question.length > MAX_FOCUS_CHARS) throw new Error(`question exceeds ${MAX_FOCUS_CHARS} characters`)
         const agent = exec.agent
         if (agent === undefined) throw new Error('Image analysis requires a conversation')
@@ -134,6 +132,6 @@ export function installOnDemand(ctx: ContextPort, getOptions: () => VisionOption
         if (!result.ok) throw result.error ?? new Error('Image analysis failed')
         return { image_ref: args.image_ref, text: result.text, cached: false }
       },
-    })
+    }))
   })
 }

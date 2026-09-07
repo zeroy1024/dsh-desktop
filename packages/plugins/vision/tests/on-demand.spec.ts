@@ -29,10 +29,24 @@ function setup() {
   vi.stubGlobal('fetch', fetch)
   const request = () => ({ provider: 'p', model: 'm', toolNames: [ANALYZE_IMAGE_TOOL], messages: session.deriveMessages() as unknown as Message[] })
   const project = () => projectOnDemand(ctx, opts, cache, request())
-  const analyze = (ref: string, question?: string, subject = agent) => registered.get(ANALYZE_IMAGE_TOOL)!.execute({ image_ref: ref, question }, { agent: subject, signal: new AbortController().signal } as ToolRunContext)
-  return {session,agent,services,ctx,opts,cache,fetch,readImage,request,project,analyze}
+  const analyze = (ref: string, question?: string, subject = agent) => registered.get(ANALYZE_IMAGE_TOOL)!.execute({ image_ref: ref, ...(question === undefined ? {} : { question }) }, { agent: subject, signal: new AbortController().signal } as ToolRunContext)
+  return {session,agent,services,ctx,opts,cache,fetch,readImage,request,project,analyze,registered}
 }
 afterEach(() => vi.unstubAllGlobals())
+
+it('compiles parameter/output schemas and rejects malformed arguments before I/O', async () => {
+  const h = setup()
+  const tool = h.registered.get(ANALYZE_IMAGE_TOOL)!
+  expect(tool.parameters).toMatchObject({ type: 'object', required: ['image_ref'], properties: {
+    image_ref: { type: 'string' }, question: { type: 'string' },
+  } })
+  expect(tool.output?.schema).toMatchObject({ type: 'object', required: ['image_ref', 'text', 'cached'], additionalProperties: false })
+  for (const args of [null, [], {}, { image_ref: 1 }, { image_ref: 'x', question: false }]) {
+    await expect(tool.execute(args, { agent: h.agent, signal: new AbortController().signal } as ToolRunContext)).rejects.toThrow()
+  }
+  expect(h.readImage).not.toHaveBeenCalled()
+  expect(h.fetch).not.toHaveBeenCalled()
+})
 
 it('projects 20 uncached historical images without reads or network and preserves history', async () => {
   const h = setup()

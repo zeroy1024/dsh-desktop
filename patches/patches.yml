@@ -126,3 +126,12 @@ patches:
       （损坏的 session override）仍 fail closed，严格更宽目标仍走原审批流程。
       补充共享单测与 bash、pwsh、fs 回归覆盖，同步 sandbox 与 tool-bash 双语
       README。上游提供等价幂等语义后撤。
+  - file: 0020-llm-pi-ai-model-policy.patch
+    reason: |
+      原 llm-pi-ai 的模型 schema、目录组装和调用默认值解析没有可用的逐模型
+      扩展面。独立适配器会复制配置解析并丢失认证、目录、重试等原生能力；
+      通用配置/解析/dispatch 三阶段扩展服务反而扩大维护范围，因此采用聚焦增量。
+      增加模型 api/baseURL/thinking、显式 api-root 模式，保留原 Provider 身份、
+      原生认证和未覆盖模型的 catalog dispatch。思考能力和请求默认值统一解析，
+      开关只在明确 wire preset 下编码，不按模型名推断。选择器仍由客户端插件呈现。
+      上游提供等价模型级配置或稳定扩展契约后撤；不改原生配置 UI。

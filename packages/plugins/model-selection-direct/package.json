@@ -36,6 +36,9 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-llm": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-llm-pi-ai": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm-pi-ai",
     "@dsh-desktop/plugin-kit": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",

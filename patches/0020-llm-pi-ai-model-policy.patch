@@ -1,0 +1,434 @@
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index e20b8e0..221f8ae 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -27,6 +27,7 @@
+  */
+ 
+ import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
++import { modelReasoningInfo, selectedThinking, thinkingOf, thinkingPayload } from './model-thinking.ts'
+ import type {
+   Api,
+   AuthContext,
+@@ -306,7 +307,7 @@ export class PiAiAdapter extends LlmAdapter {
+       inputModalities: [...resolvedModel.input],
+       context: { contextWindow: resolvedModel.contextWindow },
+       ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
+-      ...reasoningInfo(resolvedModel, defaultLevel),
++      ...(thinkingOf(resolvedModel) === undefined ? reasoningInfo(resolvedModel, defaultLevel) : modelReasoningInfo(resolvedModel, profile.reasoning)),
+     }
+   }
+ 
+@@ -336,9 +337,12 @@ export class PiAiAdapter extends LlmAdapter {
+     // the one it started with and the next call picks up the new one.
+     const profile = this.profileOf(snapshot, options.provider)
+     const model = this.modelOf(snapshot, options.provider, options.model)
++    const selected = thinkingOf(model) === undefined
++      ? options.reasoningEffort ?? describableReasoningLevel(model, profile.reasoning)
++      : selectedThinking(model, profile.reasoning, options.reasoningEffort)
+     const reasoning = resolveReasoningLevel(
+       model,
+-      options.reasoningEffort ?? profile.reasoning,
++      selected === 'on' ? 'high' : selected as ModelThinkingLevel | undefined,
+     )
+     const apiKey = await this.config.resolveApiKey(options.provider, profile)
+ 
+@@ -374,6 +378,9 @@ export class PiAiAdapter extends LlmAdapter {
+         }, onReplayDegrade)
+       const events = snapshot.models.streamSimple(model, context, {
+         ...profileOptions(profile, reasoning, apiKey),
++        ...thinkingOf(model)?.wire === undefined || thinkingOf(model)?.wire === 'native' ? {} : {
++          onPayload: (body: unknown) => thinkingPayload(body, model, selected),
++        },
+         ...options.temperature === undefined ? {} : { temperature: options.temperature },
+         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+diff --git a/packages/llm/llm-pi-ai/src/catalog.ts b/packages/llm/llm-pi-ai/src/catalog.ts
+index a4b7d97..8690c31 100644
+--- a/packages/llm/llm-pi-ai/src/catalog.ts
++++ b/packages/llm/llm-pi-ai/src/catalog.ts
+@@ -13,6 +13,8 @@
+  */
+ 
+ import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
++import { apiRootURL, applyModelThinking } from './model-thinking.ts'
++import type { ModelThinking } from './model-thinking.ts'
+ import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
+ import type {
+   AnthropicMessagesCompat,
+@@ -547,6 +549,11 @@ function assertOfferedCompatFields(
+ 
+ /** One configured model entry: an id plus the catalog fields it overrides. */
+ export interface PiAiModelProfile {
++  /** Model override; omission preserves route/catalog protocol. */
++  api?: string
++  /** Exact endpoint override, not subject to route api-root normalization. */
++  baseURL?: string
++  thinking?: ModelThinking
+   /** Model id sent to the provider and accepted by {@link GenerateOptions.model}. */
+   id: string
+   /** Display name for selectors; defaults to the catalog name, then the id. */
+@@ -595,6 +602,7 @@ export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
+ 
+ /** The route-level facts model materialization reads. */
+ export interface RouteCatalogRequest {
++  baseURLMode?: 'api-root'
+   /** Provider route key, stamped onto every materialized model. */
+   provider: string
+   /** Wire protocol override; absent defers to each catalog model's own API. */
+@@ -850,12 +858,12 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
+     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
+     seen.add(entry.id)
+     const base = defaults.get(entry.id)
+-    const api = request.api ?? base?.api ?? routeApi
++    const api = entry.api ?? request.api ?? base?.api ?? routeApi
+     if (api === undefined) {
+       invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
+         + ' route\'s api to the wire protocol its endpoint speaks')
+     }
+-    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
++    const baseUrl = entry.baseURL ?? (request.baseURL !== undefined && request.baseURLMode === 'api-root' ? apiRootURL(request.baseURL, api) : request.baseURL) ?? base?.baseUrl ?? providerBaseUrl
+     if (baseUrl === undefined) {
+       invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
+     }
+@@ -874,7 +882,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
+     // Only a value the profile named is a deployment choice; the catalog's is
+     // the model's capability and stays out of request defaults.
+     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+-    return {
++    return applyModelThinking({
+       // The installed entry lays the floor, and the fields below override it.
+       // Enumerating instead would silently drop every `Model` field this
+       // package does not model — reasoning-level spellings, compatibility
+@@ -892,7 +900,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
+       maxTokens,
+       ...resolveModelReasoning(provider, entry, base),
+       ...resolveModelCompat(provider, entry, request.compat, base, api),
+-    }
++    }, entry.thinking)
+   })
+   // Per field, not per block: a route may default a switch its completions
+   // models take beside one only its anthropic models do, and neither should
+diff --git a/packages/llm/llm-pi-ai/src/config.ts b/packages/llm/llm-pi-ai/src/config.ts
+index 8da589c..3bf6209 100644
+--- a/packages/llm/llm-pi-ai/src/config.ts
++++ b/packages/llm/llm-pi-ai/src/config.ts
+@@ -16,6 +16,7 @@
+ 
+ import type { CacheRetention, ChatTemplateKwargValue, ModelThinkingLevel, Provider, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
+ import z from '@deepseek-ai/schemastery'
++import { THINKING_EFFORTS } from './model-thinking.ts'
+ import { credentialRef } from '@deepseek-ai/dsh-credentials'
+ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+@@ -86,6 +87,8 @@ export type {
+ 
+ /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
+ export interface PiAiProviderProfile {
++  /** Opt-in shared API root; absent retains exact legacy URL behavior. */
++  baseURLMode?: 'api-root'
+   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
+   apiKeyEnv?: string
+   /** Name shown by configuration surfaces; defaults to the route key. */
+@@ -289,6 +292,14 @@ const reasoningEfforts = z.dict(
+ 
+ /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
+ const modelFields = {
++  api: z.union(supportedProtocols()),
++  baseURL: z.string(),
++  thinking: z.union([z.object({
++    mode: z.union(['inherit', 'levels', 'toggle', 'always-on', 'none']).required(),
++    levels: z.array(z.union(THINKING_EFFORTS)), allowOff: z.boolean(),
++    default: z.union(['on', 'off', ...THINKING_EFFORTS]),
++    wire: z.union(['native', 'anthropic-adaptive', 'anthropic-enabled', 'chat-thinking']),
++  })]),
+   name: z.string(),
+   contextWindow: z.number().step(1).min(1),
+   maxTokens: z.number().step(1).min(1),
+@@ -312,6 +323,7 @@ const modelProfile: z<PiAiModelProfile> = z.object({
+ const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
+ 
+ const profile = z.object({
++  baseURLMode: z.const('api-root'),
+   apiKeyEnv: z.string().role('credential-ref'),
+   displayName: z.string(),
+   api: z.union(supportedProtocols()),
+@@ -450,6 +462,7 @@ export function resolveProfiles(
+     const displayName = source.displayName ?? provider
+     const catalog = resolveRouteModels({
+       provider,
++      ...source.baseURLMode === undefined ? {} : { baseURLMode: source.baseURLMode },
+       ...source.api === undefined ? {} : { api: source.api },
+       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
+       ...source.models === undefined ? {} : { models: source.models },
+@@ -476,6 +489,9 @@ export function resolveProfiles(
+       piProvider: buildProvider({
+         provider,
+         displayName,
++        modelApiOverrides: new Set(source.models !== undefined
++          ? source.models.filter(m => m.api !== undefined).map(m => m.id)
++          : Object.entries(source.modelOverrides ?? {}).filter(([, m]) => m.api !== undefined).map(([id]) => id)),
+         ...source.api === undefined ? {} : { api: source.api },
+         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
+         models: catalog.models,
+diff --git a/packages/llm/llm-pi-ai/src/index.ts b/packages/llm/llm-pi-ai/src/index.ts
+index a6e13ab..75e6280 100644
+--- a/packages/llm/llm-pi-ai/src/index.ts
++++ b/packages/llm/llm-pi-ai/src/index.ts
+@@ -74,6 +74,7 @@ import { registerPiAiFlows } from './login.ts'
+ export { PiAiAdapter } from './adapter.ts'
+ export type { PiAiAdapterOptions } from './adapter.ts'
+ export { Config } from './config.ts'
++export type { ModelThinking } from './model-thinking.ts'
+ export type {
+   PiAiCompatProfile,
+   PiAiModality,
+diff --git a/packages/llm/llm-pi-ai/src/model-thinking.ts b/packages/llm/llm-pi-ai/src/model-thinking.ts
+new file mode 100644
+index 0000000..adc5fb0
+--- /dev/null
++++ b/packages/llm/llm-pi-ai/src/model-thinking.ts
+@@ -0,0 +1,86 @@
++/** Model-owned thinking policy. SDK level mapping stays private to dispatch. */
++import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
++import type { Api, Model, ModelThinkingLevel, ThinkingLevelMap } from '@earendil-works/pi-ai'
++import { LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
++import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
++
++export const THINKING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
++export interface ModelThinking {
++  mode: 'inherit' | 'levels' | 'toggle' | 'always-on' | 'none'
++  levels?: (typeof THINKING_EFFORTS[number])[]
++  allowOff?: boolean
++  default?: (typeof THINKING_EFFORTS[number]) | 'on' | 'off'
++  wire?: 'native' | 'anthropic-adaptive' | 'anthropic-enabled' | 'chat-thinking'
++}
++type ConfiguredModel = Model<Api> & { harnessThinking?: ModelThinking }
++export function thinkingOf(model: Model<Api>): ModelThinking | undefined {
++  return (model as ConfiguredModel).harnessThinking
++}
++function choices(t: ModelThinking): string[] | undefined {
++  if (t.mode === 'none') return []
++  if (t.mode === 'toggle') return ['off', 'on']
++  if (t.mode === 'always-on') return ['on']
++  if (t.mode === 'levels') return [...t.allowOff ? ['off'] : [], ...t.levels ?? []]
++  return undefined
++}
++export function applyModelThinking(model: Model<Api>, policy: ModelThinking | undefined): Model<Api> {
++  if (policy === undefined) return model
++  const t = structuredClone(policy)
++  const fail = (message: string): never => { throw new Error(`llm-pi-ai: ${model.provider}/${model.id}: ${message}`) }
++  if (!['inherit', 'levels', 'toggle', 'always-on', 'none'].includes(t.mode)) fail('invalid thinking mode')
++  if (t.mode === 'levels' && (!t.levels?.length || new Set(t.levels).size !== t.levels.length || t.levels.some(l => !THINKING_EFFORTS.includes(l)))) fail('invalid thinking levels')
++  const wire = t.wire ?? 'native'
++  if (!['native', 'anthropic-adaptive', 'anthropic-enabled', 'chat-thinking'].includes(wire)) fail('invalid thinking wire')
++  if ((wire.startsWith('anthropic-') && model.api !== 'anthropic-messages') || (wire === 'chat-thinking' && model.api !== 'openai-completions')) fail('thinking wire does not match model API')
++  if ((t.mode === 'toggle' || t.mode === 'always-on') && wire === 'native') fail('toggle and always-on require an explicit wire preset')
++  if (t.mode === 'levels' && wire === 'anthropic-enabled') fail('budget-based levels must use native encoding')
++  if ((t.mode === 'inherit' || t.mode === 'none') && wire !== 'native') fail('wire presets require an explicit thinking capability')
++  const declared = choices(t)
++  const supported = declared ?? getSupportedThinkingLevels(model)
++  if (t.default !== undefined && !supported.includes(t.default)) fail('thinking default is not supported')
++  let map = model.thinkingLevelMap
++  if (declared !== undefined) {
++    const sdkLevels = declared.map(x => x === 'on' ? 'high' : x)
++    map = Object.fromEntries(['off', ...THINKING_EFFORTS].map(level => [level,
++      sdkLevels.includes(level) ? model.thinkingLevelMap?.[level as ModelThinkingLevel] ?? (level === 'off' ? undefined : level) : null,
++    ])) as ThinkingLevelMap
++  }
++  return { ...model, reasoning: declared === undefined ? model.reasoning : declared.length > 0,
++    ...map === undefined ? {} : { thinkingLevelMap: map }, harnessThinking: t } as ConfiguredModel
++}
++export function modelReasoningInfo(model: Model<Api>, providerDefault: ModelThinkingLevel | undefined): Pick<LlmResolvedModelInfo, 'reasoning'> {
++  const t = thinkingOf(model)
++  const supported = t === undefined ? getSupportedThinkingLevels(model) : choices(t) ?? getSupportedThinkingLevels(model)
++  if (!model.reasoning || supported.length === 0) return {}
++  const defaultValue = t?.mode === 'always-on' ? 'on' : t?.default ?? (providerDefault !== undefined && supported.includes(providerDefault) ? providerDefault : undefined)
++  return { reasoning: {
++    efforts: supported.map(id => ({ id: ReasoningEffortId(id), name: id === 'on' ? t?.mode === 'always-on' ? 'Always on' : 'On' : id.charAt(0).toUpperCase() + id.slice(1) })),
++    ...defaultValue === undefined ? {} : { defaultEffort: ReasoningEffortId(defaultValue) },
++  } }
++}
++export function selectedThinking(model: Model<Api>, providerDefault: ModelThinkingLevel | undefined, explicit: string | undefined): string | undefined {
++  const info = modelReasoningInfo(model, providerDefault).reasoning
++  const selected = explicit ?? info?.defaultEffort
++  if (selected !== undefined && !info?.efforts.some(e => e.id === selected)) throw new LlmError(`Unsupported thinking selection ${selected} for ${model.id}`, 'UNSUPPORTED_REASONING_EFFORT')
++  return selected
++}
++/** No URL guessing on existing profiles: only the explicit api-root mode uses this. */
++export function apiRootURL(url: string, api: string): string {
++  if (!['anthropic-messages', 'openai-completions', 'openai-responses'].includes(api)) throw new Error(`api-root is unsupported for ${api}`)
++  const root = url.replace(/\/+$/, '').replace(/\/v1$/, '')
++  return api === 'anthropic-messages' ? root : `${root}/v1`
++}
++export function thinkingPayload(payload: unknown, model: Model<Api>, selected: string | undefined): unknown {
++  const t = thinkingOf(model)
++  const wire = t?.wire ?? 'native'
++  if (wire === 'native' || selected === undefined) return payload
++  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid model request payload')
++  const body = { ...payload } as Record<string, unknown>
++  const enabled = selected !== 'off'
++  body.thinking = { type: enabled ? wire === 'anthropic-adaptive' ? 'adaptive' : 'enabled' : 'disabled' }
++  if (t?.mode !== 'levels') {
++    delete body.reasoning_effort
++    delete body.output_config
++  }
++  return body
++}
+diff --git a/packages/llm/llm-pi-ai/src/provider.ts b/packages/llm/llm-pi-ai/src/provider.ts
+index f03c83c..1a180c0 100644
+--- a/packages/llm/llm-pi-ai/src/provider.ts
++++ b/packages/llm/llm-pi-ai/src/provider.ts
+@@ -86,6 +86,8 @@ function harnessApiKeyAuth(name: string): ApiKeyAuth {
+ 
+ /** The resolved route facts provider construction reads. */
+ export interface ProviderSpec {
++  /** Only explicitly repointed models bypass catalog-owned dispatch. */
++  modelApiOverrides?: ReadonlySet<string>
+   /** Provider route key; also the `Models` collection key and each model's `provider`. */
+   provider: string
+   /** Display name for selectors and status labels. */
+@@ -169,24 +171,36 @@ export function buildProvider(spec: ProviderSpec): Provider {
+   // A catalog route keeping its catalog protocol reuses the catalog provider;
+   // an explicit protocol means the deployment is repointing the route at a
+   // different wire format, which only the protocol table can serve.
+-  if (catalog !== undefined && spec.api === undefined) return reuseCatalogProvider(catalog, spec)
++  if (catalog !== undefined && spec.api === undefined && !spec.modelApiOverrides?.size) return reuseCatalogProvider(catalog, spec)
+ 
+-  // Every model on this path carries the route's protocol: model resolution
+-  // requires one for a route the catalog cannot default, and an explicit one
+-  // replaces each catalog model's own. So the route has a single API.
+-  const factory = spec.api === undefined ? undefined : PROTOCOLS[spec.api]
+-  if (factory === undefined) {
++  // Explicit model protocols override the route default. Untouched catalog
++  // siblings still dispatch through their original provider implementation.
++  if ((spec.api !== undefined && PROTOCOLS[spec.api] === undefined) || (spec.api === undefined && spec.models.length === 0)) {
+     throw new Error(
+       `llm-pi-ai: provider "${spec.provider}" names api "${spec.api}", which this build cannot serve;`
+       + ` supported protocols are ${supportedProtocols().join(', ')}`,
+     )
+   }
+-  return createProvider({
++  const overridden = catalog !== undefined && spec.api === undefined ? spec.modelApiOverrides : undefined
++  const apis = [...new Set(spec.models.filter(m => overridden === undefined || overridden.has(m.id)).map(m => m.api))]
++  const implementations = Object.fromEntries(apis.map(api => {
++    const factory = PROTOCOLS[api]
++    if (factory === undefined) throw new Error(`llm-pi-ai: model API "${api}" cannot be served by an explicit override`)
++    return [api, factory()]
++  }))
++  const explicit = createProvider({
+     id: spec.provider,
+     name: spec.displayName,
+     ...spec.baseURL === undefined ? {} : { baseUrl: spec.baseURL },
+     auth: routeAuth(spec, catalog),
+     models: spec.models,
+-    api: factory(),
++    api: implementations,
+   })
++  if (catalog === undefined || overridden === undefined) return explicit
++  const native = reuseCatalogProvider(catalog, spec)
++  return {
++    ...native,
++    stream: (model, context, options) => (overridden.has(model.id) ? explicit : native).stream(model, context, options),
++    streamSimple: (model, context, options) => (overridden.has(model.id) ? explicit : native).streamSimple(model, context, options),
++  }
+ }
+diff --git a/packages/llm/llm-pi-ai/tests/adapter.spec.ts b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+index a54ec17..a0acdcb 100644
+--- a/packages/llm/llm-pi-ai/tests/adapter.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+@@ -523,7 +523,7 @@ describe('provider profile lifecycle', () => {
+     expect((await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')).reasoning).toBeUndefined()
+   })
+ 
+-  it('uses a supported profile reasoning value as the model default and rejects an unsupported one', async () => {
++  it('uses a supported profile default and ignores an unsupported fallback while rejecting explicit choices', async () => {
+     const supported = new Context()
+     await supported.plugin(LlmRuntime)
+     await supported.plugin(LlmPiAi, {
+@@ -536,17 +536,21 @@ describe('provider profile lifecycle', () => {
+     // than failing: resolveModelInfo builds the model catalog, and a catalog
+     // that throws takes its whole provider out of every picker — one mis-set
+     // field would hide every model on the route, including the ones that do
+-    // support the level. The request path below is where it is refused.
++    // support the level. Requests omit this incompatible fallback too.
++    const server = await mockServer([{ events: textEvents }])
+     const unsupported = new Context()
+     await unsupported.plugin(LlmRuntime)
+     await unsupported.plugin(LlmPiAi, {
+-      providers: { deepseek: { reasoning: 'medium' } },
++      providers: { deepseek: { reasoning: 'medium', baseURL: server.url, apiKeyEnv: 'PI_TEST_KEY' } },
+     })
+     const described = await unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash')
+     expect(described.reasoning?.defaultEffort).toBeUndefined()
+     expect(described.reasoning?.efforts.length).toBeGreaterThan(0)
+     await expect(assemble(unsupported, {
+       provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
++    })).resolves.toMatchObject({ finish: { kind: 'stop' } })
++    await expect(assemble(unsupported, {
++      provider: 'deepseek', model: 'deepseek-v4-flash', messages: [], reasoningEffort: ReasoningEffortId('medium'),
+     })).resolves.toMatchObject({
+       finish: { kind: 'error', failure: { code: 'UNSUPPORTED_REASONING_EFFORT' } },
+     })
+diff --git a/packages/llm/llm-pi-ai/tests/model-policy.spec.ts b/packages/llm/llm-pi-ai/tests/model-policy.spec.ts
+new file mode 100644
+index 0000000..03e5fe4
+--- /dev/null
++++ b/packages/llm/llm-pi-ai/tests/model-policy.spec.ts
+@@ -0,0 +1,56 @@
++import { describe, expect, it } from 'vitest'
++import { Config, resolveProfiles } from '../src/config.ts'
++import type { PiAiModelProfile } from '../src/config.ts'
++import { modelReasoningInfo, selectedThinking, thinkingPayload } from '../src/model-thinking.ts'
++import { catalogProvider } from '../src/catalog.ts'
++
++function resolve(models: PiAiModelProfile[], extra = {}) {
++  return resolveProfiles(Config({ providers: { self: {
++    api: 'openai-completions', baseURL: 'https://example.test/v1', models, ...extra,
++  } } }).providers).get('self')!
++}
++describe('model-owned policies on the native provider', () => {
++  it('does not materialize an opt-in policy or rewrite existing URLs', () => {
++    const raw = Config({ providers: { self: { api: 'anthropic-messages', baseURL: 'https://example.test/custom', models: [{ id: 'plain' }] } } })
++    expect(raw.providers!.self!.baseURLMode).toBeUndefined()
++    expect(raw.providers!.self!.models![0]!.thinking).toBeUndefined()
++    expect(resolveProfiles(raw.providers).get('self')!.piProvider.getModels()[0]!.baseUrl).toBe('https://example.test/custom')
++  })
++  it('resolves mixed APIs, opt-in roots and exact per-model URLs', () => {
++    const models = resolve([{ id: 'chat' }, { id: 'messages', api: 'anthropic-messages' }, { id: 'responses', api: 'openai-responses', baseURL: 'https://other.test/custom' }], { baseURLMode: 'api-root' }).piProvider.getModels()
++    expect(models.map(m => m.api)).toEqual(['openai-completions', 'anthropic-messages', 'openai-responses'])
++    expect(models.map(m => m.baseUrl)).toEqual(['https://example.test/v1', 'https://example.test', 'https://other.test/custom'])
++  })
++  it('retains catalog auth when overriding just one model protocol', () => {
++    const base = catalogProvider('openai')!
++    const id = base.getModels()[0]!.id
++    const profile = resolveProfiles(Config({ providers: { openai: { modelOverrides: { [id]: { api: 'anthropic-messages' } } } } }).providers).get('openai')!
++    expect(profile.piProvider.auth).toBe(base.auth)
++    expect(profile.piProvider.getModels().find(m => m.id === id)?.api).toBe('anthropic-messages')
++    expect(profile.piProvider.getModels().length).toBe(base.getModels().length)
++  })
++  it('validates capability defaults and filters incompatible provider defaults', () => {
++    const model = resolve([{ id: 'level', thinking: { mode: 'levels', levels: ['low', 'high'], default: 'low' } }]).piProvider.getModels()[0]!
++    expect(modelReasoningInfo(model, 'max').reasoning?.defaultEffort).toBe('low')
++    expect(selectedThinking(model, 'max', undefined)).toBe('low')
++    expect(() => selectedThinking(model, 'max', 'max')).toThrow()
++    expect(() => resolve([{ id: 'bad', thinking: { mode: 'levels', levels: ['high'], default: 'low' } }])).toThrow()
++    expect(() => resolve([{ id: 'bad', thinking: { mode: 'toggle' } }])).toThrow()
++    expect(() => resolve([{ id: 'bad', thinking: { mode: 'toggle', wire: 'anthropic-enabled' } }])).toThrow()
++  })
++  it('represents toggle, fixed-on and non-thinking models without fake public levels', () => {
++    const models = resolve([
++      { id: 'toggle', thinking: { mode: 'toggle', wire: 'chat-thinking', default: 'on' } },
++      { id: 'fixed', thinking: { mode: 'always-on', wire: 'chat-thinking' } },
++      { id: 'none', thinking: { mode: 'none' } },
++    ]).piProvider.getModels()
++    const toggle = models[0]!, fixed = models[1]!, none = models[2]!
++    expect(modelReasoningInfo(toggle, 'max').reasoning?.efforts.map(e => e.id)).toEqual(['off', 'on'])
++    expect(selectedThinking(fixed, 'off', undefined)).toBe('on')
++    expect(() => selectedThinking(fixed, 'off', 'off')).toThrow()
++    expect(modelReasoningInfo(none, 'high')).toEqual({})
++    const body = { reasoning_effort: 'high', messages: [] }
++    expect(thinkingPayload(body, toggle, 'off')).toEqual({ messages: [], thinking: { type: 'disabled' } })
++    expect(body).toEqual({ reasoning_effort: 'high', messages: [] })
++  })
++})
