@@ -663,6 +663,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence-jsonl
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence-jsonl
       '@dsh-desktop/bridge':
         specifier: workspace:*
         version: link:../../bridge

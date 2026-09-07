@@ -1,12 +1,12 @@
 /**
- * 数据面单测：parseSessionLog 容错、computeSummary 的缓存增量语义、
+ * 数据面单测：computeSummary 的缓存增量语义、
  * summary 路由的 HTTP 行为（405/403/200/500）。持久化与缓存表用内存 double。
  */
 import { createServer, type Server } from 'node:http'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { computeSummary, handleSummaryRequest, parseSessionLog, type UsagePersistence } from '../src/index.ts'
-import { USAGE_FOLD_VERSION, usageStatsDomainSpec, type CachedUsageRow, type UsageTablePort } from '../src/usage-cache.ts'
+import { computeSummary, handleSummaryRequest, type UsagePersistence } from '../src/index.ts'
+import { USAGE_FOLD_VERSION, cachedUsageRowSchema, usageStatsDomainSpec, type CachedUsageRow, type UsageTablePort } from '../src/usage-cache.ts'
 
 /** 确认域声明本身通过上游 UNIT_NAME_RE 校验（defineDomain 在构造期校验）。 */
 expect(usageStatsDomainSpec.name).toBe('usage_stats')
@@ -29,42 +29,37 @@ function turnEvents(turn: number, time: number, inputTokens: number, provider = 
   ]
 }
 
-/** 首行 header record + 事件行（header 无 type 字段，聚合层天然过滤）。 */
-function jsonlOf(id: string, events: unknown[]): string {
-  const header = JSON.stringify({ version: 0, id, createdAt: 1000 })
-  return [header, ...events.map(event => JSON.stringify(event))].join('\n') + '\n'
-}
-
 interface FakeSession {
   header?: Record<string, unknown>
+  inheritedEventCount?: number
   events: unknown[]
   /** 模拟文件变化：revision 与缓存行不一致即触发重扫。 */
   revision?: string
-  /** readRaw 抛错（损坏日志）。 */
+  /** readFrom 抛错（损坏日志）。 */
   fail?: boolean
 }
 
 function fakePersistence(sessions: Record<string, FakeSession>) {
-  const readRawCalls: string[] = []
+  const readFromCalls: string[] = []
   const persistence = {
     listSnapshots: async () => Object.entries(sessions).map(([id, session]) => ({
       header: { version: 0, id, createdAt: 1000, isSeeded: false, ...session.header },
       revision: session.revision ?? `${id}@0`,
     })),
-    readRaw: async (id: string) => {
+    readFrom: async (id: string) => {
       const session = sessions[id]
       if (session === undefined) return undefined
       if (session.fail === true) throw new Error('corrupt log')
-      readRawCalls.push(id)
+      readFromCalls.push(id)
       return {
-        meta: { version: 0, id, createdAt: 1000, isSeeded: false },
-        inheritedEventCount: 0,
-        filename: 'session.jsonl',
-        content: jsonlOf(id, session.events),
+        meta: { version: 0, id, createdAt: 1000, isSeeded: false, ...session.header },
+        inheritedEventCount: session.inheritedEventCount ?? 0,
+        fromSeq: 0,
+        events: session.events,
       }
     },
   }
-  return { persistence: persistence as unknown as UsagePersistence & SessionPersistence, readRawCalls }
+  return { persistence: persistence as unknown as UsagePersistence & SessionPersistence, readFromCalls }
 }
 
 function fakeTable(): UsageTablePort & { map: Map<string, CachedUsageRow> } {
@@ -80,45 +75,30 @@ function fakeTable(): UsageTablePort & { map: Map<string, CachedUsageRow> } {
 
 const NOW = 1_788_000_000_000
 
-describe('parseSessionLog', () => {
-  it('过滤 header 行与空行，解析事件行，跳过损坏行', () => {
-    const content = [
-      JSON.stringify({ version: 0, id: 's', createdAt: 1 }),
-      '',
-      JSON.stringify({ type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } }),
-      '{broken',
-      JSON.stringify({ seq: 3, time: 3 }),
-    ].join('\n')
-    const events = parseSessionLog(content)
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ type: 'turn/start' })
-  })
-})
-
 describe('computeSummary', () => {
   it('空会话集：零汇总', async () => {
     const { persistence } = fakePersistence({})
     const { summary, meta } = await computeSummary(persistence, undefined, NOW)
-    expect(meta).toEqual({ total: 0, scanned: 0, cached: 0 })
+    expect(meta).toEqual({ total: 0, scanned: 0, cached: 0, failed: 0 })
     expect(summary.byDay).toEqual([])
     expect(summary.overall.sessions).toBe(0)
   })
 
   it('新会话全量重折并写缓存；二次调用 revision 未变则命中缓存', async () => {
-    const { persistence, readRawCalls } = fakePersistence({
+    const { persistence, readFromCalls } = fakePersistence({
       'session-a': { events: turnEvents(1, 1_788_000_000_000, 100) },
     })
     const table = fakeTable()
     const first = await computeSummary(persistence, table, NOW)
-    expect(first.meta).toEqual({ total: 1, scanned: 1, cached: 0 })
+    expect(first.meta).toEqual({ total: 1, scanned: 1, cached: 0, failed: 0 })
     expect(first.summary.byModel[0]).toMatchObject({ provider: 'self', model: 'deepseek-v4-flash' })
     expect(table.map.size).toBe(1)
     expect([...table.map.values()][0]?.algoVersion).toBe(USAGE_FOLD_VERSION)
 
     const second = await computeSummary(persistence, table, NOW)
-    expect(second.meta).toEqual({ total: 1, scanned: 0, cached: 1 })
+    expect(second.meta).toEqual({ total: 1, scanned: 0, cached: 1, failed: 0 })
     expect(second.summary.overall.sessions).toBe(1)
-    expect(readRawCalls).toHaveLength(1)
+    expect(readFromCalls).toHaveLength(1)
   })
 
   it('revision 变化触发该会话重扫；删除的会话缓存行被清理', async () => {
@@ -126,7 +106,7 @@ describe('computeSummary', () => {
       'session-a': { events: turnEvents(1, 1_788_000_000_000, 100), revision: 'a@1' },
       'session-b': { events: turnEvents(1, 1_788_000_000_000, 50), revision: 'b@1' },
     }
-    const { persistence, readRawCalls } = fakePersistence(sessions)
+    const { persistence, readFromCalls } = fakePersistence(sessions)
     const table = fakeTable()
     await computeSummary(persistence, table, NOW)
     expect(table.map.size).toBe(2)
@@ -134,9 +114,9 @@ describe('computeSummary', () => {
     sessions['session-a'].revision = 'a@2'
     delete sessions['session-b']
     const next = await computeSummary(persistence, table, NOW)
-    expect(next.meta).toEqual({ total: 1, scanned: 1, cached: 0 })
+    expect(next.meta).toEqual({ total: 1, scanned: 1, cached: 0, failed: 0 })
     expect([...table.map.keys()]).toEqual(['session-a'])
-    expect(readRawCalls).toEqual(['session-a', 'session-b', 'session-a'])
+    expect(readFromCalls).toEqual(['session-a', 'session-b', 'session-a'])
   })
 
   it('损坏会话降级跳过，不影响其余会话汇总', async () => {
@@ -145,7 +125,7 @@ describe('computeSummary', () => {
       'session-good': { events: turnEvents(1, 1_788_000_000_000, 100) },
     })
     const { summary, meta } = await computeSummary(persistence, fakeTable(), NOW)
-    expect(meta).toEqual({ total: 2, scanned: 2, cached: 0 })
+    expect(meta).toEqual({ total: 2, scanned: 2, cached: 0, failed: 1 })
     expect(summary.overall.sessions).toBe(1)
     expect(summary.overall.turns).toBe(1)
   })
@@ -218,6 +198,19 @@ afterAll(async () => {
 })
 
 describe('summary route', () => {
+  it('reports incomplete totals when every source log fails', async () => {
+    const { persistence } = fakePersistence({ bad: { events: [], fail: true } })
+    const server = await startServer(persistence, () => undefined)
+    servers.push(server)
+    const response = await fetch(`${server.base}/dsh-desktop/usage/summary`, {
+      method: 'POST', headers: { origin: server.base },
+    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true, total: 1, failed: 1, summary: { overall: { sessions: 0 } },
+    })
+  })
+
   it('200：认证同源请求返回汇总信封', async () => {
     const { persistence } = fakePersistence({
       'session-a': { events: turnEvents(1, 1_788_000_000_000, 100) },
@@ -233,12 +226,12 @@ describe('summary route', () => {
     })
     expect(response.status).toBe(200)
     const body = await response.json() as Record<string, unknown>
-    expect(body).toMatchObject({ ok: true, total: 1, scanned: 1, cached: 0 })
+    expect(body).toMatchObject({ ok: true, total: 1, scanned: 1, cached: 0, failed: 0 })
     expect((body.summary as Record<string, unknown>).overall).toMatchObject({ sessions: 1 })
   })
 
   it('405 非 POST、403 异源，且不触发任何读日志', async () => {
-    const { persistence, readRawCalls } = fakePersistence({
+    const { persistence, readFromCalls } = fakePersistence({
       'session-a': { events: [] },
     })
     const server = await startServer(persistence, () => undefined)
@@ -253,7 +246,7 @@ describe('summary route', () => {
       body: '{}',
     })
     expect(foreign.status).toBe(403)
-    expect(readRawCalls).toHaveLength(0)
+    expect(readFromCalls).toHaveLength(0)
   })
 
   it('500：持久化故障返回结构化错误信封', async () => {
@@ -270,5 +263,70 @@ describe('summary route', () => {
     })
     expect(response.status).toBe(500)
     await expect(response.json()).resolves.toMatchObject({ ok: false, code: 'internal-error' })
+  })
+})
+
+
+describe('usage cache and lineage regressions', () => {
+  it('retains billed calls hidden by rewind and counts an open retry attempt', async () => {
+    const events = [
+      ...turnEvents(1, NOW, 99),
+      { type: 'dsh-desktop/session-rewind', seq: 6, time: NOW, data: { atSeq: 1 } },
+      { type: 'turn/start', seq: 7, time: NOW, data: { turn: 2 } },
+      { type: 'assistant/chunk', seq: 8, time: NOW, data: { turn: 2, step: 1, chunk: { type: 'usage', usage: { inputTokens: 9, outputTokens: 1 } } } },
+      { type: 'llm/retry-started', seq: 9, time: NOW, data: { turn: 2, step: 1 } },
+      { type: 'assistant/chunk', seq: 10, time: NOW, data: { turn: 2, step: 1, chunk: { type: 'usage', usage: { inputTokens: 19, outputTokens: 1 } } } },
+    ]
+    const { persistence } = fakePersistence({ a: { events } })
+    const { summary } = await computeSummary(persistence, undefined, NOW)
+    expect(summary.byModel[0]?.buckets).toMatchObject({ uncachedInput: 99, output: 1 })
+    expect(summary.unattributed).toMatchObject({ uncachedInput: 28, output: 2 })
+    expect(summary.overall.turns).toBe(2)
+  })
+
+  it('counts own calls once across multiple forks and keeps ordinary forks out of subagent counts', async () => {
+    const parent = turnEvents(1, NOW, 109).map((event, seq) => ({ ...(event as object), seq }))
+    const own = turnEvents(2, NOW, 19).map((event, index) => ({ ...(event as object), seq: parent.length + index }))
+    const { persistence } = fakePersistence({
+      parent: { events: parent },
+      child: { header: { parentSession: 'parent', isSeeded: true }, inheritedEventCount: parent.length, events: [...parent, ...own] },
+      grandchild: { header: { parentSession: 'child', isSeeded: true }, inheritedEventCount: parent.length + own.length, events: [...parent, ...own] },
+    })
+    const { summary } = await computeSummary(persistence, undefined, NOW)
+    expect(summary.byModel[0]?.buckets).toMatchObject({ uncachedInput: 128, output: 2, requests: 2 })
+    expect(summary.overall).toMatchObject({ turns: 2, subagentSessions: 0 })
+  })
+
+  it.each(['get', 'put', 'delete', 'entries'] as const)('isolates cache %s failures and retries on the next request', async operation => {
+    const sessions = { a: { events: turnEvents(1, NOW, 100) }, b: { events: turnEvents(1, NOW, 50) } }
+    const { persistence } = fakePersistence(sessions)
+    const expected = await computeSummary(persistence, undefined, NOW)
+    const table = fakeTable()
+    await computeSummary(persistence, table, NOW)
+    table.map.set('obsolete', table.map.get('a')!)
+    table.map.delete('a')
+    table.map.delete('b')
+    const original = table[operation]
+    let attempts = 0
+    Object.assign(table, { [operation]: () => { attempts++; throw new Error('cache unavailable') } })
+    const actual = await computeSummary(persistence, table, NOW)
+    expect(actual.summary).toEqual(expected.summary)
+    expect(actual.meta.failed).toBe(0)
+    expect(attempts).toBe(1)
+    Object.assign(table, { [operation]: original })
+    await computeSummary(persistence, table, NOW)
+    expect(table.map.has('a')).toBe(true)
+  })
+
+  it('accepts an old cache row as valid data but replaces it without a revision change', async () => {
+    const { persistence, readFromCalls } = fakePersistence({ a: { events: turnEvents(1, NOW, 100) } })
+    const table = fakeTable()
+    await computeSummary(persistence, table, NOW)
+    const old = { ...table.map.get('a')!, algoVersion: 1 }
+    expect(cachedUsageRowSchema.safeParse(old).success).toBe(true)
+    table.map.set('a', old)
+    await computeSummary(persistence, table, NOW)
+    expect(readFromCalls).toHaveLength(2)
+    expect(table.map.get('a')?.algoVersion).toBe(USAGE_FOLD_VERSION)
   })
 })

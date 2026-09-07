@@ -2,6 +2,7 @@
 export const NS = 'usage-stats'
 
 export const zh = {
+  incomplete: '有 {count} 个会话无法读取，当前统计不完整。请重试。',
   nav: '用量统计',
   title: '用量统计',
   description: '按模型聚合本机全部会话的 token 用量，与会话底栏同一套计费口径。数据来自本地会话日志，仅存本机。',
@@ -51,6 +52,7 @@ export const zh = {
 } as const satisfies Record<string, string>
 
 export const en = {
+  incomplete: 'Could not read {count} sessions. These totals are incomplete. Please retry.',
   nav: 'Usage',
   title: 'Token usage',
   description: 'Per-model token usage across all local sessions, using the same billing fold as the session stats bar. Aggregated from on-disk session logs. Stays on this machine.',

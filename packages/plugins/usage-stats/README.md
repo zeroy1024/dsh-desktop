@@ -8,15 +8,18 @@
 浏览器半（src/client/）                 Node 半（src/index.ts）
 UsageStatsSection ── POST 同源 ──→ /dsh-desktop/usage/summary（registerHostRoute，复用上游鉴权）
  SVG 图表 + 明细表                    listSnapshots() 轻量枚举（stat 派生 revision）
-        ▲                            revision 变了才 readRaw() 解码全文
+        ▲                            revision 变了才 readFrom(0) 读取逻辑事件
         │                            aggregator.ts：逐次 usage 样本折算（tokenUsage 投影语义）
         └──────── JSON ────────────  usage_stats 缓存域（per-record 可丢弃派生数据）
 ```
 
 - 计费折算与上游 `@deepseek-ai/dsh-token-meter` 的 `tokenUsage` 投影（会话底栏 StatsLine）同一套语义：每条 provider 上报的 usage 都进账；同 `(turn, step)` 的流式样本被最终消息替换；`llm/retry-started` 之后的新尝试另计。不使用 `deriveTurnTokenUsage`（exact-or-nothing 会在真实日志上整 turn 丢数）。
 - 归因按 attempt：有 `message.source` 的进对应 `(provider, model)`；没有来源的（失败重试尚未形成助手消息）进「未归因」。turn 内换模型拆到各模型行，不再整 turn 丢进未归因。恒有 `Σ byModel + unattributed = Σ byDay`。
-- 缓存：`usage_stats` storage domain（`defineDomain` + per-record + backup-and-skip），新鲜度键 = 持久化层 revision；行内 `algoVersion` 与当前折算世代不一致时 schema 失败，旧行被挪走并重折。域打开失败只降级为每次全量重算。
-- 子代理会话（`origin: 'subagent'` 或带 `parentSession`）并入总量，卡片上标注数量。
+- 缓存：`usage_stats` storage domain（`defineDomain` + per-record + backup-and-skip），新鲜度键 = 持久化层 revision；行内 `algoVersion` 与当前折算世代不一致时正常失效并重折覆盖（当前 v2），不将旧版本视为损坏记录。缓存打开、读写或清理失败均降级为无缓存计算，不丢弃有效结果；下一次请求重试缓存。
+- 子代理会话（仅 `origin: 'subagent'`，普通 fork 不算）并入总量，卡片上标注数量。
+
+- 只统计当前保留会话各自新增的调用，使用 `inheritedEventCount` 排除 fork 的继承前缀；撤回隐藏的已发生调用仍计费。删除原始会话后，不通过其他 fork 的继承历史补回该会话用量。
+- 源日志读取失败通过响应 `failed` 计数及界面提示标明统计不完整；缓存故障不影响统计完整性。
 
 ## 口径备忘
 

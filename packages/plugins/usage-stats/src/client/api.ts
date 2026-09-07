@@ -19,6 +19,7 @@ export interface SummaryResponse {
   generatedAt: number
   total: number
   scanned: number
+  failed: number
   cached: number
   summary: UsageSummary
 }

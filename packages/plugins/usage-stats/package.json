@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "用量统计：按 (provider, model) 聚合会话 token 账目（与会话底栏同一套计费口径：未缓存输入/缓存读/缓存写/输出/命中率），设置面板展示概览、热力图、趋势与明细表。",
+  "description": "\u7528\u91cf\u7edf\u8ba1\uff1a\u6309 (provider, model) \u805a\u5408\u4f1a\u8bdd token \u8d26\u76ee\uff08\u4e0e\u4f1a\u8bdd\u5e95\u680f\u540c\u4e00\u5957\u8ba1\u8d39\u53e3\u5f84\uff1a\u672a\u7f13\u5b58\u8f93\u5165/\u7f13\u5b58\u8bfb/\u7f13\u5b58\u5199/\u8f93\u51fa/\u547d\u4e2d\u7387\uff09\uff0c\u8bbe\u7f6e\u9762\u677f\u5c55\u793a\u6982\u89c8\u3001\u70ed\u529b\u56fe\u3001\u8d8b\u52bf\u4e0e\u660e\u7ec6\u8868\u3002",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -63,6 +63,7 @@
     "react-dom": "^18.2.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session-persistence-jsonl"
   }
 }

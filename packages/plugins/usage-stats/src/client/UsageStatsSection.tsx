@@ -88,11 +88,14 @@ export function UsageStatsSection({ t }: UsageStatsSectionProps) {
   }
 
   const { summary, generatedAt, scanned, cached } = state.data
+  const incomplete = state.data.failed > 0
+    ? <p role="status" className={styles.error}>{t('incomplete', { count: state.data.failed })}</p>
+    : null
   if (summary.overall.sessions === 0) {
     return (
       <div className={styles.section}>
         {renderHead()}
-        <p className={styles.empty}>{t('empty')}</p>
+        {incomplete ?? <p className={styles.empty}>{t('empty')}</p>}
       </div>
     )
   }
@@ -100,6 +103,7 @@ export function UsageStatsSection({ t }: UsageStatsSectionProps) {
   return (
     <div className={styles.section}>
       {renderHead(t('generatedAt', { time: formatRelative(generatedAt), scanned, cached }))}
+      {incomplete}
       <OverviewCards summary={summary} t={t} />
       <ActivityHeatmap byDay={summary.byDay} t={t} />
       <TrendChart byDay={summary.byDay} byModel={summary.byModel} t={t} />
