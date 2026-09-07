@@ -11,7 +11,7 @@ import type { DocumentRenderContext, HastDescriptor } from '../src/client/markdo
 
 const context: DocumentRenderContext = {
   baseDir: 'docs',
-  allowRootRelative: true,
+  kind: 'workspace',
   imageSrcFor: (src, via) => `raw://${via}/${src}`,
 }
 

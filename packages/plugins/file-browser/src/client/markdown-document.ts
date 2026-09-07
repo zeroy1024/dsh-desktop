@@ -35,7 +35,7 @@ export type HastAction =
   | { kind: 'open'; relKey: string; fragment?: string }
 
 /** 纯函数层的输入：文件位置 + 图片 URL 构造器。 */
-export interface DocumentRenderContext extends DocumentPathContext {
+export type DocumentRenderContext = DocumentPathContext & {
   /** 分类器给出的图片 src（root 相对 / 文件系统绝对）→ 可加载 URL。 */
   imageSrcFor: (src: string, via: 'workspace' | 'external-file') => string
 }

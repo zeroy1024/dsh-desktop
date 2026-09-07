@@ -14,6 +14,7 @@ import {
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useHorizontalTabScroll } from '@dsh-desktop/panel-shell/client'
+import { documentParent } from './document-links.ts'
 import { isExternalFilePath } from './file-open.ts'
 import type { FileTabsState } from './file-tabs.ts'
 import type { FsFileContent } from './api.ts'
@@ -149,13 +150,9 @@ export const FilePreview = memo(function FilePreview({
    */
   const documentContext = useMemo<DocumentRenderContext>(() => {
     const key = active ?? ''
-    const slash = key.lastIndexOf('/')
-    const baseDir = external
-      ? (slash <= 0 ? '/' : key.slice(0, slash))
-      : (slash < 0 ? '' : key.slice(0, slash))
     return {
-      baseDir,
-      allowRootRelative: !external,
+      baseDir: documentParent(key),
+      kind: external ? 'external-file' : 'workspace',
       imageSrcFor: (src, via) => rawImageUrl(sessionId, src, via),
     }
   }, [active, external, sessionId])

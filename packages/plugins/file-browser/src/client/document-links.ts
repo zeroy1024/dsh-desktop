@@ -18,18 +18,26 @@
  * 链接显示惰性文本）。
  */
 
+import { absoluteFilePath } from './file-open.ts'
+
 /** 解析上下文：当前文件位置决定相对 URL 的基准与边界语义。 */
-export interface DocumentPathContext {
-  /**
-   * 当前文件所在目录。工作区模式 = 会话 root 相对 POSIX（根目录为 ''）；
-   * 外部文件模式 = 规范化绝对路径（`/Users/x/foo` 或 `C:/x/foo`）。
-   */
-  baseDir: string
-  /**
-   * 是否接受 `/x` 根相对形态（GitHub 的 repo-root 语义：`/img.png` = 仓库
-   * 根）。工作区模式 true；外部文件模式 false——脱离工作区没有"根"可言。
-   */
-  allowRootRelative: boolean
+export type DocumentPathContext =
+  | { kind: 'workspace'; baseDir: string }
+  | { kind: 'external-file'; baseDir: string }
+
+/** Split a normalized path into an immutable root and traversable segments. */
+function pathParts(path: string): { root: string; segments: string[] } {
+  const drive = /^[A-Za-z]:\//u.exec(path)
+  const unc = /^\/\/[^/]+\/[^/]+(?:\/|$)/u.exec(path)
+  const root = drive?.[0] ?? (unc === null ? (path.startsWith('/') ? '/' : '') : `${unc[0].replace(/\/$/u, '')}/`)
+  return { root, segments: path.slice(root.length).split('/').filter(Boolean) }
+}
+
+/** Preserve drive and UNC roots when locating the document's parent. */
+export function documentParent(path: string): string {
+  const { root, segments } = pathParts(path)
+  segments.pop()
+  return root + segments.join('/')
 }
 
 /** URL 分类结果（image/document 的 path 是可直接投给 raw/read 路由的键）。 */
@@ -76,17 +84,15 @@ function absoluteProtocol(url: string): string | undefined {
 
 /**
  * 把相对路径解析进当前文件所在目录（纯字符串层）。
- * baseDir 以 `/` 开头时结果保持绝对形态（外部文件模式）；否则是 root 相对
- * 路径（工作区模式）。逐段消化 `.`/`..`：`..` 弹栈，栈空时——绝对 base 弹到
- * 文件系统根即拒（undefined），相对 base 直接拒（越出会话 root）。
+ * 固定 POSIX /、Windows 盘符或 UNC 共享根，只折叠根以下的目录段。
+ * 工作区相对路径以空根处理；任何越过根的 `..` 均拒绝。
  * @param baseDir - 上下文基准目录。
  * @param rel - 文档中书写的相对路径（已 percent-decode、去片段、去前导 `/`）。
  * @returns 解析后的路径（绝对或 root 相对，与 baseDir 同域）；越界返回 undefined。
  */
 export function resolveRelativePath(baseDir: string, rel: string): string | undefined {
   if (rel === '' || rel.includes('\\') || rel.includes('\0')) return undefined
-  const absolute = baseDir.startsWith('/')
-  const segments = baseDir === '' ? [] : baseDir.split('/').filter(segment => segment !== '')
+  const { root, segments } = pathParts(baseDir)
   for (const segment of rel.split('/')) {
     if (segment === '' || segment === '.') continue
     if (segment === '..') {
@@ -98,7 +104,8 @@ export function resolveRelativePath(baseDir: string, rel: string): string | unde
     segments.push(segment)
   }
   if (segments.length === 0) return undefined
-  return absolute ? `/${segments.join('/')}` : segments.join('/')
+  const resolved = root + segments.join('/')
+  return root === '' ? resolved : absoluteFilePath(resolved)
 }
 
 /**
@@ -120,13 +127,13 @@ export function classifyImageSrc(src: string, context: DocumentPathContext): Cla
   // 协议相对（//host/x）与 UNC 一律拒：img 没有"合法的双斜杠相对"语义。
   if (trimmed.startsWith('//')) return { kind: 'blocked' }
   if (trimmed.startsWith('/')) {
-    if (!context.allowRootRelative) return { kind: 'blocked' }
+    if (context.kind !== 'workspace') return { kind: 'blocked' }
     const rel = resolveRelativePath('', decode(trimmed.slice(1)))
     return rel === undefined ? { kind: 'blocked' } : { kind: 'image', src: rel, via: 'workspace' }
   }
   const rel = resolveRelativePath(context.baseDir, decode(trimmed))
   if (rel === undefined) return { kind: 'blocked' }
-  return context.baseDir.startsWith('/')
+  return context.kind === 'external-file'
     ? { kind: 'image', src: rel, via: 'external-file' }
     : { kind: 'image', src: rel, via: 'workspace' }
 }
@@ -152,7 +159,7 @@ export function classifyAnchorHref(href: string, context: DocumentPathContext): 
   }
   if (body.startsWith('//')) return { kind: 'blocked' }
   if (body.startsWith('/')) {
-    if (!context.allowRootRelative) return { kind: 'blocked' }
+    if (context.kind !== 'workspace') return { kind: 'blocked' }
     const rel = resolveRelativePath('', decode(body.slice(1)))
     if (rel === undefined) return { kind: 'blocked' }
     return fragment === undefined
@@ -161,7 +168,7 @@ export function classifyAnchorHref(href: string, context: DocumentPathContext): 
   }
   const rel = resolveRelativePath(context.baseDir, decode(body))
   if (rel === undefined) return { kind: 'blocked' }
-  const absolute = context.baseDir.startsWith('/')
+  const absolute = context.kind === 'external-file'
   return fragment === undefined
     ? { kind: 'document', path: rel, absolute }
     : { kind: 'document', path: rel, absolute, fragment: decode(fragment) }
