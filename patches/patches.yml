@@ -38,7 +38,7 @@ patches:
   - file: 0011-llm-input-transform-seam.patch
     reason: |
       精确模型能力解析后、适配器 dispatch 前没有公开输入变换钩子。保留通用
-      registerInputTransform 与序列/卸载契约；图片转写、缓存和媒体策略均在
+      registerInputTransform 与序列/卸载契约，并传入本次实际工具名称以避免不可读取的图片引用；图片转写、缓存和媒体策略均在
       @dsh-desktop/vision 插件，不改变模型原生能力。上游提供等价 pre-dispatch API 后撤。
   - file: 0012-core-session-rewind-tombstone.patch
     reason: |

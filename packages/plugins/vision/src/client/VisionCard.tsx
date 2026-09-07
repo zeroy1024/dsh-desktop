@@ -27,6 +27,22 @@ export function VisionCard(props: VisionCardProps) {
         onReset={() => { props.resetField('enabled') }}
       />
       <SelectField
+        id="plugin-config-vision-transcription-mode"
+        label={t('transcriptionMode')}
+        hint={t('transcriptionModeHint')}
+        overriddenLabel={t('overridden')}
+        resetLabel={t('reset')}
+        invalidLabel={t('invalid')}
+        disabled={disabled}
+        options={[
+          { value: 'on-demand', label: t('transcriptionModeOnDemand') },
+          { value: 'immediate', label: t('transcriptionModeImmediate') },
+        ]}
+        {...state.transcriptionMode}
+        onEdit={text => { props.edit('transcriptionMode', text) }}
+        onReset={() => { props.resetField('transcriptionMode') }}
+      />
+      <SelectField
         id="plugin-config-vision-protocol"
         label={t('protocol')}
         hint={t('protocolHint')}

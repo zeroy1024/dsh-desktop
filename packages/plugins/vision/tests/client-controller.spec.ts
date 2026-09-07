@@ -180,3 +180,29 @@ describe('vision card credential slot', () => {
     expect(describeCredential).toHaveBeenCalledWith({ refs: [DEFAULT_API_KEY_REF, LEGACY_API_KEY_REF] })
   })
 })
+
+it('defaults to on-demand and stages, discards, saves and resets transcription mode', async () => {
+  const scope = fakeScope({})
+  const snapshot = scope.getSnapshot()
+  scope.set = async (field, value) => {
+    snapshot.user = { ...(snapshot.user as object), [field]: value }
+    snapshot.value = { ...snapshot.value, [field]: value }
+    snapshot.revision = (snapshot.revision ?? 0) + 1
+  }
+  scope.unset = async () => { snapshot.user = {}; snapshot.value = {} }
+  const face = new VisionCardController(scope, undefined).inject()
+  expect(face.hooks.visionCard.getSnapshot().transcriptionMode.text).toBe('on-demand')
+  face.edit('transcriptionMode','immediate')
+  expect(snapshot.user).toEqual({})
+  face.discard()
+  expect(face.hooks.visionCard.getSnapshot().transcriptionMode.text).toBe('on-demand')
+  face.edit('transcriptionMode','immediate');face.save()
+  await waitForCalls()
+  expect(snapshot.user).toEqual({transcriptionMode:'immediate'})
+  face.resetField('transcriptionMode');face.save()
+  await waitForCalls()
+  expect(snapshot.user).toEqual({})
+  expect(face.hooks.visionCard.getSnapshot().transcriptionMode.text).toBe('on-demand')
+  face.edit('transcriptionMode','not-a-mode')
+  expect(face.hooks.visionCard.getSnapshot().invalid).toBe(true)
+})

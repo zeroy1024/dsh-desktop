@@ -26,7 +26,7 @@ diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
 index cdecc4c..af02e82 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
-@@ -184,6 +184,37 @@ export interface PreparedAdapterCall {
+@@ -184,6 +184,39 @@ export interface PreparedAdapterCall {
    stream(options: GenerateOptions): AsyncIterable<StreamChunk>
  }
  
@@ -49,6 +49,8 @@ index cdecc4c..af02e82 100644
 +  readonly inputModalities: readonly ModelModality[] | undefined
 +  /** Messages for this attempt; the session's durable list is never supplied for mutation. */
 +  readonly messages: readonly Message[]
++  /** Tool names actually offered by this attempt; policies must not invent unavailable tools. */
++  readonly toolNames?: readonly string[]
 +  /** Cancellation owned by the caller of this model attempt. */
 +  readonly signal?: AbortSignal
 +}
@@ -64,7 +66,7 @@ index cdecc4c..af02e82 100644
  /**
   * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
   * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
-@@ -330,6 +361,7 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -330,6 +363,7 @@ export class LlmRuntime extends TypertRemoteService {
      string,
      (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
    >()
@@ -72,7 +74,7 @@ index cdecc4c..af02e82 100644
  
    constructor(ctx: Context) {
      super(ctx, 'llm')
-@@ -567,6 +599,39 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -567,6 +601,39 @@ export class LlmRuntime extends TypertRemoteService {
      return () => void dispose()
    }
  
@@ -112,7 +114,7 @@ index cdecc4c..af02e82 100644
    /**
     * Interrogate one provider endpoint for the models it advertises. The
     * request describes a draft, not a stored route, so nothing here reads or
-@@ -956,6 +1021,52 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -956,6 +1023,53 @@ export class LlmRuntime extends TypertRemoteService {
      return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
    }
  
@@ -142,6 +144,7 @@ index cdecc4c..af02e82 100644
 +        model: options.model,
 +        inputModalities,
 +        messages: Object.freeze([...messages]),
++        toolNames: Object.freeze((options.tools ?? []).map(tool => tool.name)),
 +        ...options.signal === undefined ? {} : { signal: options.signal },
 +      })
 +      const result = await waitForAbort(
@@ -165,7 +168,7 @@ index cdecc4c..af02e82 100644
    /**
     * Final adapter boundary. Adapter selection, dispatch, iterator construction,
     * and iteration failures become one terminal failure chunk. Middleware and
-@@ -966,12 +1077,15 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -966,12 +1080,15 @@ export class LlmRuntime extends TypertRemoteService {
      prepared?: PreparedDispatch,
    ): AsyncGenerator<StreamChunk> {
      let iterator: AsyncIterator<StreamChunk>
@@ -186,7 +189,7 @@ index cdecc4c..af02e82 100644
        if (prepared === undefined) {
          const adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal)
          modelInfo = this.normalizeModelInfo(registration, options.model, adapterCall.model)
-@@ -988,18 +1102,33 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -988,18 +1105,33 @@ export class LlmRuntime extends TypertRemoteService {
            'INVALID_PREPARED_CALL',
          )
        }
@@ -228,7 +231,7 @@ index cdecc4c..af02e82 100644
        const stream = dispatch(this.forAdapter(projectedOptions, adapter))
        iterator = stream[Symbol.asyncIterator]()
      } catch (error: unknown) {
-@@ -1089,4 +1218,22 @@ interface PreparedDispatch {
+@@ -1089,4 +1221,22 @@ interface PreparedDispatch {
    readonly dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
  }
  

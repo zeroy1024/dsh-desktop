@@ -3,8 +3,9 @@
  *
  * The conversation model never changes provider or model.  The plugin only
  * checks each route's declared input capabilities and, when a text-only route
- * receives an image, asks a separately configured vision model for bounded
- * textual evidence. Capability admission is exposed through the
+ * receives an image, projects cached evidence or a callable image reference.
+ * Current-turn images and immediate mode use bounded auxiliary transcription.
+ * Capability admission is exposed through the
  * `imageInputAdmission` service; this plugin never mutates the provider's
  * native model metadata. Images are transformed only for the current model
  * dispatch through the `imageInputTransform` service. The `llm/stream` bridge
@@ -13,6 +14,8 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { EvidenceStore, EvidenceQueue } from './evidence-store.ts'
+import { installOnDemand, projectOnDemand, immediateOptions } from './on-demand.ts'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { createRequire } from 'node:module'
@@ -28,6 +31,7 @@ import {
   DEFAULT_PROTOCOL,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_TIMEOUT_MS,
+  DEFAULT_TRANSCRIPTION_MODE,
   DEFAULT_UNKNOWN_CAPABILITY_POLICY,
   LEGACY_DEFAULT_API_KEY_ENV,
   LEGACY_VISION_PLUGIN_NAME,
@@ -149,6 +153,7 @@ export const DEFAULT_PROMPT = `请用中文把这张图片转成结构化证据�
 
 /** Settings schema. Legacy target fields remain parseable but are ignored. */
 export const Config: z<VisionConfig> = z.object({
+  transcriptionMode: z.union(['on-demand', 'immediate']).default(DEFAULT_TRANSCRIPTION_MODE),
   enabled: z.boolean().default(true),
   protocol: z.union(['openai-responses', 'openai-chat', 'anthropic']).default(DEFAULT_PROTOCOL),
   /** Empty means not configured; the Host never guesses a provider endpoint. */
@@ -179,6 +184,7 @@ export const Config: z<VisionConfig> = z.object({
 })
 
 export const DEFAULT_CONFIG: Required<VisionConfig> = {
+  transcriptionMode: DEFAULT_TRANSCRIPTION_MODE,
   enabled: true,
   protocol: DEFAULT_PROTOCOL,
   baseURL: '',
@@ -263,7 +269,7 @@ interface ContextLike {
   get: (key: string) => unknown
   provide?: (key: string, service: unknown) => unknown
   on?: (event: string, listener: (...args: any[]) => unknown, options?: unknown) => unknown
-  effect?: (factory: () => void | (() => void | Promise<void>), name?: string) => unknown
+  effect?: (factory: () => void | (() => void | Promise<void>) | Promise<() => Promise<void>>, name?: string) => unknown
 }
 
 interface VisionContext extends ContextLike {
@@ -298,6 +304,7 @@ export type ImageInputTransformResult = readonly Message[] | undefined
 export interface ImageInputTransformRequest {
   provider: string
   model: string
+  toolNames?: readonly string[]
   messages: readonly Message[]
   inputModalities?: readonly string[]
   signal?: AbortSignal
@@ -354,6 +361,9 @@ export function validateConfig(value: VisionConfig): void {
   if (prompt.trim() === '' || prompt.length > MAX_PROMPT_CHARS) {
     throw new VisionError(`vision prompt must contain 1-${MAX_PROMPT_CHARS} characters`, 'VISION_INVALID_CONFIG')
   }
+  if (value.transcriptionMode !== undefined && !['on-demand', 'immediate'].includes(value.transcriptionMode)) {
+    throw new VisionError('invalid transcriptionMode', 'VISION_INVALID_CONFIG')
+  }
   const timeout = value.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxTokens = value.anthropicMaxTokens ?? DEFAULT_ANTHROPIC_MAX_TOKENS
   const describeTokens = value.describeMaxTokens ?? DEFAULT_DESCRIBE_MAX_TOKENS
@@ -391,6 +401,7 @@ export function resolveOptions(ctx: ContextLike, config: VisionConfig = DEFAULT_
     model: stringValue(merged.model, DEFAULT_MODEL),
     prompt: stringValue(merged.prompt, DEFAULT_PROMPT),
     effort: stringValue(merged.reasoningEffort, DEFAULT_REASONING_EFFORT),
+    transcriptionMode: merged.transcriptionMode,
     timeoutMs: integerValue(merged.requestTimeoutMs, DEFAULT_TIMEOUT_MS),
     apiVersion: stringValue(merged.anthropicApiVersion, DEFAULT_ANTHROPIC_API_VERSION),
     maxTokens: integerValue(merged.anthropicMaxTokens, DEFAULT_ANTHROPIC_MAX_TOKENS),
@@ -654,7 +665,7 @@ function failureText(result: EvidenceResult): string {
   return `[图片未能由视觉模型转写：${truncateText(message, 300)}。请检查 vision 配置。]`
 }
 
-interface RewriteState {
+export interface RewriteState {
   opts: VisionOptions
   attachments: AttachmentsService
   cache: EvidenceCache
@@ -671,7 +682,10 @@ interface PendingEvidence {
 
 // A shared operation has its own cancellation signal. One caller leaving must
 // not cancel another caller's image; the last waiter leaving cancels the work.
+const stores = new WeakMap<EvidenceCache, EvidenceStore>()
+
 interface CacheOperations {
+  queue: EvidenceQueue
   pending: Map<string, PendingEvidence>
   active: Set<PendingEvidence>
 }
@@ -684,28 +698,40 @@ function cancelEvidenceOperations(cache: EvidenceCache): void {
   operations.pending.clear()
 }
 
-async function imageBlockResult(block: ImageBlock, state: RewriteState): Promise<EvidenceResult & { key: string }> {
+export async function imageBlockResult(block: ImageBlock, state: RewriteState): Promise<EvidenceResult & { key: string }> {
   if (state.signal?.aborted === true) throw visionAborted(state.signal)
   const key = evidenceKey(block, state.opts)
   const existing = state.cache.get(key)
   if (existing !== undefined) return { key, ...(await abortableWait(existing, state.signal)) }
   let operations = evidenceOperations.get(state.cache)
   if (operations === undefined) {
-    operations = { pending: new Map(), active: new Set() }
+    operations = { pending: new Map(), active: new Set(), queue: new EvidenceQueue(2) }
     evidenceOperations.set(state.cache, operations)
   }
-  const { pending, active } = operations
+  const { pending, active, queue } = operations
   let operation = pending.get(key)
   if (operation === undefined) {
     const controller = new AbortController()
     const created: PendingEvidence = {
       controller, consumers: 0, settled: false,
-      promise: describeAttachment(state.opts, state.attachments, block, state.focus, controller.signal)
+      promise: queue.run(async () => {
+        const repository = stores.get(state.cache)
+        const stored = repository === undefined ? undefined : await abortableWait(repository.get(key), controller.signal)
+        if (stored !== undefined) return stored.text
+        return describeAttachment(state.opts, state.attachments, block, state.focus, controller.signal)
+      }, controller.signal)
         .then(text => ({ ok: true, text } satisfies EvidenceResult), failureResult)
-        .then(result => {
+        .then(async result => {
           // Failures (including cancellation) never enter the reusable cache.
           if (result.ok && !controller.signal.aborted && pending.get(key) === created) {
             state.cache.set(key, Promise.resolve(result))
+            if (state.opts.evidenceContext !== undefined) {
+              await stores.get(state.cache)?.put(key, {
+                ...state.opts.evidenceContext,
+                attachmentId: String((block.attachment as { attachmentId?: unknown })?.attachmentId ?? ''),
+                configVersion: configFingerprint(state.opts), text: result.text,
+              })
+            }
           }
           return result
         })
@@ -864,8 +890,10 @@ export function installImageInputTransform(
 
       const attachments = ctx.get('attachments') as AttachmentsService | undefined
       if (attachments === undefined) return undefined
+      const projected = await projectOnDemand(ctx, opts, cache, request)
+      if (projected !== undefined) return projected
       const focus = opts.focusHint ? extractFocus(request.messages) : ''
-      return rewriteMessages(opts, attachments, cache, request.messages, focus, request.signal)
+      return rewriteMessages(immediateOptions(ctx, opts), attachments, cache, request.messages, focus, request.signal)
     },
   }
   ctx.provide('imageInputTransform', service)
@@ -919,9 +947,11 @@ export function installBridge(
     getOptions,
     configured: bridgeConfigured,
     resolveInfo,
-    rewrite: (opts, messages, focus, signal) => rewriteMessages(
-      opts, ctx.get('attachments') as AttachmentsService, cache, messages, focus, signal,
-    ),
+    rewrite: async (opts, messages, focus, signal, toolNames) => {
+      const request = { provider: '', model: '', messages, signal, toolNames }
+      return await projectOnDemand(ctx, opts, cache, request)
+        ?? rewriteMessages(immediateOptions(ctx, opts), ctx.get('attachments') as AttachmentsService, cache, messages, focus, signal)
+    },
   })
 }
 
@@ -961,6 +991,10 @@ export function apply(ctx: VisionContext, config?: VisionConfig): void {
     })
   })
   const getOptions = (): VisionOptions => resolveOptions(ctx, current())
+  const store = new EvidenceStore()
+  stores.set(cache, store)
+  store.install(ctx)
+  installOnDemand(ctx, getOptions, cache)
   installImageInputAdmission(ctx, getOptions)
   const resolveInfo = getModelInfoResolver(ctx)
   const registered = installImageInputTransform(ctx, getOptions, cache, resolveInfo)
@@ -969,4 +1003,18 @@ export function apply(ctx: VisionContext, config?: VisionConfig): void {
     cancelEvidenceOperations(cache)
     cache.clear()
   }, 'dsh-vision: evidence cache')
+}
+
+/** Read successful evidence without starting a vision operation. */
+export async function cachedEvidence(cache: EvidenceCache, block: ImageBlock, opts: VisionOptions, signal?: AbortSignal): Promise<EvidenceResult | undefined> {
+  if (signal?.aborted) throw visionAborted(signal)
+  const key = evidenceKey(block, opts)
+  const memory = cache.get(key)
+  if (memory !== undefined) return abortableWait(memory, signal)
+  const repository = stores.get(cache)
+  const row = repository === undefined ? undefined : await abortableWait(repository.get(key), signal)
+  if (row === undefined) return undefined
+  const result = { ok: true, text: row.text }
+  cache.set(key, Promise.resolve(result))
+  return result
 }

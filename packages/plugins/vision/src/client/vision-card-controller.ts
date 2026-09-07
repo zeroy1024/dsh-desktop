@@ -30,6 +30,7 @@ const UNKNOWN_CAPABILITY_POLICIES = ['passthrough', 'bridge'] as const
 const DEFAULT_UNKNOWN_CAPABILITY_POLICY = 'passthrough'
 
 export interface VisionSettings {
+  transcriptionMode?: 'on-demand' | 'immediate'
   enabled?: boolean
   protocol?: string
   baseURL?: string
@@ -61,6 +62,7 @@ interface CredentialSelection {
 }
 
 export interface VisionCardState extends CardShell {
+  transcriptionMode: CardFieldState
   enabled: CardFieldState
   protocol: CardFieldState
   baseURL: CardFieldState
@@ -144,6 +146,7 @@ export class VisionCardController {
       scope,
       [
         booleanField('enabled'),
+        enumField('transcriptionMode', ['on-demand', 'immediate'], 'on-demand'),
         enumField('protocol', ['openai-responses', 'openai-chat', 'anthropic']),
         textField('baseURL'),
         textField('model'),
@@ -178,6 +181,7 @@ export class VisionCardController {
     return {
       ...this.form.shell(),
       enabled: this.form.field('enabled'),
+      transcriptionMode: this.form.field('transcriptionMode'),
       protocol: this.form.field('protocol'),
       baseURL: this.form.field('baseURL'),
       model: this.form.field('model'),

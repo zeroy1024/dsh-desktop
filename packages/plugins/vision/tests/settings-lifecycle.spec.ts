@@ -7,8 +7,7 @@ it('registers its settings when the optional provider activates after the plugin
   const context = {
     get: () => undefined,
     inject: (keys: readonly string[], callback: (scope: Scope) => void) => {
-      expect(keys).toEqual(['settings'])
-      attach = callback
+      if (keys.includes('settings')) attach = callback
     },
     web: { registerSearchProvider: vi.fn() },
   }

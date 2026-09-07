@@ -1,6 +1,10 @@
 export const NS = 'vision'
 
 export const zh = {
+  transcriptionMode: '转写方式',
+  transcriptionModeHint: '按需：新图自动转写，历史图片需要时读取。立即：发送前处理全部图片，历史较多时可能等待较久。',
+  transcriptionModeOnDemand: '按需转写（默认）',
+  transcriptionModeImmediate: '立即转写',
   title: '视觉理解',
   description: '为不支持图片输入的模型补充图片理解能力。',
   enabled: '启用图片理解桥',
@@ -50,6 +54,10 @@ export const zh = {
 }
 
 export const en = {
+  transcriptionMode: 'Transcription mode',
+  transcriptionModeHint: 'On demand: describe new images automatically and read historical images when needed. Immediate: process all images before sending; long histories may take time.',
+  transcriptionModeOnDemand: 'On demand (default)',
+  transcriptionModeImmediate: 'Immediate',
   title: 'Vision understanding',
   description: 'Adds image understanding for models that cannot accept images.',
   enabled: 'Enable image bridge',

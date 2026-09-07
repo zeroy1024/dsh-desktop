@@ -306,7 +306,7 @@ describe('vision host safety', () => {
     const ctx = {
       get: (keyName: string) => keyName === 'llm' ? llm : undefined,
       provide: (_key: string, _value: unknown) => {},
-      effect: (factory: () => void | (() => void | Promise<void>), name?: string) => {
+      effect: (factory: () => void | (() => void | Promise<void>) | Promise<() => Promise<void>>, name?: string) => {
         effectName = name
         const produced = factory()
         cleanup = typeof produced === 'function' ? produced : undefined

@@ -55,11 +55,15 @@ export const MEDIA_TYPES = {
   'image/gif': true,
 } as const
 
+export type TranscriptionMode = 'on-demand' | 'immediate'
+export const DEFAULT_TRANSCRIPTION_MODE: TranscriptionMode = 'on-demand'
+
 export type VisionProtocol = 'openai-responses' | 'openai-chat' | 'anthropic'
 export type UnknownCapabilityPolicy = 'passthrough' | 'bridge'
 
 /** Configuration stored in the `vision` settings namespace. */
 export interface VisionConfig {
+  transcriptionMode?: TranscriptionMode
   enabled?: boolean
   protocol?: VisionProtocol
   baseURL?: string
@@ -85,6 +89,9 @@ export interface VisionConfig {
 
 /** Fully projected configuration used by one image operation. */
 export interface VisionOptions {
+  transcriptionMode?: TranscriptionMode
+  /** Internal identity for session-owned derived evidence, never persisted as settings. */
+  evidenceContext?: { sessionId: string; category: 'general' | 'question' | 'immediate'; question?: string }
   enabled: boolean
   protocol: VisionProtocol
   baseURL: string
@@ -253,7 +260,7 @@ export function evidenceKey(
     mediaType: attachment?.mediaType,
     bytes: attachment?.bytes,
   }
-  return `dsh-vision:v1:${stableDigest(jsonForKey(attachmentIdentity))}:${configFingerprint(opts)}`
+  return `dsh-vision:v2:${stableDigest(jsonForKey(attachmentIdentity))}:${configFingerprint(opts)}:${stableDigest(jsonForKey(opts.evidenceContext ?? null))}`
 }
 
 /** Recursively detect images, including nested tool-result content. */

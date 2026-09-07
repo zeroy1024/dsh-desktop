@@ -9,6 +9,7 @@ interface GenerateOptions extends Record<string, unknown> {
   model?: string
   messages?: readonly Message[]
   signal?: AbortSignal
+  tools?: readonly { name: string }[]
 }
 
 interface StreamContext {
@@ -25,6 +26,7 @@ interface LegacyStreamAdapter {
     messages: readonly Message[],
     focus: string,
     signal?: AbortSignal,
+    toolNames?: readonly string[],
   ) => Promise<readonly Message[]>
 }
 
@@ -45,7 +47,7 @@ export function installLegacyStreamBridge(ctx: StreamContext, adapter: LegacyStr
         return
       }
       const focus = opts.focusHint ? extractFocus(options.messages ?? []) : ''
-      const messages = await adapter.rewrite(opts, options.messages ?? [], focus, options.signal)
+      const messages = await adapter.rewrite(opts, options.messages ?? [], focus, options.signal, options.tools?.map(tool => tool.name))
       yield* llm.stream?.({ ...options, messages, [MARKER]: true }) ?? next()
     })()
   })

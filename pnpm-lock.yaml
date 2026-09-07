@@ -708,13 +708,22 @@ importers:
 
   packages/plugins/vision:
     dependencies:
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-storage-domain
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/schemastery
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/schemastery
+      zod:
+        specifier: link:../../../vendor/dsh-cli/node_modules/zod
+        version: link:../../../vendor/dsh-cli/node_modules/zod
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-agent
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-agent
       '@deepseek-ai/dsh-credentials':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-credentials
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-credentials
@@ -724,9 +733,15 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-llm
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-session
       '@deepseek-ai/dsh-settings':
         specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-settings
         version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-settings
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-tools
+        version: link:../../../vendor/dsh-cli/node_modules/@deepseek-ai/dsh-tools
       '@dsh-desktop/plugin-kit':
         specifier: workspace:*
         version: link:../../plugin-kit
