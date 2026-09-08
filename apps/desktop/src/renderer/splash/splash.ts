@@ -46,7 +46,6 @@ const REDUCED_MOTION =
 const splash = document.querySelector<HTMLElement>('#splash')
 const errorMessage = document.querySelector<HTMLElement>('#error-message')
 const inkLevel = splash?.querySelector<SVGGElement>('.ink-level') ?? null
-const whaleBob = splash?.querySelector<HTMLElement>('.whale-bob') ?? null
 
 // 平台写入 dataset：CSS 据此为非 darwin 平台回落不透明白底
 document.documentElement.dataset.dshPlatform = window.dshSplash?.platform ?? ''
@@ -85,33 +84,8 @@ function stopProgressCreep(): void {
   }
 }
 
-/**
- * 定格前把呼吸动画的当前位移接住，再缓回 translateY(0)。
- * 直接摘掉 `bob` 动画会从最高 2px 处瞬间归零，看起来像图标往上跳。
- */
-function settleBob(): void {
-  if (whaleBob === null) return
-  const computed = getComputedStyle(whaleBob).transform
-  whaleBob.style.animation = 'none'
-  whaleBob.style.transform = computed === 'none' ? 'translateY(0px)' : computed
-  void whaleBob.getBoundingClientRect()
-  const duration = REDUCED_MOTION ? 0.1 : 0.35
-  whaleBob.style.transition = `transform ${duration}s ease`
-  whaleBob.style.transform = 'translateY(0px)'
-}
-
-function resetBob(): void {
-  if (whaleBob === null) return
-  whaleBob.style.animation = ''
-  whaleBob.style.transition = ''
-  whaleBob.style.transform = ''
-}
-
 function applyPhase(phase: SplashPhase, message?: string): void {
   if (splash === null) return
-  // 切走 loading 之前先冻结呼吸位移，否则 class 一换动画被掐、图标会跳
-  if (phase === 'sealed' || phase === 'error') settleBob()
-  if (phase === 'starting') resetBob()
 
   for (const name of Object.values(PHASE_CLASSES)) splash.classList.remove(name)
   splash.classList.add(PHASE_CLASSES[phase])

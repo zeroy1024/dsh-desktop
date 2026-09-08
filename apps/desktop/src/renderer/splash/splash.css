@@ -107,25 +107,6 @@ html[data-dsh-platform]:not([data-dsh-platform='darwin']) #splash {
   width: clamp(56px, 7vmin, 84px);
 }
 
-/* 等待期呼吸：分层在 .whale-bob，避免和水位 transform 冲突 */
-.whale-bob {
-  will-change: transform;
-}
-
-.phase-starting .whale-bob,
-.phase-loading .whale-bob {
-  animation: bob 3.6s ease-in-out infinite alternate;
-}
-
-@keyframes bob {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(2px);
-  }
-}
-
 .whale-svg {
   display: block;
   width: 100%;
@@ -225,7 +206,6 @@ html[data-dsh-platform]:not([data-dsh-platform='darwin']) #splash {
 
 /* 减少动态效果：保留必要的状态变化，去掉装饰性动画 */
 @media (prefers-reduced-motion: reduce) {
-  .whale-bob,
   .ink-back,
   .ink-front {
     animation: none;
