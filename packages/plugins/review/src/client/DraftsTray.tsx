@@ -2,7 +2,7 @@
  * DraftsTray：审查意见草稿托盘（页面底部）。列出全部行级草稿，
  * 一键回灌为一条会话消息（发送即清空；发送态内联呈现，不用浮层）。
  */
-import { IconSendOutline14, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconSendOutline14, IconTrashOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { draftAnchorLabel, type CommentDraft } from './comments.ts'
 import type { Translate } from './types.ts'
 import css from './ReviewPage.module.css'
@@ -49,15 +49,16 @@ export function DraftsTray({ drafts, sendState, sentCount, t, onRemove, onSend, 
               <li key={`${draft.path}-${draft.editSeq}-${draft.hunkIndex}-${draft.side}-${draft.lineIndex}`} className={css.draftItem}>
                 <div className={css.draftAnchor} title={draftAnchorLabel(draft, 120)}>{draftAnchorLabel(draft)}</div>
                 <div className={css.draftComment}>{draft.comment}</div>
-                <button
-                  type="button"
-                  className={css.iconBtn}
-                  title={t('action.remove')}
-                  aria-label={t('action.remove')}
-                  onClick={() => { onRemove(index) }}
-                >
-                  <IconTrashOutline16 size={14} />
-                </button>
+                <Tooltip label={t('action.remove')} side="bottom" delayMs={500}>
+                  <button
+                    type="button"
+                    className={css.iconBtn}
+                    aria-label={t('action.remove')}
+                    onClick={() => { onRemove(index) }}
+                  >
+                    <IconTrashOutline16 size={14} />
+                  </button>
+                </Tooltip>
               </li>
             ))}
           </ul>

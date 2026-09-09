@@ -17,6 +17,15 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     newText: string
   }
 
+  /** 悬浮/聚焦提示气泡：cloneElement 包住锚点元素，不产生包装节点。 */
+  export function Tooltip(props: {
+    label: string
+    side?: 'top' | 'bottom' | 'right'
+    delayMs?: number
+    disabled?: boolean
+    children: ReactElement
+  }): ReactElement
+
   export const IconChecklistOutline14: (props: { size?: number; className?: string }) => ReactElement
   export const IconChevronRightOutline14: (props: { size?: number; className?: string }) => ReactElement
   export const IconChevronDownOutline14: (props: { size?: number; className?: string }) => ReactElement

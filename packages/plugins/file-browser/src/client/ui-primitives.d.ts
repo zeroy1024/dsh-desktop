@@ -26,6 +26,8 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export const Tooltip: (props: {
     label: string | (() => string)
     side?: 'top' | 'right' | 'bottom' | 'left'
+    delayMs?: number
+    disabled?: boolean
     children: ReactElement
   }) => ReactElement
 

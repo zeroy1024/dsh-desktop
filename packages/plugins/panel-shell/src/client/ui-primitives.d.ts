@@ -19,6 +19,15 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export const IconCordisPluginOutline14: (props: IconProps) => ReactElement
   export const IconDataOutline16: (props: IconProps) => ReactElement
 
+  /** 悬浮/聚焦提示气泡：cloneElement 包住锚点元素，不产生包装节点。 */
+  export function Tooltip(props: {
+    label: string
+    side?: 'top' | 'bottom' | 'right'
+    delayMs?: number
+    disabled?: boolean
+    children: ReactElement
+  }): ReactElement
+
   /** 浮层菜单（portal 渲染）：anchor 为触发元素，items 选中即回调。 */
   export interface MenuItem {
     id: string

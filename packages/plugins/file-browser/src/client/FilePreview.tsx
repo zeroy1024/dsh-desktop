@@ -11,7 +11,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button, CodeBlock, IconBrowseOutline16, IconChevronRightOutline14, IconCloseFill14, Menu,
-  writeClipboard,
+  Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useHorizontalTabScroll } from '@dsh-desktop/panel-shell/client'
 import { documentParent } from './document-links.ts'
@@ -163,18 +163,19 @@ export const FilePreview = memo(function FilePreview({
     <div className={css.previewCol}>
       <div className={css.fileHeader}>
         {treeHidden && (
-          <button
-            data-file-tree-restore=""
-            type="button"
-            className={css.treeRestoreButton}
-            aria-label={t('tree.show')}
-            aria-controls="file-browser-tree"
-            aria-expanded="false"
-            title={t('tree.show')}
-            onClick={onToggleTree}
-          >
-            <span aria-hidden="true"><IconChevronRightOutline14 size={14} /></span>
-          </button>
+          <Tooltip label={t('tree.show')} side="bottom" delayMs={500}>
+            <button
+              data-file-tree-restore=""
+              type="button"
+              className={css.treeRestoreButton}
+              aria-label={t('tree.show')}
+              aria-controls="file-browser-tree"
+              aria-expanded="false"
+              onClick={onToggleTree}
+            >
+              <span aria-hidden="true"><IconChevronRightOutline14 size={14} /></span>
+            </button>
+          </Tooltip>
         )}
         {tabs.openPaths.length > 0 && (
           <div ref={tabsRef} className={css.fileTabs} role="tablist" aria-label={t('tabs.aria')}>
@@ -191,17 +192,19 @@ export const FilePreview = memo(function FilePreview({
                 >
                   <FileIcon name={label} />
                   <span className={css.fileTabLabel}>{label}</span>
-                  <button
-                    type="button"
-                    className={css.fileTabClose}
-                    aria-label={`${t('tabs.close')}: ${label}`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onClose(path)
-                    }}
-                  >
-                    <IconCloseFill14 size={12} />
-                  </button>
+                  <Tooltip label={`${t('tabs.close')}: ${label}`} side="bottom" delayMs={500}>
+                    <button
+                      type="button"
+                      className={css.fileTabClose}
+                      aria-label={`${t('tabs.close')}: ${label}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onClose(path)
+                      }}
+                    >
+                      <IconCloseFill14 size={12} />
+                    </button>
+                  </Tooltip>
                 </span>
               )
             })}

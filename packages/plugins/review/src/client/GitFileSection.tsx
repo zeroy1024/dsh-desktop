@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import {
   IconCheckOutline14, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconCloseFill14, IconCopyOutline16,
+  IconCloseFill14, IconCopyOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitFile, GitHunk } from './gitdiff.ts'
 import { copyText } from './copy.ts'
@@ -59,17 +59,19 @@ export function GitFileSection({
   return (
     <section className={`${css.fileSection}${reviewed ? ` ${css.fileSectionReviewed}` : ''}`}>
       <div className={css.fileHeader}>
-        <button
-          type="button"
-          className={css.chevron}
-          aria-expanded={expanded}
-          aria-label={file.path}
-          onClick={onToggleExpanded}
-        >
-          {expanded
-            ? <IconChevronDownOutline14 size={14} />
-            : <IconChevronRightOutline14 size={14} />}
-        </button>
+        <Tooltip label={file.path} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={css.chevron}
+            aria-expanded={expanded}
+            aria-label={file.path}
+            onClick={onToggleExpanded}
+          >
+            {expanded
+              ? <IconChevronDownOutline14 size={14} />
+              : <IconChevronRightOutline14 size={14} />}
+          </button>
+        </Tooltip>
         <button type="button" className={css.filePath} title={file.path} onClick={onToggleExpanded}>
           <span className={css.filePathText}>{file.path}</span>
         </button>
@@ -82,18 +84,23 @@ export function GitFileSection({
             </span>}
         <span className={css.fileEditCount}>{status}</span>
         {draftsCount > 0 && <span className={css.fileDraftBadge}>{draftsCount}</span>}
-        <button
-          type="button"
-          className={css.iconBtn}
-          title={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
-          aria-label={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
-          aria-pressed={reviewed}
-          onClick={onToggleReviewed}
+        <Tooltip
+          label={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
+          side="bottom"
+          delayMs={500}
         >
-          {reviewed
-            ? <span className={css.reviewBoxChecked}><IconCheckOutline14 size={9} /></span>
-            : <span className={css.reviewBox} />}
-        </button>
+          <button
+            type="button"
+            className={css.iconBtn}
+            aria-label={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
+            aria-pressed={reviewed}
+            onClick={onToggleReviewed}
+          >
+            {reviewed
+              ? <span className={css.reviewBoxChecked}><IconCheckOutline14 size={9} /></span>
+              : <span className={css.reviewBox} />}
+          </button>
+        </Tooltip>
         {showRevert && (
           <button
             type="button"
@@ -103,17 +110,18 @@ export function GitFileSection({
             {armedRevert ? t('action.revertConfirm') : t('action.revert')}
           </button>
         )}
-        <button
-          type="button"
-          className={`${css.iconBtn}${copyState === 'ok' ? ` ${css.iconBtnReviewed}` : ''}${copyState === 'fail' ? ` ${css.iconBtnFail}` : ''}`}
-          title={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
-          aria-label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
-          onClick={copyDiff}
-        >
-          {copyState === 'ok' && <IconCheckOutline14 size={14} />}
-          {copyState === 'fail' && <IconCloseFill14 size={14} />}
-          {copyState === 'idle' && <IconCopyOutline16 size={14} />}
-        </button>
+        <Tooltip label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={`${css.iconBtn}${copyState === 'ok' ? ` ${css.iconBtnReviewed}` : ''}${copyState === 'fail' ? ` ${css.iconBtnFail}` : ''}`}
+            aria-label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
+            onClick={copyDiff}
+          >
+            {copyState === 'ok' && <IconCheckOutline14 size={14} />}
+            {copyState === 'fail' && <IconCloseFill14 size={14} />}
+            {copyState === 'idle' && <IconCopyOutline16 size={14} />}
+          </button>
+        </Tooltip>
       </div>
       {expanded && !file.binary && (
         <div className={`${css.fileBody} ${css.fileBodyGit}`}>
@@ -192,19 +200,20 @@ function GitHunkCard({
             </span>
             <span className={css.diffText}>{row.text}</span>
             {commentable && (
-              <button
-                type="button"
-                className={css.diffRowBtn}
-                title={t('diff.comment')}
-                aria-label={t('diff.comment')}
-                onClick={() => {
-                  setComposer(rowComposer !== null
-                    ? null
-                    : { rowId, line: row.newLine, lineText: row.text, value: '' })
-                }}
-              >
-                +
-              </button>
+              <Tooltip label={t('diff.comment')} side="bottom" delayMs={500}>
+                <button
+                  type="button"
+                  className={css.diffRowBtn}
+                  aria-label={t('diff.comment')}
+                  onClick={() => {
+                    setComposer(rowComposer !== null
+                      ? null
+                      : { rowId, line: row.newLine, lineText: row.text, value: '' })
+                  }}
+                >
+                  +
+                </button>
+              </Tooltip>
             )}
           </div>
           {rowComposer !== null && (

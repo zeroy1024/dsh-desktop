@@ -15,6 +15,14 @@ export const IconCloseFill14 = (_props: IconProps): ReactElement => <span data-i
 export const IconCopyOutline16 = (_props: IconProps): ReactElement => <span data-icon="copy" />
 
 export const IconRefreshOutline14 = (_props: IconProps): ReactElement => <span data-icon="refresh" />
+export const IconSendOutline14 = (_props: IconProps): ReactElement => <span data-icon="send" />
+export const IconTrashOutline16 = (_props: IconProps): ReactElement => <span data-icon="trash" />
+
+/** Tooltip 测试替身：直接透传锚点，不渲染气泡（悬浮行为不在单测面内）。 */
+export function Tooltip({ children }: { children: ReactElement }): ReactElement {
+  return children
+}
+
 export function Menu({ open, anchor, items, onSelect }: {
   open: boolean; anchor: ReactNode; items: readonly { id: string; label: string }[]; onSelect: (id: string) => void
 }): ReactElement {

@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import {
   IconCheckOutline14, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconCloseFill14, IconCopyOutline16,
+  IconCloseFill14, IconCopyOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EditEvent, FileReview } from './aggregate.ts'
 import { copyText } from './copy.ts'
@@ -77,17 +77,19 @@ export function FileSection({
   return (
     <section className={`${css.fileSection}${fileReviewed ? ` ${css.fileSectionReviewed}` : ''}`}>
       <div className={css.fileHeader}>
-        <button
-          type="button"
-          className={css.chevron}
-          aria-expanded={expanded}
-          aria-label={file.path}
-          onClick={onToggleExpanded}
-        >
-          {expanded
-            ? <IconChevronDownOutline14 size={14} />
-            : <IconChevronRightOutline14 size={14} />}
-        </button>
+        <Tooltip label={file.path} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={css.chevron}
+            aria-expanded={expanded}
+            aria-label={file.path}
+            onClick={onToggleExpanded}
+          >
+            {expanded
+              ? <IconChevronDownOutline14 size={14} />
+              : <IconChevronRightOutline14 size={14} />}
+          </button>
+        </Tooltip>
         <button type="button" className={css.filePath} title={file.path} onClick={onToggleExpanded}>
           <span className={css.filePathText}>{file.path}</span>
         </button>
@@ -99,29 +101,35 @@ export function FileSection({
         {/* 已审进度融合进编辑数徽章：n/total，标记一个 +1 */}
         <span className={css.fileEditCount}>{reviewedCount}/{file.edits.length}</span>
         {draftsCount > 0 && <span className={css.fileDraftBadge}>{draftsCount}</span>}
-        <button
-          type="button"
-          className={css.iconBtn}
-          title={fileReviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
-          aria-label={fileReviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
-          aria-pressed={fileReviewed}
-          onClick={onToggleFileReviewed}
+        <Tooltip
+          label={fileReviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
+          side="bottom"
+          delayMs={500}
         >
-          {fileReviewed && <span className={css.reviewBoxChecked}><IconCheckOutline14 size={9} /></span>}
-          {filePartial && <span className={css.reviewBox}><span className={css.dashMark} /></span>}
-          {!fileReviewed && !filePartial && <span className={css.reviewBox} />}
-        </button>
-        <button
-          type="button"
-          className={`${css.iconBtn}${copyState === 'ok' ? ` ${css.iconBtnReviewed}` : ''}${copyState === 'fail' ? ` ${css.iconBtnFail}` : ''}`}
-          title={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
-          aria-label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
-          onClick={copyDiff}
-        >
-          {copyState === 'ok' && <IconCheckOutline14 size={14} />}
-          {copyState === 'fail' && <IconCloseFill14 size={14} />}
-          {copyState === 'idle' && <IconCopyOutline16 size={14} />}
-        </button>
+          <button
+            type="button"
+            className={css.iconBtn}
+            aria-label={fileReviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
+            aria-pressed={fileReviewed}
+            onClick={onToggleFileReviewed}
+          >
+            {fileReviewed && <span className={css.reviewBoxChecked}><IconCheckOutline14 size={9} /></span>}
+            {filePartial && <span className={css.reviewBox}><span className={css.dashMark} /></span>}
+            {!fileReviewed && !filePartial && <span className={css.reviewBox} />}
+          </button>
+        </Tooltip>
+        <Tooltip label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={`${css.iconBtn}${copyState === 'ok' ? ` ${css.iconBtnReviewed}` : ''}${copyState === 'fail' ? ` ${css.iconBtnFail}` : ''}`}
+            aria-label={copyState === 'fail' ? t('action.copyFailed') : t('action.copyDiff')}
+            onClick={copyDiff}
+          >
+            {copyState === 'ok' && <IconCheckOutline14 size={14} />}
+            {copyState === 'fail' && <IconCloseFill14 size={14} />}
+            {copyState === 'idle' && <IconCopyOutline16 size={14} />}
+          </button>
+        </Tooltip>
       </div>
       {expanded && (
         <div className={css.fileBody}>
@@ -165,18 +173,23 @@ function EditSection({
           {' '}
           <span className={css.delCount}>-{edit.removed}</span>
         </span>
-        <button
-          type="button"
-          className={css.iconBtn}
-          title={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
-          aria-label={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
-          aria-pressed={reviewed}
-          onClick={onToggleReviewed}
+        <Tooltip
+          label={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
+          side="bottom"
+          delayMs={500}
         >
-          {reviewed
-            ? <span className={css.reviewBoxChecked}><IconCheckOutline14 size={9} /></span>
-            : <span className={css.reviewBox} />}
-        </button>
+          <button
+            type="button"
+            className={css.iconBtn}
+            aria-label={reviewed ? t('action.unmarkReviewed') : t('action.markReviewed')}
+            aria-pressed={reviewed}
+            onClick={onToggleReviewed}
+          >
+            {reviewed
+              ? <span className={css.reviewBoxChecked}><IconCheckOutline14 size={9} /></span>
+              : <span className={css.reviewBox} />}
+          </button>
+        </Tooltip>
       </div>
       <ReviewDiff hunks={edit.hunks} t={t} commentable={!reviewed} onLineComment={onLineComment} />
     </div>

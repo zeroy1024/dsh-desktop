@@ -13,7 +13,7 @@ import {
 } from 'react'
 import {
   IconChevronLeftOutline14, IconCopyOutline16, IconRefreshOutline14, IconSearchOutline16, Input,
-  writeClipboard,
+  Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   fsList, fsRead, fsReadAbsolute, openMux, fileActivityPaths,
@@ -563,37 +563,43 @@ export function FileBrowserPage({ sessionId, active, fileOpenMailbox, envelopeSo
                 />
               )
             : (
+              <Tooltip label={t('tree.filter')} side="bottom" delayMs={500}>
                 <button
                   type="button"
                   className={[css.refreshButton, css.searchButton].join(' ')}
                   aria-label={t('tree.filter')}
                   aria-controls="file-browser-filter"
                   aria-expanded="false"
-                  title={t('tree.filter')}
                   onClick={openFilter}
                 >
                   <IconSearchOutline16 size={14} />
                 </button>
-              )}
+              </Tooltip>
+            )}
           {selection.size > 1 && (
-            <button type="button" className={css.refreshButton} aria-label={t('tree.copySelected')} title={t('tree.copySelected')} onClick={copySelected}>
-              <IconCopyOutline16 size={14} />
-            </button>
+            <Tooltip label={t('tree.copySelected')} side="bottom" delayMs={500}>
+              <button type="button" className={css.refreshButton} aria-label={t('tree.copySelected')} onClick={copySelected}>
+                <IconCopyOutline16 size={14} />
+              </button>
+            </Tooltip>
           )}
-          <button type="button" className={css.refreshButton} aria-label={t('tree.refresh')} onClick={refresh}>
-            <IconRefreshOutline14 size={14} />
-          </button>
-          <button
-            type="button"
-            className={css.treeActionButton}
-            aria-label={t('tree.hide')}
-            aria-controls="file-browser-tree"
-            aria-expanded="true"
-            title={t('tree.hide')}
-            onClick={toggleTree}
-          >
-            <span aria-hidden="true"><IconChevronLeftOutline14 size={14} /></span>
-          </button>
+          <Tooltip label={t('tree.refresh')} side="bottom" delayMs={500}>
+            <button type="button" className={css.refreshButton} aria-label={t('tree.refresh')} onClick={refresh}>
+              <IconRefreshOutline14 size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('tree.hide')} side="bottom" delayMs={500}>
+            <button
+              type="button"
+              className={css.treeActionButton}
+              aria-label={t('tree.hide')}
+              aria-controls="file-browser-tree"
+              aria-expanded="true"
+              onClick={toggleTree}
+            >
+              <span aria-hidden="true"><IconChevronLeftOutline14 size={14} /></span>
+            </button>
+          </Tooltip>
         </div>
         <FileTree
           rows={rows}

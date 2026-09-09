@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { IconRefreshOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconRefreshOutline14, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Translate } from './types.ts'
 import css from './ReviewPage.module.css'
 
@@ -15,17 +15,21 @@ export function SummaryActions({ sortMode, onSort, allReviewed, onToggleReviewed
   const [open, setOpen] = useState(false)
   return (
     <div className={css.summaryActions}>
-      <button type="button" className={css.summaryButton} title={t('action.refresh')} aria-label={t('action.refresh')} onClick={onRefresh}>
-        <IconRefreshOutline14 size={14} />
-      </button>
+      <Tooltip label={t('action.refresh')} side="bottom" delayMs={500}>
+        <button type="button" className={css.summaryButton} aria-label={t('action.refresh')} onClick={onRefresh}>
+          <IconRefreshOutline14 size={14} />
+        </button>
+      </Tooltip>
       <Menu
         open={open}
         align="end"
         portal
         anchor={(
-          <button type="button" className={css.summaryButton} title={t('summary.actions')} aria-label={t('summary.actions')} aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
-            <span aria-hidden="true">⋯</span>
-          </button>
+          <Tooltip label={t('summary.actions')} side="bottom" delayMs={500}>
+            <button type="button" className={css.summaryButton} aria-label={t('summary.actions')} aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
+              <span aria-hidden="true">⋯</span>
+            </button>
+          </Tooltip>
         )}
         items={[
           { id: 'changes', label: `${sortMode === 'changes' ? '✓ ' : ''}${t('summary.sortByChanges')}` },

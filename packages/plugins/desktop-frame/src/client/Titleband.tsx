@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shouldStretchTitleband, titlebandWidthPx } from '../geometry.ts'
 import { markDesktopFrame } from '../mark.ts'
 import { desktopFrameT, type FrameLocaleStore } from './locales.ts'
@@ -204,28 +205,36 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
           ),
         }}
       >
-        <button
-          type="button"
-          data-dsh-cluster-button=""
-          aria-label={collapsed ? t('titleband.sidebar.expand') : t('titleband.sidebar.collapse')}
-          aria-expanded={!collapsed}
-          onClick={() => {
-            toggleSidebar()
-          }}
+        <Tooltip
+          label={collapsed ? t('titleband.sidebar.expand') : t('titleband.sidebar.collapse')}
+          side="bottom"
+          delayMs={500}
         >
-          <PanelIcon collapsed={collapsed} />
-        </button>
-        {collapsed ? (
           <button
             type="button"
             data-dsh-cluster-button=""
-            aria-label={t('titleband.newSession')}
+            aria-label={collapsed ? t('titleband.sidebar.expand') : t('titleband.sidebar.collapse')}
+            aria-expanded={!collapsed}
             onClick={() => {
-              startSession()
+              toggleSidebar()
             }}
           >
-            <PlusIcon />
+            <PanelIcon collapsed={collapsed} />
           </button>
+        </Tooltip>
+        {collapsed ? (
+          <Tooltip label={t('titleband.newSession')} side="bottom" delayMs={500}>
+            <button
+              type="button"
+              data-dsh-cluster-button=""
+              aria-label={t('titleband.newSession')}
+              onClick={() => {
+                startSession()
+              }}
+            >
+              <PlusIcon />
+            </button>
+          </Tooltip>
         ) : null}
         <ApplicationMenuBar frame={frame} />
       </div>
@@ -236,30 +245,40 @@ export function Titleband({ toggleSidebar, startSession, togglePanel, togglePane
           显式 no-drag（默认值 none 不挖），漏掉这行点击会被拖动手势吞掉。 */}
       <div data-dsh-panel-cluster="">
         {!panelCollapsed && (
+          <Tooltip
+            label={panelExpanded ? t('titleband.panel.restore') : t('titleband.panel.expand')}
+            side="bottom"
+            delayMs={500}
+          >
+            <button
+              type="button"
+              data-dsh-panel-expand=""
+              aria-label={panelExpanded ? t('titleband.panel.restore') : t('titleband.panel.expand')}
+              onClick={() => {
+                togglePanelExpand()
+              }}
+            >
+              <PanelExpandIcon expanded={panelExpanded} />
+            </button>
+          </Tooltip>
+        )}
+        <Tooltip
+          label={panelCollapsed ? t('titleband.panel.open') : t('titleband.panel.close')}
+          side="bottom"
+          delayMs={500}
+        >
           <button
             type="button"
-            data-dsh-panel-expand=""
-            aria-label={panelExpanded ? t('titleband.panel.restore') : t('titleband.panel.expand')}
-            title={panelExpanded ? t('titleband.panel.restore') : t('titleband.panel.expand')}
+            data-dsh-panel-toggle=""
+            aria-label={panelCollapsed ? t('titleband.panel.open') : t('titleband.panel.close')}
+            aria-expanded={!panelCollapsed}
             onClick={() => {
-              togglePanelExpand()
+              togglePanel()
             }}
           >
-            <PanelExpandIcon expanded={panelExpanded} />
+            <SidePanelIcon open={!panelCollapsed} />
           </button>
-        )}
-        <button
-          type="button"
-          data-dsh-panel-toggle=""
-          aria-label={panelCollapsed ? t('titleband.panel.open') : t('titleband.panel.close')}
-          aria-expanded={!panelCollapsed}
-          title={panelCollapsed ? t('titleband.panel.open') : t('titleband.panel.close')}
-          onClick={() => {
-            togglePanel()
-          }}
-        >
-          <SidePanelIcon open={!panelCollapsed} />
-        </button>
+        </Tooltip>
       </div>
     </>
   )

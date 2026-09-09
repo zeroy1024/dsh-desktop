@@ -9,7 +9,7 @@
  * titleband is an overlay that never covers the right column.
  */
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { IconCloseFill14, IconPlusOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseFill14, IconPlusOutline16, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PanelShellComponentProps } from './types.ts'
 import type { PanelPageMeta } from './registry.ts'
 import { isPageVisible, resolveVisibleActiveId } from './registry.ts'
@@ -115,14 +115,16 @@ export const PanelShell = memo(function PanelShell({ ledger, handoff, renderSlot
                       <span className={css.tabLabel}>{meta.title()}</span>
                       {badge !== undefined && badge > 0 && <span className={css.badge}>{badge}</span>}
                     </button>
-                    <button
-                      type="button"
-                      className={css.tabClose}
-                      aria-label={`${t('tab.close')}: ${meta.title()}`}
-                      onClick={() => { closePage(id) }}
-                    >
-                      <IconCloseFill14 size={12} />
-                    </button>
+                    <Tooltip label={`${t('tab.close')}: ${meta.title()}`} side="bottom" delayMs={500}>
+                      <button
+                        type="button"
+                        className={css.tabClose}
+                        aria-label={`${t('tab.close')}: ${meta.title()}`}
+                        onClick={() => { closePage(id) }}
+                      >
+                        <IconCloseFill14 size={12} />
+                      </button>
+                    </Tooltip>
                   </div>
                 )
               })}
@@ -135,15 +137,17 @@ export const PanelShell = memo(function PanelShell({ ledger, handoff, renderSlot
                 open={menuOpen && available.length > 0}
                 align="end"
                 anchor={
-                  <button
-                    type="button"
-                    className={css.plus}
-                    aria-label={t('menu.open')}
-                    disabled={available.length === 0}
-                    onClick={() => { setMenuOpen(value => !value) }}
-                  >
-                    <IconPlusOutline16 size={16} />
-                  </button>
+                  <Tooltip label={t('menu.open')} side="bottom" delayMs={500}>
+                    <button
+                      type="button"
+                      className={css.plus}
+                      aria-label={t('menu.open')}
+                      disabled={available.length === 0}
+                      onClick={() => { setMenuOpen(value => !value) }}
+                    >
+                      <IconPlusOutline16 size={16} />
+                    </button>
+                  </Tooltip>
                 }
                 items={available.map(meta => ({ id: meta.id, label: meta.title(), icon: meta.icon }))}
                 onSelect={(id) => { openPage(id) }}

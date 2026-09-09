@@ -98,7 +98,7 @@ index 0000000000..77b6d57e46
 +  }
 +}
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index 0f917100ff..7ea6ac07b0 100644
+index 0f917100ff..449c1ce7d2 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
 @@ -1,3 +1,4 @@
@@ -106,7 +106,7 @@ index 0f917100ff..7ea6ac07b0 100644
  /**
   * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
   * all data and callbacks arrive via props. Hover swaps (folder->chevron,
-@@ -5,11 +6,11 @@
+@@ -5,13 +6,13 @@
   * except workspace Rename/Delete and session Rename/Fork/Archive; the session
   * and workspace hover cards are suppressed while a menu is open.
   */
@@ -118,8 +118,11 @@ index 0f917100ff..7ea6ac07b0 100644
 -  IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
 +  IconEditOutline16, IconFolderClose16, IconFolderOpen16,
    IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
-   StateDot,
+-  StateDot,
++  StateDot, Tooltip,
  } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+ import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 @@ -126,6 +127,18 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
    const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
    const active = group.expanded && group.containsCurrent
@@ -255,7 +258,7 @@ index 0f917100ff..7ea6ac07b0 100644
        draggable={drag !== undefined}
        onDragStart={drag === undefined
          ? undefined
-@@ -455,35 +497,39 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+@@ -455,35 +497,41 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
        <span className={css.title}>{title}</span>
        {row.hasActiveSchedule && <ActiveScheduleIndicator t={t} />}
        {/* A blank New Session row is a provisional placeholder: nothing has
@@ -301,11 +304,13 @@ index 0f917100ff..7ea6ac07b0 100644
 +            getAnchorRect={getSessionMenuAnchorRect}
            />
 +          {contributed.filter(action => action.placement === 'inline').map(action => (
-+            <button key={action.id} type="button" className={css.iconButton}
-+              aria-label={action.label}
-+              onClick={(event) => { event.stopPropagation(); action.run() }}>
-+              {action.icon}
-+            </button>
++            <Tooltip key={action.id} label={action.label} side="bottom" delayMs={500}>
++              <button type="button" className={css.iconButton}
++                aria-label={action.label}
++                onClick={(event) => { event.stopPropagation(); action.run() }}>
++                {action.icon}
++              </button>
++            </Tooltip>
 +          ))}
          </span>
        )}

@@ -12,6 +12,7 @@
  * 锚定随 v1 git 改动源引入（数据无行号，见 aggregate.ts）。
  */
 import { useMemo, useState } from 'react'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { FileDiffLite } from './api.ts'
 import type { DraftSide } from './comments.ts'
 import type { Translate } from './types.ts'
@@ -149,19 +150,20 @@ function HunkBlock({
           <div className={row.kind === 'del' ? css.diffDel : css.diffAdd}>
             <span className={css.diffText}>{row.text}</span>
             {commentable && (
-              <button
-                type="button"
-                className={css.diffRowBtn}
-                title={t('diff.comment')}
-                aria-label={t('diff.comment')}
-                onClick={() => {
-                  setComposer(rowComposer !== null
-                    ? null
-                    : { rowId: row.id, side: row.side, lineIndex: row.lineIndex, lineText: row.lineText, value: '' })
-                }}
-              >
-                +
-              </button>
+              <Tooltip label={t('diff.comment')} side="bottom" delayMs={500}>
+                <button
+                  type="button"
+                  className={css.diffRowBtn}
+                  aria-label={t('diff.comment')}
+                  onClick={() => {
+                    setComposer(rowComposer !== null
+                      ? null
+                      : { rowId: row.id, side: row.side, lineIndex: row.lineIndex, lineText: row.lineText, value: '' })
+                  }}
+                >
+                  +
+                </button>
+              </Tooltip>
             )}
           </div>
           {rowComposer !== null && (
