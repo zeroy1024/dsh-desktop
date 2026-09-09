@@ -1,4 +1,3 @@
-import { rawImageUrl } from '../src/fs-route.ts'
 /**
  * document-links 单测：URL 分类与相对路径解析（纯函数，无 DOM）。
  * 覆盖图片/链接/锚点/外链/拒绝五类，以及工作区与外部文件两个 baseDir 域。
@@ -6,6 +5,7 @@ import { rawImageUrl } from '../src/fs-route.ts'
 import { describe, expect, it } from 'vitest'
 import { classifyAnchorHref, classifyImageSrc, resolveRelativePath, documentParent } from '../src/client/document-links.ts'
 import type { DocumentPathContext } from '../src/client/document-links.ts'
+import { rawImageUrl } from '../src/fs-route.ts'
 
 /** 工作区文件 `docs/guide/intro.md` 的上下文（baseDir = docs/guide）。 */
 const workspace: DocumentPathContext = { baseDir: 'docs/guide', kind: 'workspace' }
@@ -33,6 +33,16 @@ describe('resolveRelativePath', () => {
     expect(resolveRelativePath('d', 'a\\b.png')).toBeUndefined()
     expect(resolveRelativePath('d', 'a\0b')).toBeUndefined()
     expect(resolveRelativePath('d', '')).toBeUndefined()
+  })
+
+  it('undefined 语义钉住：段消化后无剩余也拒绝；常规路径不被规范化复检误伤', () => {
+    // 除 .. 越界外，折叠后一个段都不剩同样 undefined（JSDoc 列举的来源之一）。
+    expect(resolveRelativePath('docs', '..')).toBeUndefined()
+    expect(resolveRelativePath('', '.')).toBeUndefined()
+    // 三类根下的常规折叠结果都能通过 absoluteFilePath 复检（该拒绝来源当前不可达）。
+    expect(resolveRelativePath('/', 'a/./b.png')).toBe('/a/b.png')
+    expect(resolveRelativePath('C:/docs', '../x.png')).toBe('C:/x.png')
+    expect(resolveRelativePath('//server/share/docs', '../x.png')).toBe('//server/share/x.png')
   })
 })
 
@@ -73,6 +83,13 @@ describe('classifyImageSrc', () => {
     expect(classifyImageSrc('#frag', workspace)).toEqual({ kind: 'blocked' })
     expect(classifyImageSrc('javascript:alert(1)', workspace)).toEqual({ kind: 'blocked' })
   })
+
+  it('percent 解码出的反斜杠与 file: 协议 → blocked', () => {
+    // %5C 解码后是 \（伪装成 POSIX 相对名的 Windows 分隔符）：拒绝而非放行。
+    expect(classifyImageSrc('a%5Cb.png', workspace)).toEqual({ kind: 'blocked' })
+    // file: 不在图片协议白名单（http/https/data）内。
+    expect(classifyImageSrc('file:///C:/x.png', workspace)).toEqual({ kind: 'blocked' })
+  })
 })
 
 describe('classifyAnchorHref', () => {
@@ -112,6 +129,28 @@ describe('classifyAnchorHref', () => {
 })
 
 
+describe('documentParent', () => {
+  it('工作区嵌套文件 → 所在目录（FilePreview 文档上下文的生产路径）', () => {
+    expect(documentParent('docs/guide/intro.md')).toBe('docs/guide')
+    expect(documentParent('docs')).toBe('')
+  })
+
+  it('小写盘符同样保留为根', () => {
+    expect(documentParent('c:/readme.md')).toBe('c:/')
+  })
+
+  it('根形态输入没有父目录 → undefined（钉住 parent ≠ 自身）', () => {
+    expect(documentParent('/')).toBeUndefined()
+    expect(documentParent('C:/')).toBeUndefined()
+    // UNC 裸共享：`x.md` 会被识别为共享名，整个路径就是根。
+    expect(documentParent('//server/share')).toBeUndefined()
+    expect(documentParent('//server/share/')).toBeUndefined()
+    expect(documentParent('//server/x.md')).toBeUndefined()
+    // 不含任何段的空输入同样 undefined（FilePreview 对此降级为 ''）。
+    expect(documentParent('')).toBeUndefined()
+  })
+})
+
 describe('cross-platform document roots and image channels', () => {
   it.each([
     ['C:/README.md', 'C:/', 'C:/img/logo.png'],
@@ -122,7 +161,7 @@ describe('cross-platform document roots and image channels', () => {
     ['/docs/README.md', '/docs', '/docs/img/logo.png'],
   ])('opens relative images and links from %s using the absolute channel', (file, parent, target) => {
     expect(documentParent(file)).toBe(parent)
-    const context: DocumentPathContext = { kind: 'external-file', baseDir: documentParent(file) }
+    const context: DocumentPathContext = { kind: 'external-file', baseDir: parent }
     const image = classifyImageSrc('img/logo.png', context)
     expect(image).toEqual({ kind: 'image', src: target, via: 'external-file' })
     if (image.kind !== 'image' || image.via === 'url') throw new Error('expected local image')

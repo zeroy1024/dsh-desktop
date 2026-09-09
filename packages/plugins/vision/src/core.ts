@@ -208,7 +208,8 @@ export function stableDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 32)
 }
 
-function jsonForKey(value: unknown): string {
+/** JSON serialization for digests; tolerates bigint, bytes, and circular values. */
+export function jsonForKey(value: unknown): string {
   try {
     return JSON.stringify(value, (_key, entry: unknown) => {
       if (typeof entry === 'bigint') return `${String(entry)}n`
@@ -217,6 +218,20 @@ function jsonForKey(value: unknown): string {
     })
   } catch {
     return String(value)
+  }
+}
+
+/**
+ * Attachment identity shared by evidence keys and on-demand image references.
+ * Both surfaces must resolve the same block to the same identity, so the
+ * fallback chain lives here exactly once.
+ */
+export function attachmentIdentity(block: ImageBlock): unknown {
+  const attachment = block.attachment as Record<string, unknown> | null | undefined
+  return {
+    id: attachment?.attachmentId ?? attachment?.id ?? attachment,
+    mediaType: attachment?.mediaType,
+    bytes: attachment?.bytes,
   }
 }
 
@@ -254,13 +269,7 @@ export function evidenceKey(
   block: ImageBlock,
   opts: VisionOptions,
 ): string {
-  const attachment = block.attachment as Record<string, unknown> | null | undefined
-  const attachmentIdentity = {
-    id: attachment?.attachmentId ?? attachment?.id ?? attachment,
-    mediaType: attachment?.mediaType,
-    bytes: attachment?.bytes,
-  }
-  return `dsh-vision:v2:${stableDigest(jsonForKey(attachmentIdentity))}:${configFingerprint(opts)}:${stableDigest(jsonForKey(opts.evidenceContext ?? null))}`
+  return `dsh-vision:v2:${stableDigest(jsonForKey(attachmentIdentity(block)))}:${configFingerprint(opts)}:${stableDigest(jsonForKey(opts.evidenceContext ?? null))}`
 }
 
 /** Recursively detect images, including nested tool-result content. */

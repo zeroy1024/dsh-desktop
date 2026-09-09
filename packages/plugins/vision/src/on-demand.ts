@@ -2,7 +2,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { EvidenceCache, ImageBlock, Message, VisionOptions, ContentBlock } from './core.ts'
-import { stableDigest, MAX_FOCUS_CHARS } from './core.ts'
+import { attachmentIdentity, isAbortError, jsonForKey, stableDigest, VisionError, MAX_FOCUS_CHARS } from './core.ts'
 import { cachedEvidence, imageBlockResult, rewriteMessages } from './index.ts'
 import type { ImageInputTransformRequest } from './index.ts'
 
@@ -22,8 +22,10 @@ export function immediateOptions(ctx: ContextPort, opts: VisionOptions): VisionO
   return agent === undefined ? opts : { ...opts, evidenceContext: { sessionId: agent.session.id, category: 'immediate' } }
 }
 export function imageReference(sessionId: string, block: ImageBlock): string {
-  const attachment = block.attachment as { attachmentId?: unknown }
-  return `vision:${stableDigest(JSON.stringify([sessionId, attachment.attachmentId]))}`
+  // Must digest the same attachment identity as evidenceKey: blocks without an
+  // attachmentId fall back to id/attachment, and identical references would
+  // otherwise make the analysis tool silently resolve the wrong image.
+  return `vision:${stableDigest(jsonForKey([sessionId, attachmentIdentity(block)]))}`
 }
 export function collectImages(content: readonly ContentBlock[]): ImageBlock[] {
   return content.flatMap(block => {
@@ -48,51 +50,62 @@ function available(ctx: ContextPort, agent: Agent, request: ImageInputTransformR
 
 export async function projectOnDemand(ctx: ContextPort, opts: VisionOptions, cache: EvidenceCache, request: ImageInputTransformRequest): Promise<Message[] | undefined> {
   if (opts.transcriptionMode === 'immediate') return undefined
-  const agent = initiator(ctx)
-  if (agent === undefined || !available(ctx, agent, request)) return undefined
-  const session = agent.session
-  const effective = session.deriveMessages()
-  // A nested standalone call must not borrow the outer Agent's attachment authority.
-  const effectiveIds = new Set(effective.map(message => message.id as string))
-  if (request.messages.some(message => typeof message.id !== 'string' || !effectiveIds.has(message.id))) return undefined
-  const events = session.snapshotEvents()
-  const boundary = events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
-  const fresh = new Set<string>()
-  if (boundary?.type === 'turn/start') {
-    for (const event of events) {
-      if (event.seq <= boundary.seq || event.seq < session.firstLiveSeq || event.seq < session.inheritedEventCount) continue
-      // Surface replacements (compaction) must not make older images fresh.
-      if (!('surfaceOp' in event) || event.surfaceOp !== 'append') continue
-      const message = session.deriveEventMessage(event)
-      if (message !== null) fresh.add(message.id)
-    }
-  }
-  const captured = generalOptions(opts, session.id)
-  const attachments = ctx.get('attachments') as Attachments
-  const rewrite = async (blocks: readonly ContentBlock[], message: Message): Promise<ContentBlock[]> => {
-    return Promise.all(blocks.map(async (block): Promise<ContentBlock> => {
-      if (request.signal?.aborted) request.signal.throwIfAborted()
-      if (block.type === 'image') {
-        const image = block as ImageBlock
-        const ref = imageReference(session.id, image)
-        const source = message.source as { kind?: string; name?: string; callId?: string } | undefined
-        const metadata = JSON.stringify({ message_id: message.id, source: source?.kind, tool_call_id: source?.callId })
-        const cached = await cachedEvidence(cache, image, captured, request.signal)
-        let text = cached?.text
-        if (text === undefined && fresh.has(String(message.id))) {
-          const [rewritten] = await rewriteMessages(captured, attachments, cache, [{ content: [image] }], '', request.signal)
-          const entry = rewritten?.content?.[0] as { text?: string } | undefined
-          text = entry?.text
-        }
-        return { type: 'text', text: `[图片引用 ${ref}] ${metadata}\n${text ?? '尚未分析；不能仅根据引用推断图片内容。'}\n需要查看图片或核对细节时，调用 ${ANALYZE_IMAGE_TOOL}，image_ref="${ref}"，可提供 question。` }
-      } else if (block.type === 'tool-result' && Array.isArray(block.content)) {
-        return { ...block, content: await rewrite(block.content as ContentBlock[], message) }
+  try {
+    // transformInput 运行在适配器失败信封之外（patches/0011）：上游 session API
+    // 的意外异常必须有兜底，否则一次投影故障会让整次 dispatch 失败。
+    const agent = initiator(ctx)
+    if (agent === undefined || !available(ctx, agent, request)) return undefined
+    const session = agent.session
+    const effective = session.deriveMessages()
+    // A nested standalone call must not borrow the outer Agent's attachment authority.
+    const effectiveIds = new Set(effective.map(message => message.id as string))
+    if (request.messages.some(message => typeof message.id !== 'string' || !effectiveIds.has(message.id))) return undefined
+    const events = session.snapshotEvents()
+    const boundary = events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    const fresh = new Set<string>()
+    if (boundary?.type === 'turn/start') {
+      for (const event of events) {
+        if (event.seq <= boundary.seq || event.seq < session.firstLiveSeq || event.seq < session.inheritedEventCount) continue
+        // Surface replacements (compaction) must not make older images fresh.
+        if (!('surfaceOp' in event) || event.surfaceOp !== 'append') continue
+        const message = session.deriveEventMessage(event)
+        if (message !== null) fresh.add(message.id)
       }
-      return block
-    }))
+    }
+    const captured = generalOptions(opts, session.id)
+    const attachments = ctx.get('attachments') as Attachments
+    const rewrite = async (blocks: readonly ContentBlock[], message: Message): Promise<ContentBlock[]> => {
+      return Promise.all(blocks.map(async (block): Promise<ContentBlock> => {
+        if (request.signal?.aborted) request.signal.throwIfAborted()
+        if (block.type === 'image') {
+          const image = block as ImageBlock
+          const ref = imageReference(session.id, image)
+          const source = message.source as { kind?: string; name?: string; callId?: string } | undefined
+          const metadata = JSON.stringify({ message_id: message.id, source: source?.kind, tool_call_id: source?.callId })
+          const cached = await cachedEvidence(cache, image, captured, request.signal)
+          let text = cached?.text
+          if (text === undefined && fresh.has(String(message.id))) {
+            const [rewritten] = await rewriteMessages(captured, attachments, cache, [{ content: [image] }], '', request.signal)
+            const entry = rewritten?.content?.[0] as { text?: string } | undefined
+            text = entry?.text
+          }
+          return { type: 'text', text: `[图片引用 ${ref}] ${metadata}\n${text ?? '尚未分析；不能仅根据引用推断图片内容。'}\n需要查看图片或核对细节时，调用 ${ANALYZE_IMAGE_TOOL}，image_ref="${ref}"，可提供 question。` }
+        } else if (block.type === 'tool-result' && Array.isArray(block.content)) {
+          return { ...block, content: await rewrite(block.content as ContentBlock[], message) }
+        }
+        return block
+      }))
+    }
+    return await Promise.all(request.messages.map(async message => Array.isArray(message.content)
+      ? { ...message, content: await rewrite(message.content, message) } : message))
+  } catch (error) {
+    // Cancellation is part of the dispatch contract and must propagate; any
+    // other failure abstains so the seam takes its existing fallback path.
+    if (request.signal?.aborted === true || isAbortError(error)
+      || (error instanceof VisionError && error.code === 'VISION_ABORTED')) throw error
+    console.error('vision: on-demand projection failed', error)
+    return undefined
   }
-  return Promise.all(request.messages.map(async message => Array.isArray(message.content)
-    ? { ...message, content: await rewrite(message.content, message) } : message))
 }
 
 export function installOnDemand(ctx: ContextPort, getOptions: () => VisionOptions, cache: EvidenceCache): void {

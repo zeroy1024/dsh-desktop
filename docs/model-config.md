@@ -38,7 +38,7 @@ wire preset：
 - `native`：SDK 原生等级编码。
 - `anthropic-adaptive`：`thinking.type = adaptive / disabled`，用于用户选择该协议的开关模型。
 - `anthropic-enabled`：`thinking.type = enabled / disabled`，用于固定开启或开关模型，不用于 token-budget 等级模型。
-- `chat-thinking`：Chat `thinking.type = enabled / disabled`。
+- `chat-thinking`：Chat `thinking.type = enabled / disabled`，用于开关或固定开启模型，不用于等级模型（等级只能走 native 编码，否则 SDK 的 `reasoning_effort` 会与注入的 `thinking.type` 并存成双信号）。
 
 没有根据模型名称猜测能力、没有发送失败后改写请求重试。能力和 wire 由配置明确指定；示例模型名不构成远端支持承诺。Responses 的无等级开关尚无独立 preset，配置校验会拒绝不匹配的配置；其原生可用等级（含 off）使用 `levels`。
 

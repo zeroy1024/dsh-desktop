@@ -726,7 +726,10 @@ export async function imageBlockResult(block: ImageBlock, state: RewriteState): 
           if (result.ok && !controller.signal.aborted && pending.get(key) === created) {
             state.cache.set(key, Promise.resolve(result))
             if (state.opts.evidenceContext !== undefined) {
-              await stores.get(state.cache)?.put(key, {
+              // Fire-and-forget: the caller owns the transcription result, not
+              // the disk flush. Put failures surface through the store's
+              // transact report channel.
+              void stores.get(state.cache)?.put(key, {
                 ...state.opts.evidenceContext,
                 attachmentId: String((block.attachment as { attachmentId?: unknown })?.attachmentId ?? ''),
                 configVersion: configFingerprint(state.opts), text: result.text,

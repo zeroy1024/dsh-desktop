@@ -134,4 +134,8 @@ patches:
       增加模型 api/baseURL/thinking、显式 api-root 模式，保留原 Provider 身份、
       原生认证和未覆盖模型的 catalog dispatch。思考能力和请求默认值统一解析，
       开关只在明确 wire preset 下编码，不按模型名推断。选择器仍由客户端插件呈现。
+      levels + chat-thinking 组合会在 openai-completions 上让 SDK 原生编码的
+      reasoning_effort 与补丁注入的 thinking.type 并存（双信号），且二元开关线协议
+      无法表达等级；该组合在配置加载时明确拒绝（对齐既有 levels+anthropic-enabled
+      禁令），等级模型只能用 native 编码。
       上游提供等价模型级配置或稳定扩展契约后撤；不改原生配置 UI。

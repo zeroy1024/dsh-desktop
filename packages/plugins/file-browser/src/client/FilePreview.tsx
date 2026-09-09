@@ -151,7 +151,9 @@ export const FilePreview = memo(function FilePreview({
   const documentContext = useMemo<DocumentRenderContext>(() => {
     const key = active ?? ''
     return {
-      baseDir: documentParent(key),
+      // 根形态 key 没有父目录（documentParent 返回 undefined）：此类 key 实为
+      // 目录，read 必 400 is-directory，渲染路径不可达，降级 '' 仅为类型完备。
+      baseDir: documentParent(key) ?? '',
       kind: external ? 'external-file' : 'workspace',
       imageSrcFor: (src, via) => rawImageUrl(sessionId, src, via),
     }

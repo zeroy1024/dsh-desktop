@@ -1,5 +1,7 @@
 /**
- * 文档预览的链接/图片 URL 分类与路径解析（纯函数，无 DOM 依赖）。
+ * 文档预览的链接/图片 URL 分类与路径解析（纯函数，无 DOM 依赖；唯一
+ * import 是 file-open.ts 的 absoluteFilePath，作绝对路径的规范化复检，
+ * 同为纯函数、零 Node/DOM API，不破坏浏览器 bundle 边界）。
  *
  * 上游 `MarkdownText` 把相对与锚点 URL 一律拒绝（其 JSDoc 明示的契约，服务
  * 不可信聊天输出）。文档预览的语义相反：README 的相对图片、仓内链接与
@@ -25,7 +27,7 @@ export type DocumentPathContext =
   | { kind: 'workspace'; baseDir: string }
   | { kind: 'external-file'; baseDir: string }
 
-/** Split a normalized path into an immutable root and traversable segments. */
+/** 把规范化路径拆成不可动的根与可折叠的段（POSIX /、盘符 C:/、UNC //server/share）。 */
 function pathParts(path: string): { root: string; segments: string[] } {
   const drive = /^[A-Za-z]:\//u.exec(path)
   const unc = /^\/\/[^/]+\/[^/]+(?:\/|$)/u.exec(path)
@@ -33,9 +35,17 @@ function pathParts(path: string): { root: string; segments: string[] } {
   return { root, segments: path.slice(root.length).split('/').filter(Boolean) }
 }
 
-/** Preserve drive and UNC roots when locating the document's parent. */
-export function documentParent(path: string): string {
+/**
+ * 取文档所在目录，保留盘符与 UNC 根。
+ * 输入本身已是根（`/`、`C:/`、`//server/share`；`//server/x.md` 的 `x.md`
+ * 会被识别为共享名，同属裸共享根）或不含任何段时，没有父目录可言，返回
+ * undefined——钉住「parent ≠ 自身」不变量。调用方按各自语义降级
+ * （FilePreview 把根形态 key 降级为 ''；此类 key 实为目录，read 必 400
+ * is-directory，该降级在渲染路径上不可达）。
+ */
+export function documentParent(path: string): string | undefined {
   const { root, segments } = pathParts(path)
+  if (segments.length === 0) return undefined
   segments.pop()
   return root + segments.join('/')
 }
@@ -88,7 +98,11 @@ function absoluteProtocol(url: string): string | undefined {
  * 工作区相对路径以空根处理；任何越过根的 `..` 均拒绝。
  * @param baseDir - 上下文基准目录。
  * @param rel - 文档中书写的相对路径（已 percent-decode、去片段、去前导 `/`）。
- * @returns 解析后的路径（绝对或 root 相对，与 baseDir 同域）；越界返回 undefined。
+ * @returns 解析后的路径（绝对或 root 相对，与 baseDir 同域）。返回 undefined
+ *   的全部来源：rel 为空或含 `\`/NUL（入口预检）；`..` 越出根；段消化后
+ *   无剩余（baseDir 即根且 rel 全为 `.`/`..`）；root 非空时 absoluteFilePath
+ *   规范化复检拒绝——入参已被上述预检排除 `\`/NUL/`.`/`..`，该来源当前不可
+ *   达，属纵深防御，与 file-open.ts 的拒绝规则仅此处一点耦合。
  */
 export function resolveRelativePath(baseDir: string, rel: string): string | undefined {
   if (rel === '' || rel.includes('\\') || rel.includes('\0')) return undefined

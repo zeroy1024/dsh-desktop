@@ -2,10 +2,14 @@
  * 数据面单测：computeSummary 的缓存增量语义、
  * summary 路由的 HTTP 行为（405/403/200/500）。持久化与缓存表用内存 double。
  */
-import { createServer, type Server } from 'node:http'
-import { afterAll, describe, expect, it } from 'vitest'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { computeSummary, handleSummaryRequest, type UsagePersistence } from '../src/index.ts'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionPersistenceNotFoundError, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import {
+  apply, CACHE_FAILURE_BACKOFF_MS, computeSummary, handleSummaryRequest,
+  type UsagePersistence, type UsageStatsHostContext,
+} from '../src/index.ts'
 import { USAGE_FOLD_VERSION, cachedUsageRowSchema, usageStatsDomainSpec, type CachedUsageRow, type UsageTablePort } from '../src/usage-cache.ts'
 
 /** 确认域声明本身通过上游 UNIT_NAME_RE 校验（defineDomain 在构造期校验）。 */
@@ -37,6 +41,8 @@ interface FakeSession {
   revision?: string
   /** readFrom 抛错（损坏日志）。 */
   fail?: boolean
+  /** 模拟 list 与 read 之间的删除竞态：快照枚举可见，读日志时已删除。 */
+  deletedBeforeRead?: boolean
 }
 
 function fakePersistence(sessions: Record<string, FakeSession>) {
@@ -48,7 +54,10 @@ function fakePersistence(sessions: Record<string, FakeSession>) {
     })),
     readFrom: async (id: string) => {
       const session = sessions[id]
-      if (session === undefined) return undefined
+      // 与真实契约一致：缺失会话抛 SessionPersistenceNotFoundError，而非返回 undefined。
+      if (session === undefined || session.deletedBeforeRead === true) {
+        throw new SessionPersistenceNotFoundError(SessionId(id))
+      }
       if (session.fail === true) throw new Error('corrupt log')
       readFromCalls.push(id)
       return {
@@ -130,6 +139,17 @@ describe('computeSummary', () => {
     expect(summary.overall.turns).toBe(1)
   })
 
+  it('list 与 read 之间被删除的会话静默跳过：不计 failed，其余会话正常统计', async () => {
+    const { persistence } = fakePersistence({
+      'session-deleted': { events: [], deletedBeforeRead: true },
+      'session-good': { events: turnEvents(1, 1_788_000_000_000, 100) },
+    })
+    const { summary, meta } = await computeSummary(persistence, fakeTable(), NOW)
+    expect(meta).toEqual({ total: 2, scanned: 2, cached: 0, failed: 0 })
+    expect(summary.overall.sessions).toBe(1)
+    expect(summary.overall.turns).toBe(1)
+  })
+
   it('缺 totalTokens 的旧日志与空 trailing step 仍计入四桶', async () => {
     const time = 1_788_000_000_000
     const { persistence } = fakePersistence({
@@ -172,13 +192,13 @@ describe('computeSummary', () => {
   })
 })
 
-/** 把 handleSummaryRequest 挂到真 http server 上，返回 base URL。 */
-async function startServer(persistence: UsagePersistence, getPort: () => UsageTablePort | undefined): Promise<{
+/** 把路由 handler 挂到真 http server 上，返回 base URL。 */
+async function startHandlerServer(handler: (req: IncomingMessage, res: ServerResponse) => unknown): Promise<{
   base: string
   close: () => Promise<void>
 }> {
   const server: Server = createServer((req, res) => {
-    void handleSummaryRequest(req, res, persistence, getPort)
+    void handler(req, res)
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
@@ -190,6 +210,11 @@ async function startServer(persistence: UsagePersistence, getPort: () => UsageTa
     base: `http://127.0.0.1:${address.port}`,
     close: () => new Promise<void>(resolve => { server.close(() => resolve()) }),
   }
+}
+
+/** 把 handleSummaryRequest 挂到真 http server 上，返回 base URL。 */
+async function startServer(persistence: UsagePersistence, getPort: () => UsageTablePort | undefined) {
+  return startHandlerServer((req, res) => handleSummaryRequest(req, res, persistence, getPort))
 }
 
 const servers: Array<{ close: () => Promise<void> }> = []
@@ -318,6 +343,28 @@ describe('usage cache and lineage regressions', () => {
     expect(table.map.has('a')).toBe(true)
   })
 
+  it('单条过期缓存行删除失败不中止其余过期 key 的清扫', async () => {
+    const { persistence } = fakePersistence({ a: { events: turnEvents(1, NOW, 100) } })
+    const table = fakeTable()
+    await computeSummary(persistence, table, NOW)
+    const staleRow = table.map.get('a')!
+    // Map 迭代按插入序：stale-1 在前、其删除抛错；粗粒度 try 会中止 stale-2 的清扫。
+    table.map.set('stale-1', staleRow)
+    table.map.set('stale-2', staleRow)
+    const originalDelete = table.delete
+    Object.assign(table, {
+      delete: async (key: string) => {
+        if (key === 'stale-1') throw new Error('delete blocked')
+        return originalDelete(key)
+      },
+    })
+    const { meta } = await computeSummary(persistence, table, NOW)
+    expect(meta).toEqual({ total: 1, scanned: 0, cached: 1, failed: 0 })
+    expect(table.map.has('stale-1')).toBe(true)
+    expect(table.map.has('stale-2')).toBe(false)
+    expect(table.map.has('a')).toBe(true)
+  })
+
   it('accepts an old cache row as valid data but replaces it without a revision change', async () => {
     const { persistence, readFromCalls } = fakePersistence({ a: { events: turnEvents(1, NOW, 100) } })
     const table = fakeTable()
@@ -328,5 +375,76 @@ describe('usage cache and lineage regressions', () => {
     await computeSummary(persistence, table, NOW)
     expect(readFromCalls).toHaveLength(2)
     expect(table.map.get('a')?.algoVersion).toBe(USAGE_FOLD_VERSION)
+  })
+})
+
+
+describe('cache failure backoff', () => {
+  it('缓存失败后进入退避窗口：窗口内跳过缓存层，窗口过后恢复', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW)
+    try {
+      const { persistence } = fakePersistence({ a: { events: turnEvents(1, NOW, 100) } })
+      const table = fakeTable()
+      let cacheOps = 0
+      let entriesHealthy = false
+      // 确定性故障：entries 恒抛错（磁盘只读类），故障恢复前缓存层不可用。
+      const failingPort: UsageTablePort = {
+        get: key => { cacheOps++; return table.get(key) },
+        entries: () => {
+          cacheOps++
+          if (!entriesHealthy) throw new Error('read-only store')
+          return table.entries()
+        },
+        put: async (key, value) => { cacheOps++; await table.put(key, value) },
+        delete: async key => { cacheOps++; return table.delete(key) },
+      }
+      // 驱动完整 apply：捕获注册的路由 handler 与缓存域 effect。
+      let routeHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined
+      const effects: Array<Promise<unknown>> = []
+      const ctx = {
+        effect: (fn: () => unknown) => {
+          effects.push(Promise.resolve().then(() => fn()))
+          return async () => {}
+        },
+        webServer: {
+          register: (route: { handler: NonNullable<typeof routeHandler> }) => {
+            routeHandler = route.handler
+            return async () => {}
+          },
+        },
+        connection: { requestRejection: () => undefined },
+        sessionPersistence: persistence,
+        storageDomain: {
+          open: async () => ({ table: () => failingPort, close: async () => {} }),
+        },
+      } as unknown as UsageStatsHostContext
+      apply(ctx)
+      await Promise.all(effects)
+      const server = await startHandlerServer((req, res) => routeHandler!(req, res))
+      servers.push(server)
+      const post = () => fetch(`${server.base}/dsh-desktop/usage/summary`, {
+        method: 'POST', headers: { origin: server.base },
+      })
+
+      // 第 1 次请求：entries 抛错 → 本次全量扫，同时进入退避窗口。
+      const first = await post()
+      await expect(first.json()).resolves.toMatchObject({ ok: true, total: 1, scanned: 1, failed: 0 })
+      expect(cacheOps).toBe(1)
+
+      // 窗口内第 2 次请求：不再触碰缓存层，直接全量扫。
+      const second = await post()
+      await expect(second.json()).resolves.toMatchObject({ ok: true, total: 1, scanned: 1, failed: 0 })
+      expect(cacheOps).toBe(1)
+
+      // 窗口过后且故障恢复：重新使用缓存层并写入聚合结果。
+      entriesHealthy = true
+      nowSpy.mockReturnValue(NOW + CACHE_FAILURE_BACKOFF_MS + 1)
+      const third = await post()
+      await expect(third.json()).resolves.toMatchObject({ ok: true, total: 1, scanned: 1, cached: 0, failed: 0 })
+      expect(cacheOps).toBeGreaterThan(1)
+      expect(table.map.has('a')).toBe(true)
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 })

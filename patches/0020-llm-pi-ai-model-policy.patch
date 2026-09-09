@@ -188,7 +188,7 @@ new file mode 100644
 index 0000000..adc5fb0
 --- /dev/null
 +++ b/packages/llm/llm-pi-ai/src/model-thinking.ts
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,87 @@
 +/** Model-owned thinking policy. SDK level mapping stays private to dispatch. */
 +import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 +import type { Api, Model, ModelThinkingLevel, ThinkingLevelMap } from '@earendil-works/pi-ai'
@@ -225,6 +225,7 @@ index 0000000..adc5fb0
 +  if ((wire.startsWith('anthropic-') && model.api !== 'anthropic-messages') || (wire === 'chat-thinking' && model.api !== 'openai-completions')) fail('thinking wire does not match model API')
 +  if ((t.mode === 'toggle' || t.mode === 'always-on') && wire === 'native') fail('toggle and always-on require an explicit wire preset')
 +  if (t.mode === 'levels' && wire === 'anthropic-enabled') fail('budget-based levels must use native encoding')
++  if (t.mode === 'levels' && wire === 'chat-thinking') fail('binary chat-thinking wire cannot encode levels; use native encoding')
 +  if ((t.mode === 'inherit' || t.mode === 'none') && wire !== 'native') fail('wire presets require an explicit thinking capability')
 +  const declared = choices(t)
 +  const supported = declared ?? getSupportedThinkingLevels(model)
@@ -375,7 +376,7 @@ new file mode 100644
 index 0000000..03e5fe4
 --- /dev/null
 +++ b/packages/llm/llm-pi-ai/tests/model-policy.spec.ts
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,57 @@
 +import { describe, expect, it } from 'vitest'
 +import { Config, resolveProfiles } from '../src/config.ts'
 +import type { PiAiModelProfile } from '../src/config.ts'
@@ -415,6 +416,7 @@ index 0000000..03e5fe4
 +    expect(() => resolve([{ id: 'bad', thinking: { mode: 'levels', levels: ['high'], default: 'low' } }])).toThrow()
 +    expect(() => resolve([{ id: 'bad', thinking: { mode: 'toggle' } }])).toThrow()
 +    expect(() => resolve([{ id: 'bad', thinking: { mode: 'toggle', wire: 'anthropic-enabled' } }])).toThrow()
++    expect(() => resolve([{ id: 'bad', thinking: { mode: 'levels', levels: ['low', 'high'], wire: 'chat-thinking' } }])).toThrow()
 +  })
 +  it('represents toggle, fixed-on and non-thinking models without fake public levels', () => {
 +    const models = resolve([

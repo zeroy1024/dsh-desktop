@@ -8,6 +8,7 @@ import { makeEvidenceCache, resolveOptions, rewriteMessages, installImageInputTr
 import type { Message, ContentBlock } from '../src/core.ts'
 
 const image = (id: string) => ({ type: 'image' as const, attachment: { attachmentId: id, mediaType: 'image/png', bytes: 3 } })
+const idlessImage = (seed: string) => ({ type: 'image' as const, attachment: { id: seed, mediaType: 'image/png', bytes: 3 } })
 function user(id: string) { return createUserMessage({ content: [image(id) as never], source: { kind: 'user' } }) }
 function setup() {
   const session = Session.create(SessionId('test'))
@@ -130,4 +131,47 @@ it('compaction removes old references and does not make retained historical imag
   expect(JSON.stringify(await h.project())).toContain('尚未分析')
   expect(h.fetch).not.toHaveBeenCalled()
   await expect(h.analyze(imageReference(h.session.id,image('1')))).rejects.toThrow('not available')
+})
+
+it('distinguishes images without attachmentId instead of collapsing them onto one reference', async () => {
+  const h = setup()
+  const session = Session.create(SessionId('no-attachment-ids'))
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({ content: [idlessImage('a') as never], source: { kind: 'user' } }), { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({ content: [idlessImage('b') as never], source: { kind: 'user' } }), { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: 'completed' as never })
+  const agent = { session } as unknown as Agent
+  h.services.agents = { currentInitiator: () => agent }
+  const refA = imageReference(session.id, idlessImage('a'))
+  const refB = imageReference(session.id, idlessImage('b'))
+  expect(refA).not.toBe(refB)
+  const output = await projectOnDemand(h.ctx, h.opts, h.cache, { ...h.request(), messages: session.deriveMessages() as unknown as Message[] })
+  expect(JSON.stringify(output)).toContain(refA)
+  expect(JSON.stringify(output)).toContain(refB)
+  expect(h.fetch).not.toHaveBeenCalled()
+  expect(await h.analyze(refB, undefined, agent)).toMatchObject({ text: 'evidence', cached: false })
+  expect(h.readImage).toHaveBeenCalledTimes(1)
+  expect((h.readImage.mock.calls[0] as unknown[])[0]).toEqual(idlessImage('b').attachment)
+})
+
+it('abstains instead of rejecting when a session API throws unexpectedly', async () => {
+  const h = setup()
+  const request = h.request()
+  const failure = new Error('session store exploded')
+  vi.spyOn(h.session, 'deriveMessages').mockImplementation(() => { throw failure })
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  await expect(projectOnDemand(h.ctx, h.opts, h.cache, request)).resolves.toBeUndefined()
+  expect(errorSpy).toHaveBeenCalledWith('vision: on-demand projection failed', failure)
+  errorSpy.mockRestore()
+})
+
+it('propagates cancellation instead of reporting and abstaining', async () => {
+  const h = setup()
+  const controller = new AbortController()
+  const request = { ...h.request(), signal: controller.signal }
+  vi.spyOn(h.session, 'deriveMessages').mockImplementation(() => {
+    controller.abort()
+    throw new Error('interrupted')
+  })
+  await expect(projectOnDemand(h.ctx, h.opts, h.cache, request)).rejects.toThrow('interrupted')
 })
