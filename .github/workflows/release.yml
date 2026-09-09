@@ -388,6 +388,27 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      # Release notes come from the changelog in the tagged commit; the root
+      # toolchain (tsx) is installed to run the extraction/validation script.
+      - name: Install root tooling
+        run: pnpm install --filter . --frozen-lockfile --ignore-scripts
+
+      - name: Write release notes from the changelog
+        shell: bash
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          pnpm ci:release-notes -- --changelog CHANGELOG.md --tag "${TAG}" --out release-notes.md
+
       - name: Validate assets and generate SHA256SUMS
         shell: bash
         run: |
@@ -420,32 +441,6 @@ jobs:
             trap - EXIT
             sha256sum -c SHA256SUMS
           )
-
-      - name: Write release notes
-        shell: bash
-        env:
-          TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          cat > release-notes.md <<EOF
-          DeepSeek Harness ${TAG} developer preview.
-
-          This release contains unsigned installers and portable archives for
-          macOS arm64, Windows x64, and Linux x64. Verify downloaded files with
-          SHA256SUMS before installing.
-
-          Windows note: on first launch the app unpacks its bundled agent
-          runtime into the user data directory (one-time, progress shown on the
-          splash screen). If the NSIS installer itself is slow in your
-          environment, the win-x64.zip archive works as a portable build —
-          extract it with 7-Zip and run the executable directly.
-
-          Linux note: the AppImage payload is FUSE-mounted and electron-builder
-          strips the setuid bit while staging it, so the Chromium sandbox there
-          falls back to kernel user namespaces; the generated AppRun probes
-          user namespaces at startup and never disables the sandbox by itself.
-          The portable tar.gz keeps the setuid chrome-sandbox helper (mode
-          4755) for environments where the traditional setuid sandbox works.
-          EOF
 
       - name: Create or update prerelease with gh
         shell: bash
