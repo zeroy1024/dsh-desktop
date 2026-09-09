@@ -137,7 +137,7 @@ export const PanelShell = memo(function PanelShell({ ledger, handoff, renderSlot
                 open={menuOpen && available.length > 0}
                 align="end"
                 anchor={
-                  <Tooltip label={t('menu.open')} side="bottom" delayMs={500}>
+                  <Tooltip label={t('menu.open')} side="bottom" delayMs={500} disabled={menuOpen}>
                     <button
                       type="button"
                       className={css.plus}

@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitFile, GitHunk } from './gitdiff.ts'
 import { copyText } from './copy.ts'
+import { useDelegatedTip } from './delegated-tip.tsx'
 import type { Translate } from './types.ts'
 import css from './ReviewPage.module.css'
 
@@ -59,22 +60,22 @@ export function GitFileSection({
   return (
     <section className={`${css.fileSection}${reviewed ? ` ${css.fileSectionReviewed}` : ''}`}>
       <div className={css.fileHeader}>
+        <button
+          type="button"
+          className={css.chevron}
+          aria-expanded={expanded}
+          aria-label={file.path}
+          onClick={onToggleExpanded}
+        >
+          {expanded
+            ? <IconChevronDownOutline14 size={14} />
+            : <IconChevronRightOutline14 size={14} />}
+        </button>
         <Tooltip label={file.path} side="bottom" delayMs={500}>
-          <button
-            type="button"
-            className={css.chevron}
-            aria-expanded={expanded}
-            aria-label={file.path}
-            onClick={onToggleExpanded}
-          >
-            {expanded
-              ? <IconChevronDownOutline14 size={14} />
-              : <IconChevronRightOutline14 size={14} />}
+          <button type="button" className={css.filePath} onClick={onToggleExpanded}>
+            <span className={css.filePathText}>{file.path}</span>
           </button>
         </Tooltip>
-        <button type="button" className={css.filePath} title={file.path} onClick={onToggleExpanded}>
-          <span className={css.filePathText}>{file.path}</span>
-        </button>
         {file.binary
           ? <span className={css.fileEditCount}>{t('git.binary')}</span>
           : <span className={css.fileCounts}>
@@ -164,6 +165,7 @@ function GitHunkCard({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [composer, setComposer] = useState<ComposerState | null>(null)
+  const tip = useDelegatedTip(t('diff.comment'))
   // 已审禁评：按钮不渲染，已打开的输入框就地隐藏（unmark 后原样恢复）。
   const activeComposer = commentable ? composer : null
 
@@ -200,20 +202,20 @@ function GitHunkCard({
             </span>
             <span className={css.diffText}>{row.text}</span>
             {commentable && (
-              <Tooltip label={t('diff.comment')} side="bottom" delayMs={500}>
-                <button
-                  type="button"
-                  className={css.diffRowBtn}
-                  aria-label={t('diff.comment')}
-                  onClick={() => {
-                    setComposer(rowComposer !== null
-                      ? null
-                      : { rowId, line: row.newLine, lineText: row.text, value: '' })
-                  }}
-                >
-                  +
-                </button>
-              </Tooltip>
+              <button
+                type="button"
+                className={css.diffRowBtn}
+                data-diff-tip=""
+                aria-label={t('diff.comment')}
+                {...tip.bind}
+                onClick={() => {
+                  setComposer(rowComposer !== null
+                    ? null
+                    : { rowId, line: row.newLine, lineText: row.text, value: '' })
+                }}
+              >
+                +
+              </button>
             )}
           </div>
           {rowComposer !== null && (
@@ -258,6 +260,7 @@ function GitHunkCard({
           {renderRows(tail, capped ? hunk.rows.length - tailLines : 0)}
         </div>
       </div>
+      {commentable ? tip.bubble : null}
     </div>
   )
 }

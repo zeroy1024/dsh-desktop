@@ -77,22 +77,22 @@ export function FileSection({
   return (
     <section className={`${css.fileSection}${fileReviewed ? ` ${css.fileSectionReviewed}` : ''}`}>
       <div className={css.fileHeader}>
+        <button
+          type="button"
+          className={css.chevron}
+          aria-expanded={expanded}
+          aria-label={file.path}
+          onClick={onToggleExpanded}
+        >
+          {expanded
+            ? <IconChevronDownOutline14 size={14} />
+            : <IconChevronRightOutline14 size={14} />}
+        </button>
         <Tooltip label={file.path} side="bottom" delayMs={500}>
-          <button
-            type="button"
-            className={css.chevron}
-            aria-expanded={expanded}
-            aria-label={file.path}
-            onClick={onToggleExpanded}
-          >
-            {expanded
-              ? <IconChevronDownOutline14 size={14} />
-              : <IconChevronRightOutline14 size={14} />}
+          <button type="button" className={css.filePath} onClick={onToggleExpanded}>
+            <span className={css.filePathText}>{file.path}</span>
           </button>
         </Tooltip>
-        <button type="button" className={css.filePath} title={file.path} onClick={onToggleExpanded}>
-          <span className={css.filePathText}>{file.path}</span>
-        </button>
         <span className={css.fileCounts}>
           <span className={css.addCount}>+{file.added}</span>
           {' '}

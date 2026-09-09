@@ -70,6 +70,15 @@ afterEach(() => {
   cleanup()
 })
 
+describe('GitFileSection 路径提示', () => {
+  it('截断路径不再用 native title，chevron 也不挂路径 Tooltip', () => {
+    renderSection()
+    for (const btn of screen.getAllByRole('button', { name: 'a.ts' })) {
+      expect(btn.getAttribute('title')).toBeNull()
+    }
+  })
+})
+
 describe('GitFileSection 折叠 hunk 的评论锚', () => {
   it('折叠态 tail 行评论带 hunk 内全局 rowIndex（28），展开后同一行锚一致', () => {
     const onLineComment = renderSection()

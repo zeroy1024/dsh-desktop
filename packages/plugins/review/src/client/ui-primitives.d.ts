@@ -17,12 +17,13 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     newText: string
   }
 
-  /** 悬浮/聚焦提示气泡：cloneElement 包住锚点元素，不产生包装节点。 */
+  /** 悬浮/聚焦提示气泡：cloneElement 包住锚点（不产生包装 DOM 节点）；可见时 Fragment 多一个 position:fixed 的气泡兄弟。 */
   export function Tooltip(props: {
-    label: string
+    label: string | (() => string)
     side?: 'top' | 'bottom' | 'right'
     delayMs?: number
     disabled?: boolean
+    maxWidth?: number
     children: ReactElement
   }): ReactElement
 

@@ -23,13 +23,14 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
 
   export const Input: (props: { icon?: ReactNode } & InputHTMLAttributes<HTMLInputElement>) => ReactElement
 
-  export const Tooltip: (props: {
+  export function Tooltip(props: {
     label: string | (() => string)
-    side?: 'top' | 'right' | 'bottom' | 'left'
+    side?: 'top' | 'bottom' | 'right'
     delayMs?: number
     disabled?: boolean
+    maxWidth?: number
     children: ReactElement
-  }) => ReactElement
+  }): ReactElement
 
   export const CodeBlock: (props: {
     code: string

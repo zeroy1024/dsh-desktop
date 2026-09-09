@@ -14,10 +14,11 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export const IconCopyOutline16: (props: IconProps) => ReactElement
 
   export function Tooltip(props: {
-    label: string
-    side?: 'top' | 'bottom' | 'left' | 'right'
+    label: string | (() => string)
+    side?: 'top' | 'bottom' | 'right'
     delayMs?: number
     disabled?: boolean
+    maxWidth?: number
     children: ReactElement
   }): ReactElement
 

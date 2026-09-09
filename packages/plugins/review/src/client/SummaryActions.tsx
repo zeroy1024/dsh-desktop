@@ -25,7 +25,7 @@ export function SummaryActions({ sortMode, onSort, allReviewed, onToggleReviewed
         align="end"
         portal
         anchor={(
-          <Tooltip label={t('summary.actions')} side="bottom" delayMs={500}>
+          <Tooltip label={t('summary.actions')} side="bottom" delayMs={500} disabled={open}>
             <button type="button" className={css.summaryButton} aria-label={t('summary.actions')} aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
               <span aria-hidden="true">⋯</span>
             </button>
