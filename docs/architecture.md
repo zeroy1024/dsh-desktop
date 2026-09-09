@@ -100,6 +100,8 @@ spawn: --profile desktop --no-open --port 0
 
 改写已套用的补丁队列前保存旧 `patches/` 目录，再运行 `pnpm sync:upstream -- --replace-patches-from <旧目录>`。脚本在临时 Git index 上核对工作树等于旧登记队列，并预先验证新队列，最后一次性套用两者差量；存在未登记或已暂存修改时拒绝覆盖。无需直接编辑或 reset `upstream/`。
 
+补丁按独立逻辑与撤销条件维护，分类、消费者、上游状态、撤销条件及显式依赖统一登记在 `patches/patches.yml`；同步与测试入口共用登记校验。完整清单和维护字段说明见 [README 上游补丁清单](../README.md#上游补丁清单)。
+
 ## 分阶段路线图
 
 - **P0 仓库骨架 + 上游同步链路**（已完成）：submodule 锁版、patch 队列机制、`sync-upstream.ts`、CI 演练。

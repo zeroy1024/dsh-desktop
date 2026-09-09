@@ -143,7 +143,7 @@ ProjectionDefinition.apply 新增可选、惰性的只读历史参数，只暴�
 由 rewind 的 SQLite provider 子类过滤墓碑区间。全文搜索与 literal filter 共享
 投影，分页、取消和索引更新沿用上游；投影版本参与持久化修订比对，日志未发生
 变化的旧索引同样重建。精确事件读取与 trace 继续读原始日志。
-Include 的 `name` 保持目标名称校验，显式 `replaceName` 才更换 provider；保留原 id、
+0021 独立提供 Include 配置替换（从原 0017 拆出）。`name` 保持目标名称校验，显式 `replaceName` 才更换 provider；保留原 id、
 配置、启用状态和后续用户层。合成器克隆插入及覆写值，重复合成不修改输入层。
 
 0018 只公开 ConversationController 已实现的两项草稿图片方法，并让批量注册

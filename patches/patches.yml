@@ -1,8 +1,16 @@
 # 对 upstream/ 的全部源码变更在此登记，sync-upstream.ts 按队列顺序应用。
 # 优先 dsh 插件，再配置叠层，最后才是公开 API 不可达处的最小源码接缝。
 # 所有补丁均针对 dsh-v0.1.2-rc.1；后续修正与测试并回对应补丁，不叠加补丁修补补丁。
+# category 区分扩展、兼容、行为修正及含产品选择的扩展；feature/consumers 用于分类。
+# unverified 表示仓库尚无已核实的上游提交状态，不推断为未提交。
+# dependencies 只记录补丁应用前置项；功能组组合消费不等于补丁依赖。
 patches:
   - file: 0006-ui-layout-panel-seam.patch
+    category: product-extension
+    feature: panel
+    consumers: [panel-shell, file-browser, review]
+    upstreamStatus: unverified
+    removeWhen: 上游布局支持可扩展面板列、尺寸策略、拖动与全屏，能表达现有布局选择。
     reason: |
       ui-layout 内部列分配、宽度常量、缩放与全屏布局不支持插件增列，也无配置写入面。
       保留 panel 列、声明/渲染点、布局 store 和动作；实际页签与面板内容由 panel-shell
@@ -10,18 +18,37 @@ patches:
       及无固定偏好宽度上限，覆盖拖动、放大、静态槽与折叠轨回归。
       原 0019 布局测试并入；上游提供等价可扩展列布局后撤。
   - file: 0008-ui-chat-panel-inspect-handoff.patch
+    category: product-extension
+    feature: panel
+    consumers: [panel-shell]
+    upstreamStatus: unverified
+    removeWhen: 上游提供 Inspect 跨容器路由及未处理时的原生 fallback。
     reason: |
       Inspect 的 openView 合成封闭于 ChatView；conversation 外的面板无法收到内部
       store 目标。保留可选 inspectHandoff 注入，panelShell 存在时委托一次性交接，
       缺席时走原生 trajectory tab；面板页适配、metadata 与入口接管在 panel-shell。
       上游提供跨容器 Inspect 路由贡献面后撤。
   - file: 0009-ui-chat-file-browser-open-seam.patch
+    category: product-extension
+    feature: file-browser
+    consumers: [file-browser]
+    upstreamStatus: unverified
+    removeWhen: 上游提供携带会话及解析路径的 openFile middleware，并保留系统打开 fallback。
     reason: |
       openFile 封闭于 ui-chat 的注入闭包，原生只调用系统 openWorkspacePath。
       保留可选 tryOpen 拦截点，传 sessionId/cwd/解析后的 path；点目录、服务缺席或
       未处理路径仍走原生系统打开。树、预览和路径判定均在 file-browser 插件。
       原 0019 请求契约和回归并入；上游提供 openFile middleware 后撤。
   - file: 0005-conversation-chat-group-seam.patch
+    category: extension
+    feature: chat-flow
+    consumers: [activity-group]
+    upstreamStatus: unverified
+    removeWhen: 上游提供 flow 分组、节点渲染变体，并保留原生回合折叠及搜索可见性。
+    dependencies:
+      - file: 0008-ui-chat-panel-inspect-handoff.patch
+        kind: context
+        reason: ChatView 与 slots 的 diff 上下文包含 0008 引入的 inspectHandoff；不是分组功能的语义依赖。
     reason: |
       上游无 chat flow 重组座位，插件无法替换私有节点装配或复用原生 Seat 的回合
       折叠与搜索隐藏逻辑。保留 conversation.chat.group、可选 flowGrouping、
@@ -29,6 +56,11 @@ patches:
       activity-group 插件。原 0017 与 0019 分组修正/回归并入，不在上游保存分组词典。
       上游提供等价 flow 与节点变体 API 后撤。
   - file: 0010-api-session-controller-image-admission.patch
+    category: extension
+    feature: vision
+    consumers: [vision]
+    upstreamStatus: unverified
+    removeWhen: 上游提供附件持久化前的图片准入钩子，保留原生模型能力事实。
     reason: |
       附件持久化前的图片准入位于 Session Remote 私有实现，插件无法表达可转写。
       commands.ts 内抽取 imagePromptAdmission 并询问可选 imageInputAdmission；
@@ -36,11 +68,21 @@ patches:
       text-only 才由桥接服务决定。桥接失败沿用原生 RemoteError；原 0019 语义/测试并入。
       上游提供等价持久化前图片准入钩子后撤。
   - file: 0011-llm-input-transform-seam.patch
+    category: extension
+    feature: vision
+    consumers: [vision]
+    upstreamStatus: unverified
+    removeWhen: 上游提供精确模型解析后的输入变换，支持工具上下文、顺序、卸载和取消。
     reason: |
       精确模型能力解析后、适配器 dispatch 前没有公开输入变换钩子。保留通用
       registerInputTransform 与序列/卸载契约，并传入本次实际工具名称以避免不可读取的图片引用；图片转写、缓存和媒体策略均在
       @dsh-desktop/vision 插件，不改变模型原生能力。上游提供等价 pre-dispatch API 后撤。
   - file: 0012-core-session-rewind-tombstone.patch
+    category: behavior
+    feature: rewind
+    consumers: [rewind]
+    upstreamStatus: unverified
+    removeWhen: 上游原生 rewind/truncate 或 reducer 同时覆盖重放、计量、校准和持久化兼容。
     reason: |
       append 已有公开 API，墓碑写入由 rewind 插件负责；但 live append、fromRestore
       与 foldSurface 共用的 planSurfaceEvent/applySurfacePlan 汇合点是私有的，
@@ -50,7 +92,12 @@ patches:
       已提交前缀，普通事件仍 O(1)；v5/v3 缓存版本使旧价格重算，累计计费不回滚。
       墓碑不能标 ignorable，否则原版 CLI 会重建错误上下文；其拒读行为见 ADR-0007。
       上游提供通用 surface reducer 或原生 rewind/truncate 后撤。
-  - file: 0013-session-controller-rewind-fold.patch
+  - file: 0013-session-controller-event-views.patch
+    category: extension
+    feature: rewind
+    consumers: [rewind]
+    upstreamStatus: unverified
+    removeWhen: 上游提供既有及未来会话通用事件视图，支持卸载恢复及原始分页游标。
     reason: |
       Session 事件源由私有构造/订阅路径持有，现有插件不能为已打开与未来 Session
       一致安装、卸载读取投影。补丁只提供通用 sessionEventViews 注册表、稳定代理
@@ -60,13 +107,23 @@ patches:
       rewind 使用原生 sessionProjections + 配置禁用原 owner 替换，无上游投影补丁。
       覆盖既有/新建绑定、卸载恢复、注册失败清理及隐藏整页仍推进原始游标。
       上游提供等价 Session event view middleware 后撤。
-  - file: 0014-settings-nav-archive-icon.patch
+  - file: 0014-settings-section-icon-slot.patch
+    category: extension
+    feature: settings
+    consumers: [archive-manager, usage-stats]
+    upstreamStatus: unverified
+    removeWhen: 上游提供按 section id 注册图标的贡献面与原生 fallback。
     reason: |
       settings.section options 不接受图标，shell 的 navIcon 只按内建 id 分派。
       仅新增通用 keyed settings.section.icon 贡献槽与原生图标 fallback；
       archive-manager 的 id、图标选择和注册均在其客户端插件，不在上游硬编码。
       上游提供 section 图标贡献面后撤。
   - file: 0015-win32-dialog-sandbox-safe-utf16-read.patch
+    category: compatibility
+    feature: native-runtime
+    consumers: [desktop]
+    upstreamStatus: unverified
+    removeWhen: 上游 Win32 picker 使用兼容 Electron V8 Sandbox 的复制式 UTF-16 解码。
     reason: |
       Electron 的 V8 Sandbox 禁止 koffi.view 将 COM 内存包装成 external ArrayBuffer。
       保留 readUtf16 单处兼容修复，以 koffi.decode.string16 复制解码并保留原生
@@ -74,7 +131,12 @@ patches:
       原生 API 仅允许替换完整 pickWin32Dialog，无解码/COM bindings/worker 细粒度
       钩子；零补丁需自持约 576 行五个原生实现文件，维护面大于本兼容修复。
       测试不再提供 view mock，防止回退；上游改用安全解码后撤。
-  - file: 0001-session-row-archive-context-menu.patch
+  - file: 0001-ui-workspace-row-actions.patch
+    category: product-extension
+    feature: session-management
+    consumers: [session-actions]
+    upstreamStatus: unverified
+    removeWhen: 上游提供行级 menu/inline action 贡献面，并可配置右键入口与原生触发器。
     reason: |
       原生会话行 rename/fork/archive 与工作区行 rename/delete 已直接复用；
       两类菜单数组和行尾均无公开贡献面。仅增加通用 sessionRowActions 注册表、
@@ -83,7 +145,12 @@ patches:
       插件 inline 快捷动作；导出链接、hover 快速归档、图标和双语词条归
       session-actions 插件，空会话仍隐藏操作，未分组桶无菜单。
       原 0018 合并，原生菜单与贡献回调并测；上游提供行级 action API 后撤。
-  - file: 0007-ui-trajectory-panel-page.patch
+  - file: 0007-ui-trajectory-view-factory.patch
+    category: extension
+    feature: panel
+    consumers: [panel-shell]
+    upstreamStatus: unverified
+    removeWhen: 上游公开可复用轨迹视图 factory 和可卸载、幂等的默认入口开关。
     reason: |
       原生 TrajectoryView 的注入闭包/图片子槽和默认 tab 占位无法由外部插件复用。
       仅公开通用 trajectoryView.create 与 setDefaultEnabled，缺省仍保留原生 tab。
@@ -91,6 +158,11 @@ patches:
       均在 panel-shell；原 0016 receiver 修正合回，验证重复 enable 幂等及卸载恢复。
       上游提供可复用轨迹贡献 factory 与默认入口开关后撤。
   - file: 0016-workspace-unarchive-api.patch
+    category: extension
+    feature: session-management
+    consumers: [archive-manager]
+    upstreamStatus: unverified
+    removeWhen: 上游公开幂等取消归档 API，保留写入串行化、失败一致性和卸载排空。
     reason: |
       WorkspaceRegistry 没有公开取消归档 API；直接写 storageDomain 无法更新内存，
       插件访问私有 state/setState/enqueueOperation 则绕过类型契约。仅公开幂等
@@ -98,16 +170,36 @@ patches:
       archive-manager 的鉴权、路由和 UI 留在插件；覆盖并发、失败重试与卸载持久化。
       上游提供等价取消归档 API 后撤。
   - file: 0017-session-query-document-projection.patch
+    category: extension
+    feature: rewind
+    consumers: [rewind]
+    upstreamStatus: unverified
+    removeWhen: 上游提供共享全文索引与 literal filter 的文档投影，以及投影版本触发索引重建。
     reason: |
       查询服务的全文索引和 literal filter 都在私有路径生成语义文档，事后过滤搜索
       结果会破坏排序、分页与摘要，也不能清除旧索引。只提供可覆写 buildSearchDocuments
       与稳定 searchDocumentVersion 接缝；版本参与持久化修订比对，旧索引自动重建。
       rewind 通过配置替换 SQLite provider，复用其索引、取消、生命周期和分页；
       墓碑规则完全在插件，精确日志读取/审计与搜索启用配置保留原语义。
-      Include 的 name 是目标校验而非替换操作，新增显式 replaceName 并保留该校验；
-      克隆插入和覆写值，避免重复合成污染配置层。真实 base/web/插件/用户层组合回归。
-      上游提供等价文档投影、索引版本和配置 provider 替换接口后撤。
+      配置 provider 替换由独立的 0021 提供；两项接口由 rewind 组合消费。
+      上游提供等价文档投影与索引版本接口后撤。
+  - file: 0021-include-provider-replacement.patch
+    category: extension
+    feature: configuration
+    consumers: [rewind]
+    upstreamStatus: unverified
+    removeWhen: 上游支持保留 id/配置的显式 provider 替换、名称校验及重复配置合成隔离。
+    reason: |
+      Include 的 name 是目标校验而非替换操作，插件无法保留原配置与 id 更换 provider。
+      新增显式 replaceName 并保留 name 校验；克隆插入和覆写值，避免重复合成污染配置层。
+      真实 base/web/插件/用户层组合回归随本补丁维护，搜索投影仍独立留在 0017。
+      上游提供等价 provider 替换及配置层隔离语义后撤。
   - file: 0018-conversation-draft-image-api.patch
+    category: extension
+    feature: rewind
+    consumers: [rewind]
+    upstreamStatus: unverified
+    removeWhen: 上游公开草稿图片注册与释放 API，批量注册失败能回滚临时资源。
     reason: |
       inputActions.addImages 只接受已经注册的 DraftAttachmentId，不能直接放入历史
       attachmentId。ConversationController 已有 createDraftImages/releaseDraftImages，
@@ -116,6 +208,11 @@ patches:
       撤回与回填；失败、取消和跨会话回调的资源管理均由插件负责。
       上游公开等价草稿附件注册接口后撤。
   - file: 0019-sandbox-escalation-idempotent.patch
+    category: behavior
+    feature: sandbox
+    consumers: [dsh tools (bash/pwsh/fs)]
+    upstreamStatus: unverified
+    removeWhen: 上游对已满足目标幂等执行，未知模式拒绝，更宽目标继续走原审批。
     reason: |
       approveEscalation 原本把非严格更宽的升权请求在执行前直接 fail closed，
       但等宽或更窄的目标并不需要发生权限升级；GPT/Codex 系模型受 Codex CLI
@@ -127,6 +224,11 @@ patches:
       补充共享单测与 bash、pwsh、fs 回归覆盖，同步 sandbox 与 tool-bash 双语
       README。上游提供等价幂等语义后撤。
   - file: 0020-llm-pi-ai-model-policy.patch
+    category: extension
+    feature: model-policy
+    consumers: [model-selection-direct]
+    upstreamStatus: unverified
+    removeWhen: 上游提供逐模型 API、URL、thinking 策略，同时保留原生认证和未覆盖模型 dispatch。
     reason: |
       原 llm-pi-ai 的模型 schema、目录组装和调用默认值解析没有可用的逐模型
       扩展面。独立适配器会复制配置解析并丢失认证、目录、重试等原生能力；

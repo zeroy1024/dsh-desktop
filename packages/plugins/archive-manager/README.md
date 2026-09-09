@@ -32,4 +32,4 @@
   vendor 包；插件不读取私有状态、排队方法或存储。上游有等价 API 后移除该补丁。
 - 归档时间只覆盖插件装载后发生的归档；更早的历史归档无时间戳，行内省略该字段。
 - 设置导航图标由本插件注册到 `settings.section.icon`，补丁
-  `patches/0014-settings-nav-archive-icon.patch` 仅提供通用图标槽。
+  `patches/0014-settings-section-icon-slot.patch` 仅提供通用图标槽。

@@ -1,7 +1,7 @@
 /**
  * rehearse-queue.ts — 补丁队列逆转演练
  *
- * patches.yml 里的撤补丁纪律（如撤 0005 须连撤 0008/0009）此前只靠人工核对。
+ * patches.yml 的显式依赖由登记解析器校验；本演练进一步检查完整队列的可逆性。
  * 本脚本在一份 scratch worktree 上（git worktree add，绝不触碰真实 upstream
  * 工作树）：正序套用全部登记补丁 → 校验工作树 diff 与登记队列一致（同
  * sync-upstream 的 verifyOnlyRegisteredPatches）→ 逆序反向撤销 → 校验工作树

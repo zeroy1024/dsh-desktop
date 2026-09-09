@@ -8,8 +8,9 @@
 *.md text eol=lf
 *.mjs text eol=lf
 # A unified diff prefixes blank context lines with a space. Check the applied
-# source tree for whitespace errors instead of treating that syntax as code.
-*.patch text eol=lf whitespace=-blank-at-eol
+# source tree for whitespace errors instead of treating that syntax as code,
+# including a blank context line at the end of the final hunk.
+*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
 *.svg text eol=lf
 *.ts text eol=lf
 *.tsx text eol=lf

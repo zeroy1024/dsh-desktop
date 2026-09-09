@@ -94,7 +94,7 @@ session cannot get property "remote.session" without inject
 
 ### F08 · P2 · 迁移新增：0013 破坏所有流式事件的增量处理
 
-位置：[0013:94](../../patches/0013-session-controller-rewind-fold.patch#L94)。
+位置：[0013:94](../../patches/0013-session-controller-event-views.patch#L94)。
 
 每个 raw append 都读取整个 `rawWindow.entries`、扫描墓碑并复制过滤窗口，包括从未发生撤回的会话。上游 event source 采用 rope 与惰性物化，conversation 正常只读取 `change.entries`；包装器把它变为每次 O(n)、累计 O(n²)，同步占用渲染线程。
 
@@ -113,7 +113,7 @@ session cannot get property "remote.session" without inject
 
 ### F09 · P2 · 迁移新增：撤回遗漏 turnOutline 投影
 
-位置：[0013:94](../../patches/0013-session-controller-rewind-fold.patch#L94)；上游 `ui-chat/.../ChatView.tsx:293`、`turn-rail-items.ts:68`、`session-turn-outline/src/projection.ts:96`。
+位置：[0013:94](../../patches/0013-session-controller-event-views.patch#L94)；上游 `ui-chat/.../ChatView.tsx:293`、`turn-rail-items.ts:68`、`session-turn-outline/src/projection.ts:96`。
 
 补丁只折叠事件窗口，0.1.2 新增的 host `turnOutline` 对墓碑走 default、原样返回。ChatView 又把该投影与本地导航合并，即使本地节点已删除，仍把已撤回的 prompt/response 和失效 anchor 加回轮次导航。
 
