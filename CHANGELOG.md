@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-09-15
+
+### 改进 / Changed
+
+- 右侧面板正文跟随全局正文字号设置：调整字号后，文件浏览与审阅页的正文、列表同步缩放。
+- 面板外壳标签栏与内容区之间补细分隔线；文件浏览页内头部边框统一为同款 0.5px 细线。
+- 审阅页与文档预览的圆角统一为设计 token；编辑/草稿计数徽章改用与面板标签徽章一致的胶囊圆角。
+- 审阅页摘要操作区的「⋯」文字符号替换为与宿主一致的省略号图标。
+- 标题栏右侧面板按钮簇收窄为 28px 盒、图标间距与左簇统一为 16px，并补 12px 右端边距，不再紧贴窗口右缘；面板头部与 details 列的让位同步调整。
+- 各面板页空态标题统一为 14px 中等字重。
+
+### 修复 / Fixed
+
+- 文件树的键盘焦点与分栏拖拽条焦点统一为宿主焦点环（2px 品牌色描边）。
+- 审阅页已审分区降透明度统一为 0.6、禁用按钮统一为 0.4，消除同语义两种取值。
+- 清理三处引用不存在的设计 token（accent-text、accent-bg、border-subtle），消除上游将来定义同名 token 后的视觉漂移隐患。
+
+### Changed
+
+- Side-panel body text (file browser, review) now follows the global font-size setting, so panel content scales with the rest of the app.
+- The panel-shell tab strip gains a hairline divider above the content area, and the file browser's in-page headers adopt the same 0.5px stroke.
+- Border radii across the review page and document preview now ride the design-token radius steps; edit/draft count badges switch to the same pill radius as the panel tab badge.
+- The review summary actions' "⋯" text glyph is replaced with the host ellipsis icon.
+- The titlebar panel cluster narrows to 28px boxes with 16px icon spacing, matching the left cluster, and gains a 12px right margin so it no longer hugs the window edge; the panel header and details-column reservations adjust in step.
+- Empty-state titles across panel pages unify at 14px medium weight.
+
+### Fixed
+
+- File-tree keyboard focus and the split-pane drag handle now use the host focus ring (2px brand-color outline).
+- The review page's reviewed-section dimming unifies at 0.6 and disabled buttons at 0.4, removing pairs of same-meaning values.
+- Three references to undefined design tokens (accent-text, accent-bg, border-subtle) are cleaned up, removing the risk of a silent visual shift if upstream defines them later.
+
+[0.1.4]: https://github.com/zeroy1024/dsh-desktop/compare/v0.1.3...v0.1.4
+
 ## [0.1.3] - 2026-09-10
 
 ### 新增 / Added
