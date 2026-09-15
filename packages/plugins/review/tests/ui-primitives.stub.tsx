@@ -14,6 +14,8 @@ export const IconChevronRightOutline14 = (_props: IconProps): ReactElement => <s
 export const IconCloseFill14 = (_props: IconProps): ReactElement => <span data-icon="close" />
 export const IconCopyOutline16 = (_props: IconProps): ReactElement => <span data-icon="copy" />
 
+export const IconEllipsisOutline16 = (_props: IconProps): ReactElement => <span data-icon="ellipsis" />
+
 export const IconRefreshOutline14 = (_props: IconProps): ReactElement => <span data-icon="refresh" />
 export const IconSendOutline14 = (_props: IconProps): ReactElement => <span data-icon="send" />
 export const IconTrashOutline16 = (_props: IconProps): ReactElement => <span data-icon="trash" />

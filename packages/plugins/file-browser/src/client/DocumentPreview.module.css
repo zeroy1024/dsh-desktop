@@ -143,7 +143,7 @@
   font-family: var(--ds-font-family-code);
   font-size: 0.875em !important;
   background-color: var(--dsw-alias-markdown-inline-code);
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   padding: 0 5px;
 }
 
@@ -210,7 +210,7 @@
 .document details {
   margin: 16px 0;
   border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-control, 8px);
   padding: 0 14px;
 }
 
@@ -247,7 +247,7 @@
   max-width: 100%;
   height: auto;
   margin: 4px 0;
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-control, 8px);
   background: var(--dsw-alias-bg-base);
   object-fit: contain;
   vertical-align: middle;

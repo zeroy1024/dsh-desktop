@@ -11,7 +11,10 @@
   flex-direction: column;
   padding: 12px;
   gap: 10px;
-  font-size: 13px;
+  /* 正文接全局字号调节（上游 WorkflowRunPanel 同款约定：面板内容读
+     --dsh-content-font-size-secondary）。diff 本体走 --dsw-font-markdown-code-block
+     代码阶梯（固定不缩放），元数据/列表随正文档。 */
+  font-size: var(--dsh-content-font-size-secondary, 13px);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -96,10 +99,9 @@
   height: 26px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: 18px;
   cursor: pointer;
 }
 
@@ -133,7 +135,7 @@
   border: none;
   background: transparent;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;
@@ -159,7 +161,7 @@
 }
 
 .emptyTitle {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -250,7 +252,7 @@
   flex: none;
   min-width: 14px;
   text-align: center;
-  border-radius: 7px;
+  border-radius: var(--dsh-radius-pill, 999px);
   padding: 0 3px;
   font-size: 11px;
   line-height: 14px;
@@ -263,12 +265,12 @@
   flex: none;
   min-width: 14px;
   text-align: center;
-  border-radius: 7px;
+  border-radius: var(--dsh-radius-pill, 999px);
   padding: 0 3px;
   font-size: 11px;
   line-height: 14px;
-  color: var(--dsw-alias-accent-text, var(--dsw-alias-label-primary));
-  background: var(--dsw-alias-accent-bg, var(--dsw-alias-interactive-bg-hover));
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* 三态复选框：未审空框 / 部分框内短横 / 全审绿底白勾（同一图形族的状态，
@@ -282,7 +284,7 @@
   width: 12px;
   height: 12px;
   border: 1.5px solid var(--dsw-alias-label-tertiary);
-  border-radius: 4px;
+  border-radius: var(--dsh-radius-micro, 4px);
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -297,7 +299,7 @@
   justify-content: center;
   width: 12px;
   height: 12px;
-  border-radius: 4px;
+  border-radius: var(--dsh-radius-micro, 4px);
   /* 中性填充（前景色），勾用底色反转——深浅色主题自适应 */
   background: var(--dsw-alias-label-primary);
   color: var(--dsw-alias-bg-base);
@@ -308,7 +310,7 @@
   display: inline-block;
   width: 7px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: var(--dsh-radius-hairline, 1px);
   background: currentColor;
 }
 
@@ -320,7 +322,7 @@
   width: 22px;
   height: 22px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--dsh-radius-micro, 4px);
   background: transparent;
   padding: 0;
   color: var(--dsw-alias-label-tertiary);
@@ -358,7 +360,7 @@
 }
 
 .editSectionReviewed {
-  opacity: 0.55;
+  opacity: 0.6;
 }
 
 .editHeader {
@@ -395,7 +397,7 @@
   position: relative;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
-  border-radius: 12px;
+  border-radius: var(--dsh-radius-surface, 12px);
 }
 
 .diffBody {
@@ -483,7 +485,7 @@
   width: 18px;
   height: 18px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--dsh-radius-micro, 4px);
   background: transparent;
   padding: 0;
   color: var(--dsw-alias-label-tertiary);
@@ -621,7 +623,7 @@
 }
 
 .primaryBtn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -648,7 +650,7 @@
   border: none;
   background: transparent;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
@@ -665,7 +667,7 @@
   border: none;
   background: transparent;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-compact, 6px);
   color: var(--dsw-alias-state-error-primary);
   font-size: 11px;
   font-weight: 600;
@@ -729,7 +731,7 @@
   width: max-content;
   max-width: 50vw;
   padding: 3px 7px;
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-control, 8px);
   background: var(--dsw-alias-tooltip-bg);
   color: var(--dsw-static-neutral-bluish-00);
   font-size: 13px;

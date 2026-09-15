@@ -28,6 +28,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   }): ReactElement
 
   export const IconChecklistOutline14: (props: { size?: number; className?: string }) => ReactElement
+  export const IconEllipsisOutline16: (props: { size?: number; className?: string }) => ReactElement
   export const IconChevronRightOutline14: (props: { size?: number; className?: string }) => ReactElement
   export const IconChevronDownOutline14: (props: { size?: number; className?: string }) => ReactElement
   export const IconCheckOutline14: (props: { size?: number; className?: string }) => ReactElement

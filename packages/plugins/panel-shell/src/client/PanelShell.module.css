@@ -18,19 +18,36 @@
 /* Single-row titleband geometry: same band height and hairline as the
    conversation header (ConversationRoot header / AppFrame.module.css). The
    trailing padding reserves the frame toolbar's right-edge button cluster
-   (放大/恢复 + 开关，2×40px + 呼吸 8px = 88px；桌面壳的两枚按钮骑在
+   (放大/恢复 + 开关，12px 右呼吸 + 2×28px + gap 4px = 72px；桌面壳的两枚按钮骑在
    full-width toolbar 之上), so the tab strip and the "+" menu anchor never
    sit under them. Windows 的捕获按钮区是系统 WCO（页面上无 DOM），由
    desktop-frame 的 --dsh-titlebar-right-inset（env(titlebar-area-*) 推导）
    追加让位——tab/+ 不会落入 caption 按钮。 */
 .header {
+  position: relative; /* 锚定下方 ::after hairline */
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   height: var(--dsh-titleband-height, 44px);
-  padding: 0 calc(88px + var(--dsh-titlebar-right-inset, 0px)) 0 12px;
+  padding: 0 calc(72px + var(--dsh-titlebar-right-inset, 0px)) 0 12px;
   box-sizing: border-box;
+  /* 与中央列 header 同款 hairline（ConversationRoot 模式：transparent
+     border 占位 1px，0.5px 实线由 ::after 画在 border 上沿）——tab 条与
+     内容区分隔，file-browser 页内 header 的底边框不再独木不成林。 */
+  border-bottom: 1px solid transparent;
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  z-index: 0;
+  height: 0.5px;
+  background: var(--dsw-alias-border-l3);
+  pointer-events: none;
 }
 
 /* Tab strip hugs its content so the "+" add-page button trails the last tab

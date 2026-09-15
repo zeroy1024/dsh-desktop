@@ -11,7 +11,10 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
+  /* 正文接全局字号调节（上游 WorkflowRunPanel 同款约定：面板内容读
+     --dsh-content-font-size-secondary）。树行高 22px 是 tree-store 虚拟化
+     的 JS 几何契约，不随字号缩放；15px 字（最大设置档）仍可容纳。 */
+  font-size: var(--dsh-content-font-size-secondary, 13px);
 }
 
 /* ---- 左列：树 ---- */
@@ -32,11 +35,11 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   height: var(--dsh-file-browser-header-height);
   box-sizing: border-box;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, .2));
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3, rgba(128, 128, 128, .12));
 }
 
 .filterWrap {
@@ -122,7 +125,8 @@
 }
 
 .splitHandle:focus-visible {
-  box-shadow: 0 0 0 2px var(--dsw-alias-label-primary-bluish, #458af5);
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
 }
 
 .treeScroller {
@@ -178,7 +182,7 @@
 }
 
 .rowFocused {
-  outline: 1px solid var(--dsw-alias-label-primary-bluish, #458af5);
+  outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: -1px;
 }
 
@@ -255,7 +259,7 @@
   height: var(--dsh-file-browser-header-height);
   box-sizing: border-box;
   padding: 0 6px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, .2));
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3, rgba(128, 128, 128, .12));
   overflow: hidden;
 }
 
@@ -428,7 +432,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 1px 6px;
-  border: 1px solid var(--dsw-alias-border-subtle, color-mix(in srgb, currentColor 20%, transparent));
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
   border-radius: var(--dsh-radius-micro, 4px);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
@@ -439,7 +443,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 /* 预览主体 */
@@ -475,20 +479,20 @@
 
 .emptyTitle {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--dsw-alias-label-secondary);
 }
 
 .emptyGuide {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .statusNote {
   margin: 0;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .plainPreview {
@@ -521,6 +525,6 @@
   padding: 8px 10px;
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
-  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 12px/1.55 var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   tab-size: 2;
 }

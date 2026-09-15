@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { IconRefreshOutline14, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutline16, IconRefreshOutline14, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Translate } from './types.ts'
 import css from './ReviewPage.module.css'
 
@@ -27,7 +27,7 @@ export function SummaryActions({ sortMode, onSort, allReviewed, onToggleReviewed
         anchor={(
           <Tooltip label={t('summary.actions')} side="bottom" delayMs={500} disabled={open}>
             <button type="button" className={css.summaryButton} aria-label={t('summary.actions')} aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
-              <span aria-hidden="true">⋯</span>
+              <IconEllipsisOutline16 size={14} />
             </button>
           </Tooltip>
         )}

@@ -315,16 +315,23 @@ html[data-dsh-platform='win32'] [data-dsh-menubar] {
 
 /* 面板按钮簇（放大/恢复 + 开关）钉在窗口 header 最右端（trailing 位），不随
    titleband 跟侧栏宽度走；面板开时正好落在 PanelShell header 预留的右端
-   88px 空位里。Windows 捕获按钮区由 WCO 系统绘制（页面上无 DOM），CSS 从
+   72px 空位里。Windows 捕获按钮区由 WCO 系统绘制（页面上无 DOM），CSS 从
    env(titlebar-area-*) 推导右缘让位，簇不再落入 caption 按钮底下。中栏
    header 的拖动带延伸到右缘：app-region 的挖洞只认显式 no-drag（默认值
    none 不挖），漏掉这行点击会被窗口拖动手势吞掉。 */
 [data-dsh-panel-cluster] {
   position: absolute;
   top: 0;
-  right: var(--dsh-titlebar-right-inset, 0px);
+  /* 右缘呼吸 12px，与左簇 padding-left 12px 对称；Windows 下再叠加
+     WCO caption 让位（inset 推导见文件头部 env(titlebar-area-*) 说明）。 */
+  right: calc(12px + var(--dsh-titlebar-right-inset, 0px));
   z-index: 4;
   display: flex;
+  /* 按钮盒 28×44、gap 4：与左簇（24px 盒 + 8px gap）的图标视觉间距同为
+     16px——盒宽换更宽点击区，图标间距语言全 titlebar 一致；12px 右呼吸 +
+     2×28 + 4 = 72px 总占用正好落进 PanelShell header 右端预留（另见其
+     module.css 注释）。 */
+  gap: 4px;
   pointer-events: auto;
 }
 
@@ -334,7 +341,7 @@ html[data-dsh-platform='win32'] [data-dsh-menubar] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
+  width: 28px;
   height: var(--dsh-titleband-height, 44px);
   padding: 0;
   border: none;
@@ -346,12 +353,12 @@ html[data-dsh-platform='win32'] [data-dsh-menubar] {
 }
 
 /* hover 高亮与侧栏折叠钮同款：24×24、6px 圆角的内嵌块，画在伪元素上——
-   40×44 的点击区本身不上色，否则是一条大横条高亮，与左侧按钮观感不一致。
-   伪元素以图标中心（40/2, 44/2）定位：left 8 / top 10。 */
+   28×44 的点击区本身不上色，否则是一条大横条高亮，与左侧按钮观感不一致。
+   伪元素以图标中心（28/2, 44/2）定位：left 2 / top 10。 */
 [data-dsh-panel-cluster] button::before {
   content: '';
   position: absolute;
-  left: 8px;
+  left: 2px;
   top: calc((var(--dsh-titleband-height, 44px) - 24px) / 2);
   width: 24px;
   height: 24px;
@@ -366,7 +373,7 @@ html[data-dsh-platform='win32'] [data-dsh-menubar] {
 /* 面板关闭时 details 列直达窗口右缘，其 header 的关闭按钮（28×28 贴右缘，
    header padding-right 12px）会被钉角按钮盖住——单按钮时代就互相踩。此时
    簇里只剩开关一枚（放大钮仅面板展开时渲染），让 details header 自让
-   48px（40 + 呼吸 8）+ Windows caption 右 inset；面板开时 details 列右缘
+   48px（12 右呼吸 + 28 按钮 + 呼吸 8）+ Windows caption 右 inset；面板开时 details 列右缘
    止于面板列之前，无需让位。锚点用 data-slot 渲染位包裹层 + 结构位
    （DetailsPanel 根的首个子 div 是唯一 header），不碰 CSS module hash。 */
 html[data-dsh-desktop] [data-panel-collapsed] [data-dsh-frame='details-col'] [data-slot='details'] > div > div:first-child {

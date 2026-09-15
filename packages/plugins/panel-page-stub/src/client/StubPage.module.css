@@ -6,7 +6,8 @@
   flex-direction: column;
   gap: 20px;
   padding: 16px;
-  font-size: 13px;
+  /* 正文接全局字号调节（面板内容约定，与 file-browser/review 一致）。 */
+  font-size: var(--dsh-content-font-size-secondary, 13px);
   color: var(--dsw-alias-label-primary);
 }
 
